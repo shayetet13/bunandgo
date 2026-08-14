@@ -1,17 +1,12 @@
-import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { beforeEach, describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import { getCookie } from "hono/cookie";
 import { createSession, getSessionUser, SESSION_COOKIE } from "../../auth/session.ts";
 import { createUser } from "../../auth/users.ts";
+import { db } from "../../db/sqlite.ts";
 import { writeSessionCookie } from "./auth.ts";
 import { createSystemRoute } from "./system.ts";
-
-const tempDir = mkdtempSync(join(tmpdir(), "linebot-restart-route-"));
-const triggerPath = join(tempDir, "restart.trigger");
 
 async function requireAuth(c: Context, next: Next) {
 	const token = getCookie(c, SESSION_COOKIE);
@@ -20,15 +15,15 @@ async function requireAuth(c: Context, next: Next) {
 	await next();
 }
 
-function buildApp(agentActive = true) {
+function buildApp(restartAvailable = true, onSchedule: (delayMs: number) => void = () => {}) {
 	const app = new Hono();
 	app.use("/api/system/*", requireAuth);
 	app.route(
 		"/api/system",
 		createSystemRoute({
-			triggerPath,
-			isRestartAgentActive: async () => agentActive,
 			isShardWorker: () => false,
+			restartAvailable: () => restartAvailable,
+			scheduleRestart: onSchedule,
 		}),
 	);
 	return app;
@@ -45,7 +40,7 @@ function restartRequest(app: Hono, cookie = "", confirm = "restart-linebot-worke
 	});
 }
 
-afterAll(() => rmSync(tempDir, { recursive: true, force: true }));
+beforeEach(() => db.prepare("DELETE FROM app_meta WHERE key = 'system.worker.last_restart_requested_at'").run());
 
 describe("POST /api/system/restart-worker", () => {
 	test("requires authentication and an admin role", async () => {
@@ -57,21 +52,22 @@ describe("POST /api/system/restart-worker", () => {
 		expect((await restartRequest(app, userCookie)).status).toBe(403);
 	});
 
-	test("requires explicit confirmation and an active restart agent", async () => {
+	test("requires explicit confirmation and a systemd-managed worker", async () => {
 		const adminCookie = `${SESSION_COOKIE}=${createSession()}`;
 		expect((await restartRequest(buildApp(), adminCookie, "wrong")).status).toBe(400);
 		expect((await restartRequest(buildApp(false), adminCookie)).status).toBe(503);
 	});
 
-	test("writes one fixed trigger and enforces the persistent cooldown", async () => {
+	test("schedules one process restart and enforces the persistent cooldown", async () => {
 		const adminCookie = `${SESSION_COOKIE}=${createSession()}`;
-		const app = buildApp();
+		const delays: number[] = [];
+		const app = buildApp(true, (delayMs) => delays.push(delayMs));
 		const response = await restartRequest(app, adminCookie);
 		expect(response.status).toBe(202);
 		const body = (await response.json()) as { ok: boolean; unit: string; requestedAt: number };
 		expect(body.ok).toBe(true);
 		expect(body.unit).toBe("linebot-worker.service");
-		expect(readFileSync(triggerPath, "utf8")).toBe(`${body.requestedAt}\n`);
+		expect(delays).toEqual([2_000]);
 
 		const repeated = await restartRequest(app, adminCookie);
 		expect(repeated.status).toBe(429);

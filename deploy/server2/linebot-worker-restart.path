@@ -1,9 +1,0 @@
-[Unit]
-Description=Watch for an authenticated dashboard restart request
-
-[Path]
-PathChanged=/opt/linebot/shared/restart-linebot-worker.trigger
-Unit=linebot-worker-restart.service
-
-[Install]
-WantedBy=multi-user.target

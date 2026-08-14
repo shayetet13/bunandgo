@@ -222,8 +222,6 @@ NORMALIZED_SCOPE=$(printf '%s' "$OWNER_SCOPE" | tr ',' '\n' | sort -n -u | paste
 [ -r "$DB_PATH" ] || die "$DB_PATH is required and must be readable"
 [ -f "$CURRENT_RELEASE/deploy/server2/linebot-worker.service" ] || die "current release is missing the primary unit asset"
 [ -f "$CURRENT_RELEASE/deploy/server2/linebot-worker-shard-b.service" ] || die "current release is missing the shard unit asset"
-[ -f "$CURRENT_RELEASE/deploy/server2/linebot-worker-restart.path" ] || die "current release is missing the dashboard restart path asset"
-[ -f "$CURRENT_RELEASE/deploy/server2/linebot-worker-restart.service" ] || die "current release is missing the dashboard restart service asset"
 [ "$(systemctl is-active "$PRIMARY_UNIT" 2>/dev/null || true)" = "active" ] || die "$PRIMARY_UNIT must be active before cutover"
 
 mkdir -p "$BACKUP_ROOT"
@@ -310,8 +308,6 @@ SHARD_TMP=""
 echo "=== 2/7: install units that disable release-local .env loading ==="
 install -o root -g root -m 644 "$CURRENT_RELEASE/deploy/server2/linebot-worker.service" "$PRIMARY_UNIT_FILE"
 install -o root -g root -m 644 "$CURRENT_RELEASE/deploy/server2/linebot-worker-shard-b.service" "$SHARD_UNIT_FILE"
-install -o root -g root -m 644 "$CURRENT_RELEASE/deploy/server2/linebot-worker-restart.path" /etc/systemd/system/linebot-worker-restart.path
-install -o root -g root -m 644 "$CURRENT_RELEASE/deploy/server2/linebot-worker-restart.service" /etc/systemd/system/linebot-worker-restart.service
 grep -q -- '--no-env-file' "$PRIMARY_UNIT_FILE"
 grep -q -- '--no-env-file' "$SHARD_UNIT_FILE"
 
@@ -331,7 +327,6 @@ chown root:root "$SHARD_GATE"
 chmod 600 "$SHARD_GATE"
 systemctl daemon-reload
 systemctl enable "$SHARD_UNIT" >/dev/null
-systemctl enable --now linebot-worker-restart.path >/dev/null
 
 echo "=== 5/7: stop before moving ownership (no duplicate LINE sessions) ==="
 systemctl stop "$SHARD_UNIT" 2>/dev/null || true

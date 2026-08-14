@@ -95,10 +95,7 @@ for new_file in \
 	backend/src/api/routes/system.test.ts \
 	backend/src/bot/start-confirmation.test.ts \
 	backend/src/bot/worker-topology.ts \
-	backend/src/bot/worker-topology.test.ts \
-	deploy/server2/linebot-worker-restart.path \
-	deploy/server2/linebot-worker-restart.service \
-	scripts/install-web-restart.sh
+	backend/src/bot/worker-topology.test.ts
 do
 	[ ! -f "$new_file" ] || GIT_INDEX_FILE="$TEMP_INDEX" git add -- "$new_file"
 done

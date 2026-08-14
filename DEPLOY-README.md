@@ -95,17 +95,10 @@ Proceed with full restart and deploy? [y/N] y
 
 ## Server 2: deploy-server2.sh
 
-### One-time dashboard restart helper
-
-The admin Settings page can restart only `linebot-worker.service`. Install its
-restricted systemd path helper once on Server 2 after the release is active:
-
-```bash
-sudo bash /opt/linebot/current/scripts/install-web-restart.sh
-```
-
-The backend keeps `NoNewPrivileges=true`; it writes a fixed trigger file and
-the root-owned helper performs only the literal primary-worker restart.
+The admin Settings page restarts only `linebot-worker.service` by scheduling a
+controlled non-zero exit after returning HTTP 202. The service's existing
+`Restart=on-failure` policy starts a fresh process; no sudo permission, helper
+unit, idle timer, or background polling is added to the backend.
 
 **Target:** Linode backend server running the real Bun application and database.
 
