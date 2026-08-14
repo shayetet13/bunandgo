@@ -1,0 +1,27 @@
+# OS / editor junk
+.DS_Store
+Thumbs.db
+
+# Anything env-based should live in per-package .env files (see the
+# per-directory .gitignore for backend/frontend); never commit real secrets.
+.env
+.env.local
+
+# Deploy archive built locally via `git archive` before scp-ing to the VPS
+deploy.tar.gz
+
+# SSH / TLS private keys. The AWS deploy key (maxpc.pem) sits in this
+# directory, so without this a single `git add -A` would publish root access
+# to the production host.
+*.pem
+*.key
+id_rsa
+id_ed25519
+
+# Local copies of VPS database backups (contains live user data — never commit)
+backups/
+
+# Local raw production journals and inventory snapshots from watch-log-*.bat.
+# They can contain user/message metadata even though the watcher never prints
+# environment secrets, so keep the entire directory out of version control.
+logs/

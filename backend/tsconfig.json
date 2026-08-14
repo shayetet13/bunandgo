@@ -1,0 +1,24 @@
+{
+	"compilerOptions": {
+		"target": "ESNext",
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"lib": ["ESNext", "DOM", "DOM.Iterable", "DOM.AsyncIterable"],
+		"strict": false,
+		"skipLibCheck": true,
+		"allowJs": false,
+		"esModuleInterop": true,
+		"forceConsistentCasingInFileNames": true,
+		"resolveJsonModule": true,
+		"isolatedModules": true,
+		"allowImportingTsExtensions": true,
+		"noEmit": true,
+		"baseUrl": ".",
+		"paths": {
+			"@evex/linejs-types": ["./src/linejs-core/types/line_types.ts"],
+			"@evex/linejs-types/thrift": ["./src/linejs-core/types/thrift.ts"],
+			"@evex/loose-types": ["./src/linejs-core/types/loose-types.ts"]
+		}
+	},
+	"include": ["src/**/*.ts"]
+}

@@ -1,0 +1,20 @@
+[Unit]
+Description=LINE bot Server1 private status agent
+After=network-online.target wg-quick@wg0.service nginx.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=admin
+WorkingDirectory=/home/admin/bunandgo/backend
+Environment=SERVER1_STATUS_HOST=10.77.0.1
+Environment=SERVER1_STATUS_PORT=8792
+Environment=SYSTEM_HOST_LOAD_LIMIT_PERCENT=80
+ExecStart=/home/admin/.bun/bin/bun run src/monitoring/server1-status-agent.ts
+Restart=always
+RestartSec=3
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,353 @@
+export type Surface = "talk" | "square";
+export type RuleSurface = Surface | "all";
+export type BotStatus = "offline" | "connecting" | "online";
+/**
+ * Where inside "connecting" a bot is. "awaiting_scan" is the only phase the
+ * user can act on — once LINE accepts the scan the code is spent, and the
+ * rest of the wait ("preparing") is the backend building the session.
+ */
+export type LoginPhase = "resuming" | "awaiting_scan" | "preparing";
+export type UserRole = "admin" | "user";
+
+export interface Bot {
+	id: number;
+	name: string;
+	slot: number;
+	device: string;
+	status: BotStatus;
+	ownerUserId: number | null;
+	allowOwnerTesting: boolean;
+	/** Past the owner's quota — cannot be started until the quota is raised. */
+	overQuota: boolean;
+	createdAt: number;
+}
+
+export interface ManagedUser {
+	id: number;
+	username: string;
+	role: UserRole;
+	active: boolean;
+	/** How many bots this user may create for themselves. Admins are uncapped. */
+	botQuota: number;
+	createdAt: number;
+	botCount: number;
+}
+
+/** The ceiling an admin may raise a user to — mirrors MAX_BOT_QUOTA on the server. */
+export const MAX_BOT_QUOTA = 5;
+
+/** What a quota change would do, fetched before it is applied. */
+export interface QuotaPreview {
+	currentQuota: number;
+	nextQuota: number;
+	botCount: number;
+	willStop: Array<{ id: number; name: string; status: BotStatus }>;
+}
+
+export interface LatencySample {
+	botId: number;
+	ts: number;
+	surface: Surface;
+	targetMid: string | null;
+	latencyMs: number;
+	ok: boolean;
+	source: "test" | "auto";
+	textPreview: string | null;
+	breakdown?: LatencyBreakdown;
+}
+
+export interface LatencyBreakdown {
+	lineMs: number;
+	codeMs: number;
+	/**
+	 * How late LINE delivered the trigger to us, before our own clock
+	 * started. Absent when there was no inbound message to be late.
+	 */
+	inboundMs?: number;
+	decryptMs: number;
+	matchMs: number;
+	limiterMs: number;
+	protocolPrepMs: number;
+	relayEncodeMs: number;
+	goPrepMs: number;
+	relayAndParseMs: number;
+	upstreamCalls: number;
+}
+
+export interface LatencySnapshot {
+	p50: number;
+	p95: number;
+	p99: number;
+	okRate: number;
+	count: number;
+	windowSize: number;
+	last?: LatencySample;
+}
+
+export interface FastPathSample {
+	botId: number;
+	ts: number;
+	surface: Surface;
+	source: "test" | "auto";
+	receiveSource?: "push" | "normal-poll" | "dedicated-poll";
+	internalMs: number;
+	dropped: boolean;
+	upstreamCalls: number;
+	upstreamMs: number;
+}
+
+export interface FastPathSnapshot {
+	p50: number;
+	p95: number;
+	p99: number;
+	max: number;
+	count: number;
+	last?: FastPathSample;
+}
+
+export interface FastPathMetrics {
+	snapshot: FastPathSnapshot;
+	recent: FastPathSample[];
+}
+
+export interface HealthStatus {
+	senderHealthy: boolean;
+	dbHealthy: boolean;
+	uptimeSeconds: number;
+	botsOnline: number;
+	botsTotal: number;
+	systemLoad: SystemLoadStatus;
+	servers: ServerStatus[];
+	lanes: LaneStat[];
+}
+
+export interface LaneStat {
+	origin: string;
+	id: number;
+	state: "connecting" | "ready" | "draining" | "dead";
+	inFlight: number;
+	lastOkAt: number;
+	/** Raw HTTP/2 PING round trip — connection-level, not real traffic. */
+	rttMs?: number;
+	/** Measured from real SEND calls only. */
+	sendRttMs?: number;
+	/** Measured from real poll calls only. */
+	pollRttMs?: number;
+	lastSendOkAt: number;
+	lastPollOkAt: number;
+	consecutiveFailures: number;
+}
+
+export interface ServerStatus {
+	id: "server1" | "server2";
+	label: string;
+	role: string;
+	/** Whether the dashboard backend can reach this machine right now. */
+	reachable: boolean;
+	/** Health of the service this machine is responsible for. */
+	serviceHealthy: boolean;
+	load?: Pick<SystemLoadStatus, "cpuPercent" | "memoryPercent" | "capacityPercent" | "exceeded" | "sampledAt">;
+	detail?: string;
+}
+
+export interface SystemLoadStatus {
+	cpuPercent: number;
+	memoryPercent: number;
+	eventLoopLagMs: number;
+	/** Percentage of the configured limit consumed; 100 means at the limit. */
+	capacityPercent: number;
+	exceeded: boolean;
+	exceededResources: Array<"cpu" | "memory" | "eventLoop">;
+	limits: {
+		cpuPercent: number;
+		memoryPercent: number;
+		eventLoopLagMs: number;
+	};
+	sampledAt: number;
+}
+
+export interface BucketCount {
+	bucket: string;
+	count: number;
+}
+
+export interface MetricsSummary {
+	totalMessages: number;
+	todayCount: number;
+	monthCount: number;
+	yearCount: number;
+	daily: BucketCount[];
+	monthly: BucketCount[];
+	yearly: BucketCount[];
+}
+
+export interface Rule {
+	id: number;
+	botId: number;
+	surface: RuleSurface;
+	matchType: "equals" | "startsWith" | "regex" | "containsAny";
+	matchValue: string;
+	replyText: string;
+	enabled: boolean;
+	priority: number;
+}
+
+/**
+ * A post that fires at an exact wall-clock time (Asia/Bangkok) instead of a
+ * keyword. `runAt` is epoch ms; `sentAt` is null until the send actually
+ * goes out.
+ */
+export interface ScheduledPost {
+	id: number;
+	botId: number;
+	surface: Surface;
+	targetMid: string;
+	text: string;
+	runAt: number;
+	enabled: boolean;
+	sentAt: number | null;
+}
+
+export interface ChatRow {
+	bot_id: number;
+	mid: string;
+	surface: Surface;
+	name: string | null;
+	joined_at: number;
+	enabled: number;
+	admin_only: number;
+}
+
+/** OpenChat-only — LINE's own ADMIN/CO_ADMIN/MEMBER role for one member. */
+export interface SquareMemberInfo {
+	mid: string;
+	displayName: string;
+	role: "ADMIN" | "CO_ADMIN" | "MEMBER" | number;
+}
+
+export interface BotEvent {
+	id: number;
+	bot_id: number | null;
+	ts: number;
+	type: string;
+	message: string | null;
+}
+
+export interface UserActionLogEntry {
+	id: number;
+	user_id: number | null;
+	username: string;
+	ts: number;
+	action: string;
+	detail: string | null;
+}
+
+export type AnomalySeverity = "info" | "warn" | "critical";
+
+/** One thing that got between a trigger and its reply. */
+export interface Anomaly {
+	id: number;
+	bot_id: number | null;
+	ts: number;
+	kind: string;
+	severity: AnomalySeverity;
+	chat_mid: string | null;
+	detail: string | null;
+}
+
+export interface AnomalySummaryRow {
+	kind: string;
+	severity: AnomalySeverity;
+	count: number;
+}
+
+export type LaneRaceResult = "star" | "banana";
+export type LaneRaceRole = "send" | "poll";
+
+export interface LaneRaceScore {
+	samples: number;
+	stars: number;
+	bananas: number;
+	bigStars: number;
+	avgRttMs?: number;
+	lastAt?: number;
+	lastResult?: LaneRaceResult;
+}
+
+export interface LaneRaceLane {
+	origin: string;
+	laneId: number;
+	state: string;
+	inFlight: number;
+	sendRttMs?: number;
+	pollRttMs?: number;
+	send: LaneRaceScore;
+	poll: LaneRaceScore;
+}
+
+export interface LaneRaceEvent {
+	ts: number;
+	origin: string;
+	laneId: number;
+	role: LaneRaceRole;
+	result: LaneRaceResult;
+	rttMs: number;
+}
+
+export interface LaneRaceDaily {
+	day: string;
+	stars: number;
+	bananas: number;
+	send_stars: number;
+	send_bananas: number;
+	poll_stars: number;
+	poll_bananas: number;
+}
+
+export interface LaneRaceSnapshot {
+	retentionDays: number;
+	lanes: LaneRaceLane[];
+	daily: LaneRaceDaily[];
+	events: LaneRaceEvent[];
+}
+
+export interface MessageIn {
+	botId: number;
+	surface: Surface;
+	text: string;
+	targetMid: string;
+	ts: number;
+	/**
+	 * LINE's own stamp for when its server accepted this message. Shared by
+	 * every participant, so the gap between two messages' stamps times
+	 * whoever sent the second one — including a rival bot.
+	 */
+	createdTime?: number;
+}
+
+/**
+ * One row of the live feed. Lives here rather than beside the component
+ * because the feed now has two sources — the WS stream and the persisted
+ * history endpoint — and `lib/` must not import from `components/`.
+ */
+export type FeedItem =
+	| { kind: "in"; id: string; data: MessageIn }
+	| { kind: "out"; id: string; data: LatencySample };
+
+export type WsEventType =
+	| "qr"
+	| "pincode"
+	| "ready"
+	| "message_in"
+	| "send_result"
+	| "send_dropped"
+	| "fast_path"
+	| "bot_error"
+	| "chats_updated"
+	| "bot_status"
+	| "start_declined";
+
+export interface WsEvent<T = unknown> {
+	type: WsEventType;
+	data: T;
+}

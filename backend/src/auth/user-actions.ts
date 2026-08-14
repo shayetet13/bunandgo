@@ -1,0 +1,36 @@
+import { enqueueUserAction } from "../db/write-behind.ts";
+import type { AuthUser } from "./users.ts";
+
+/**
+ * Persists an audit-trail entry for something an authenticated user did
+ * (login, start/stop a bot, edit a rule, ...) for the admin dashboard's
+ * history view. `username` is captured at write time rather than joined
+ * later, so a row still reads meaningfully after that user is deleted.
+ *
+ * Goes through the same write-behind worker as latency samples — see
+ * bot-events.ts for why this must never be a synchronous DB write here.
+ */
+export function logUserAction(user: AuthUser, action: string, detail?: unknown): void {
+	enqueueUserAction({
+		userId: user.id,
+		username: user.username,
+		ts: Date.now(),
+		action,
+		detail: detail === undefined ? null : JSON.stringify(detail),
+	});
+}
+
+/**
+ * Records an authentication attempt that did not identify an authenticated
+ * user. The submitted username is useful for investigating a suspicious
+ * login, but password/token material must never be passed to this helper.
+ */
+export function logUnauthenticatedUserAction(username: string, action: string, detail?: unknown): void {
+	enqueueUserAction({
+		userId: null,
+		username: username.trim().slice(0, 100) || "(unknown)",
+		ts: Date.now(),
+		action,
+		detail: detail === undefined ? null : JSON.stringify(detail),
+	});
+}

@@ -1,0 +1,192 @@
+import { afterEach, describe, expect, test } from "bun:test";
+import { applyRuntimeTopologyFile, parseWorkerOwnerRoutes, shouldRunControlPlaneJobs, validateWorkerTopology } from "./worker-topology.ts";
+
+const ENV_KEYS = [
+	"PORT",
+	"WORKER_ID",
+	"WORKER_OWNER_SCOPE",
+	"WORKER_OWNER_EXCLUDE",
+	"WORKER_OWNER_ROUTES",
+	"CONTROL_PLANE_URL",
+	"CONTROL_PLANE_TOKEN",
+	"SQUARE_FAST_POLL_INTERVAL_MS",
+	"SQUARE_FAST_POLL_ALLOW_50MS",
+	"SQUARE_FAST_POLL_ALLOW_ZERO_MS",
+	"SQUARE_FAST_POLL_SLOTS",
+	"LINE_H2_LANES",
+	"LINE_H2_SEND_RESERVED_LANES",
+] as const;
+const original = new Map<string, string | undefined>();
+
+function setTopologyEnv(values: Partial<Record<typeof ENV_KEYS[number], string>>): void {
+	for (const key of ENV_KEYS) {
+		if (!original.has(key)) original.set(key, process.env[key]);
+		const value = values[key];
+		if (value === undefined) delete process.env[key];
+		else process.env[key] = value;
+	}
+}
+
+afterEach(() => {
+	for (const key of ENV_KEYS) {
+		const value = original.get(key);
+		if (value === undefined) delete process.env[key];
+		else process.env[key] = value;
+	}
+	original.clear();
+});
+
+describe("worker topology", () => {
+	test("parses explicit loopback owner routes", () => {
+		const routes = parseWorkerOwnerRoutes("2=http://127.0.0.1:8792,5=http://localhost:8793");
+		expect(routes.get(2)?.origin).toBe("http://127.0.0.1:8792");
+		expect(routes.get(5)?.origin).toBe("http://localhost:8793");
+		expect(() => parseWorkerOwnerRoutes("2=https://example.com")).toThrow("loopback");
+		expect(() => parseWorkerOwnerRoutes("bad=http://127.0.0.1:8792")).toThrow("invalid owner id");
+	});
+
+	test("accepts a primary only when exclude and routes match exactly", () => {
+		setTopologyEnv({
+			PORT: "8791",
+			WORKER_ID: "primary",
+			WORKER_OWNER_EXCLUDE: "2,5",
+			WORKER_OWNER_ROUTES: "2=http://127.0.0.1:8792,5=http://127.0.0.1:8793",
+			CONTROL_PLANE_TOKEN: "x".repeat(32),
+		});
+		expect(validateWorkerTopology().ownerRoutes.size).toBe(2);
+		process.env.WORKER_OWNER_EXCLUDE = "2";
+		expect(() => validateWorkerTopology()).toThrow("exactly match");
+	});
+
+	test("accepts a scoped shard only with a separate control-plane URL and token", () => {
+		setTopologyEnv({
+			PORT: "8792",
+			WORKER_ID: "shard-b",
+			WORKER_OWNER_SCOPE: "2",
+			CONTROL_PLANE_URL: "http://127.0.0.1:8791",
+			CONTROL_PLANE_TOKEN: "s".repeat(32),
+		});
+		expect(validateWorkerTopology().controlPlaneUrl?.port).toBe("8791");
+		expect(shouldRunControlPlaneJobs()).toBe(false);
+		delete process.env.CONTROL_PLANE_URL;
+		expect(() => validateWorkerTopology()).toThrow("requires CONTROL_PLANE_URL");
+	});
+
+	test("global maintenance stays on standalone/control-plane workers", () => {
+		setTopologyEnv({});
+		expect(shouldRunControlPlaneJobs()).toBe(true);
+		process.env.WORKER_OWNER_EXCLUDE = "2";
+		process.env.WORKER_OWNER_ROUTES = "2=http://127.0.0.1:8792";
+		expect(shouldRunControlPlaneJobs()).toBe(true);
+	});
+
+	test("fails closed on an overlapping or self-referential split", () => {
+		setTopologyEnv({
+			PORT: "8792",
+			WORKER_ID: "shard-b",
+			WORKER_OWNER_SCOPE: "2",
+			WORKER_OWNER_EXCLUDE: "5",
+			CONTROL_PLANE_URL: "http://127.0.0.1:8791",
+			CONTROL_PLANE_TOKEN: "s".repeat(32),
+		});
+		expect(() => validateWorkerTopology()).toThrow("อย่างใดอย่างหนึ่ง");
+
+		setTopologyEnv({
+			PORT: "8791",
+			WORKER_ID: "primary",
+			WORKER_OWNER_EXCLUDE: "2",
+			WORKER_OWNER_ROUTES: "2=http://127.0.0.1:8791",
+			CONTROL_PLANE_URL: undefined,
+			CONTROL_PLANE_TOKEN: "x".repeat(32),
+		});
+		expect(() => validateWorkerTopology()).toThrow("own PORT");
+	});
+
+	test("an atomic runtime file overrides stale root-owned scope values for primary and shard", () => {
+		const runtimeFile = JSON.stringify({
+			version: 1,
+			primary: { workerId: "primary", port: 8791 },
+			shards: [{ workerId: "shard-b", port: 8792, ownerIds: [4], fastPollIntervalMs: 50 }],
+			controlPlaneToken: "t".repeat(32),
+		});
+		setTopologyEnv({ PORT: "8791", WORKER_OWNER_SCOPE: "2" });
+		expect(applyRuntimeTopologyFile(runtimeFile)).toBe(true);
+		expect(process.env.WORKER_OWNER_SCOPE).toBeUndefined();
+		expect(process.env.WORKER_OWNER_EXCLUDE).toBe("4");
+		expect(process.env.WORKER_OWNER_ROUTES).toBe("4=http://127.0.0.1:8792");
+		expect(process.env.SQUARE_FAST_POLL_INTERVAL_MS).toBe("100");
+
+		setTopologyEnv({ PORT: "8792", WORKER_OWNER_SCOPE: "2" });
+		expect(applyRuntimeTopologyFile(runtimeFile)).toBe(true);
+		expect(process.env.WORKER_OWNER_SCOPE).toBe("4");
+		expect(process.env.WORKER_OWNER_EXCLUDE).toBeUndefined();
+		expect(process.env.CONTROL_PLANE_URL).toBe("http://127.0.0.1:8791");
+		expect(process.env.SQUARE_FAST_POLL_INTERVAL_MS).toBe("50");
+		expect(process.env.SQUARE_FAST_POLL_ALLOW_50MS).toBe("1");
+	});
+
+	test("runtime topology can opt an isolated shard into zero-delay polling", () => {
+		const runtimeFile = JSON.stringify({
+			version: 1,
+			primary: { workerId: "primary", port: 8791 },
+			shards: [{
+				workerId: "shard-b", port: 8792, ownerIds: [4], fastPollIntervalMs: 0,
+				h2Lanes: 12, sendReservedLanes: 4, fastPollSlots: 8,
+			}],
+			controlPlaneToken: "t".repeat(32),
+		});
+		setTopologyEnv({ PORT: "8792" });
+		expect(applyRuntimeTopologyFile(runtimeFile)).toBe(true);
+		expect(process.env.SQUARE_FAST_POLL_INTERVAL_MS).toBe("0");
+		expect(process.env.SQUARE_FAST_POLL_ALLOW_ZERO_MS).toBe("1");
+		expect(process.env.SQUARE_FAST_POLL_ALLOW_50MS).toBeUndefined();
+		expect(process.env.LINE_H2_LANES).toBe("12");
+		expect(process.env.LINE_H2_SEND_RESERVED_LANES).toBe("4");
+		expect(process.env.SQUARE_FAST_POLL_SLOTS).toBe("8");
+	});
+
+	test("runtime topology can give primary and shard independent zero-delay capacity", () => {
+		const runtimeFile = JSON.stringify({
+			version: 1,
+			primary: {
+				workerId: "primary", port: 8791, fastPollIntervalMs: 0,
+				h2Lanes: 12, sendReservedLanes: 4, fastPollSlots: 8,
+			},
+			shards: [{
+				workerId: "shard-b", port: 8792, ownerIds: [4], fastPollIntervalMs: 0,
+				h2Lanes: 8, sendReservedLanes: 4, fastPollSlots: 4,
+			}],
+			controlPlaneToken: "t".repeat(32),
+		});
+		setTopologyEnv({ PORT: "8791" });
+		expect(applyRuntimeTopologyFile(runtimeFile)).toBe(true);
+		expect(process.env.SQUARE_FAST_POLL_INTERVAL_MS).toBe("0");
+		expect(process.env.SQUARE_FAST_POLL_ALLOW_ZERO_MS).toBe("1");
+		expect(process.env.SQUARE_FAST_POLL_SLOTS).toBe("8");
+
+		setTopologyEnv({ PORT: "8792" });
+		expect(applyRuntimeTopologyFile(runtimeFile)).toBe(true);
+		expect(process.env.SQUARE_FAST_POLL_SLOTS).toBe("4");
+	});
+
+	test("runtime topology fails closed on duplicate owners, ports, and ambiguous sub-50ms polling", () => {
+		setTopologyEnv({ PORT: "8791" });
+		const base = {
+			version: 1,
+			primary: { workerId: "primary", port: 8791 },
+			controlPlaneToken: "t".repeat(32),
+		};
+		expect(() => applyRuntimeTopologyFile(JSON.stringify({ ...base, shards: [{ workerId: "a", port: 8791, ownerIds: [4] }] }))).toThrow("port 8791");
+		expect(() => applyRuntimeTopologyFile(JSON.stringify({ ...base, shards: [
+			{ workerId: "a", port: 8792, ownerIds: [4] },
+			{ workerId: "b", port: 8793, ownerIds: [4] },
+		] }))).toThrow("owner 4");
+		expect(() => applyRuntimeTopologyFile(JSON.stringify({ ...base, shards: [{ workerId: "a", port: 8792, ownerIds: [4], fastPollIntervalMs: 49 }] }))).toThrow("zero-delay or at least 50ms");
+		expect(() => applyRuntimeTopologyFile(JSON.stringify({ ...base, shards: [{ workerId: "a", port: 8792, ownerIds: [4], fastPollIntervalMs: -1 }] }))).toThrow("non-negative integer");
+		expect(() => applyRuntimeTopologyFile(JSON.stringify({ ...base, shards: [{ workerId: "a", port: 8792, ownerIds: [4], fastPollIntervalMs: 0 }] }))).toThrow("zero-delay requires");
+		expect(() => applyRuntimeTopologyFile(JSON.stringify({ ...base, shards: [{
+			workerId: "a", port: 8792, ownerIds: [4], fastPollIntervalMs: 0,
+			h2Lanes: 8, sendReservedLanes: 4, fastPollSlots: 5,
+		}] }))).toThrow("cannot exceed");
+	});
+});

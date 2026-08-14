@@ -1,0 +1,983 @@
+/*
+ * User console — the surface a non-admin sees after login.
+ *
+ * Direction: minimal instrument panel. Near-black layered surfaces, hairline
+ * borders, exactly one accent (signal-go), numbers in mono. Everything here is
+ * scoped under `.uc` so the admin Dashboard's styles stay untouched.
+ *
+ * Layout logic: the page answers two different questions and is split along
+ * that seam rather than dumped into one scroll.
+ *   - the rail  = "is my bot alive right now"  (speed, state, start/stop, QR)
+ *   - the main  = "what have I told it to do"  (rooms, keywords, schedule)
+ *   - the log   = "did it actually do it"      (always visible, never a tab)
+ * Below 1024px the two columns stack; nothing is hidden at any width.
+ */
+
+.uc {
+	--uc-gap: 1rem;
+	--uc-radius: 14px;
+	--uc-radius-lg: 18px;
+	--uc-line: var(--border-hair);
+	--uc-line-lit: var(--border-strong);
+	--uc-surface: #0e1116;
+	--uc-surface-lit: #141821;
+	--uc-inset: #070910;
+	--uc-accent: var(--signal-go);
+	--uc-accent-soft: rgba(57, 255, 136, 0.12);
+	--uc-ink: var(--text-primary);
+	--uc-ink-2: var(--text-secondary);
+	--uc-ink-3: var(--text-dim);
+
+	min-height: 100dvh;
+	padding:
+		max(0.9rem, env(safe-area-inset-top))
+		max(0.9rem, env(safe-area-inset-right))
+		max(2rem, env(safe-area-inset-bottom))
+		max(0.9rem, env(safe-area-inset-left));
+	background:
+		radial-gradient(ellipse 900px 420px at 78% -12%, rgba(57, 255, 136, 0.055), transparent 62%),
+		var(--bg-void);
+	color: var(--uc-ink);
+	font-family: var(--font-sans);
+	font-size: 1rem;
+	line-height: 1.55;
+}
+
+.uc-shell {
+	max-width: 1320px;
+	margin: 0 auto;
+	display: flex;
+	flex-direction: column;
+	gap: var(--uc-gap);
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+
+.uc-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	padding: 0.35rem 0.15rem 0.75rem;
+	border-bottom: 1px solid var(--uc-line);
+}
+
+.uc-identity {
+	display: flex;
+	flex-direction: column;
+	gap: 0.3rem;
+	min-width: 0;
+}
+
+.uc-live {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.45rem;
+	font: 700 0.72rem/1 var(--font-mono);
+	letter-spacing: 0.18em;
+	color: var(--uc-accent);
+}
+
+.uc-live[data-state="off"] {
+	color: var(--uc-ink-3);
+}
+
+.uc-live-dot {
+	width: 7px;
+	height: 7px;
+	border-radius: 999px;
+	background: currentColor;
+	box-shadow: 0 0 10px currentColor;
+}
+
+.uc-live[data-state="off"] .uc-live-dot {
+	box-shadow: none;
+}
+
+.uc-username {
+	font-size: 1.3rem;
+	font-weight: 700;
+	letter-spacing: -0.015em;
+	line-height: 1.2;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.uc-logout {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.45rem;
+	flex-shrink: 0;
+	min-height: 44px;
+	padding: 0 0.95rem;
+	border: 1px solid var(--uc-line);
+	border-radius: var(--uc-radius);
+	background: var(--uc-surface);
+	color: var(--uc-ink-2);
+	font-family: inherit;
+	font-size: 0.95rem;
+	font-weight: 600;
+	cursor: pointer;
+	transition: border-color var(--duration-fast) ease, color var(--duration-fast) ease;
+}
+
+.uc-logout:hover {
+	border-color: var(--uc-line-lit);
+	color: var(--uc-ink);
+}
+
+/* ── Error banner ───────────────────────────────────────────────────────── */
+
+.uc-error {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 0.75rem;
+	padding: 0.8rem 1rem;
+	border: 1px solid rgba(255, 69, 87, 0.34);
+	border-left: 3px solid var(--signal-bad);
+	border-radius: var(--uc-radius);
+	background: rgba(255, 69, 87, 0.09);
+	color: #ff9aa4;
+	font-size: 0.98rem;
+}
+
+.uc-error button {
+	flex-shrink: 0;
+	width: 30px;
+	height: 30px;
+	border: 0;
+	border-radius: 8px;
+	background: transparent;
+	color: inherit;
+	font-size: 1rem;
+	cursor: pointer;
+}
+
+.uc-error button:hover {
+	background: rgba(255, 69, 87, 0.16);
+}
+
+/* ── Two-column body ────────────────────────────────────────────────────── */
+
+.uc-body {
+	display: grid;
+	grid-template-columns: 1fr;
+	gap: var(--uc-gap);
+	align-items: start;
+}
+
+.uc-rail,
+.uc-main {
+	display: flex;
+	flex-direction: column;
+	gap: var(--uc-gap);
+	min-width: 0;
+}
+
+/* ── Card primitive ─────────────────────────────────────────────────────── */
+
+.uc-card {
+	border: 1px solid var(--uc-line);
+	border-radius: var(--uc-radius-lg);
+	background: var(--uc-surface);
+}
+
+.uc-card-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+	padding: 0.9rem 1rem;
+	border-bottom: 1px solid var(--uc-line);
+}
+
+.uc-card-title {
+	font-size: 1rem;
+	font-weight: 700;
+	letter-spacing: -0.01em;
+}
+
+.uc-card-body {
+	padding: 1rem;
+	display: flex;
+	flex-direction: column;
+	gap: 0.75rem;
+}
+
+/* Short latin/numeric labels only — uppercase tracking mangles Thai marks. */
+.uc-eyebrow {
+	font: 600 0.7rem/1 var(--font-mono);
+	letter-spacing: 0.16em;
+	text-transform: uppercase;
+	color: var(--uc-ink-3);
+}
+
+.uc-note {
+	margin: 0;
+	color: var(--uc-ink-2);
+	font-size: 0.92rem;
+	line-height: 1.6;
+}
+
+.uc-empty {
+	margin: 0;
+	padding: 1.6rem 1rem;
+	text-align: center;
+	color: var(--uc-ink-3);
+	font-size: 0.95rem;
+}
+
+.uc-empty-action {
+	margin-top: 0.85rem;
+}
+
+/* ── Speed hero — the one number worth remembering ──────────────────────── */
+
+.uc-speed {
+	position: relative;
+	overflow: hidden;
+	padding: 1.15rem 1.15rem 1.25rem;
+	border: 1px solid var(--uc-line);
+	border-radius: var(--uc-radius-lg);
+	background:
+		radial-gradient(ellipse 260px 150px at 88% -30%, rgba(57, 255, 136, 0.14), transparent 70%),
+		linear-gradient(160deg, var(--uc-surface-lit), var(--uc-surface));
+}
+
+.uc-speed-value {
+	display: flex;
+	align-items: baseline;
+	gap: 0.4rem;
+	margin-top: 0.35rem;
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+	font-size: clamp(2.7rem, 12vw, 3.5rem);
+	font-weight: 800;
+	letter-spacing: -0.05em;
+	line-height: 1;
+}
+
+.uc-speed-unit {
+	font-size: 1rem;
+	font-weight: 600;
+	letter-spacing: 0;
+	color: var(--uc-ink-3);
+}
+
+.uc-speed-badge {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.4rem;
+	margin-top: 0.85rem;
+	padding: 0.35rem 0.7rem;
+	border-radius: 999px;
+	background: var(--uc-accent-soft);
+	color: var(--uc-accent);
+	font-size: 0.82rem;
+	font-weight: 700;
+}
+
+.uc-speed-badge[data-tone="bad"] {
+	background: rgba(255, 69, 87, 0.12);
+	color: #ff6978;
+}
+
+.uc-speed-badge[data-tone="idle"] {
+	background: rgba(136, 145, 163, 0.1);
+	color: var(--uc-ink-2);
+}
+
+/* ── Bot list ───────────────────────────────────────────────────────────── */
+
+.uc-bot-list {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+}
+
+.uc-bot {
+	display: flex;
+	align-items: center;
+	gap: 0.7rem;
+	width: 100%;
+	padding: 0.7rem 0.8rem;
+	border: 1px solid var(--uc-line);
+	border-radius: var(--uc-radius);
+	background: var(--uc-inset);
+	color: var(--uc-ink-2);
+	font-family: inherit;
+	font-size: 1rem;
+	text-align: left;
+	cursor: pointer;
+	transition: border-color var(--duration-fast) ease, background var(--duration-fast) ease;
+}
+
+.uc-bot:hover {
+	border-color: var(--uc-line-lit);
+}
+
+.uc-bot[aria-pressed="true"] {
+	border-color: var(--signal-go-dim);
+	background: rgba(57, 255, 136, 0.06);
+	color: var(--uc-ink);
+}
+
+.uc-bot-dot {
+	flex-shrink: 0;
+	width: 8px;
+	height: 8px;
+	border-radius: 999px;
+	background: var(--uc-ink-3);
+}
+
+.uc-bot-dot[data-state="online"] {
+	background: var(--uc-accent);
+	box-shadow: 0 0 9px rgba(57, 255, 136, 0.6);
+}
+
+.uc-bot-dot[data-state="connecting"] {
+	background: var(--signal-warn);
+	box-shadow: 0 0 9px rgba(255, 176, 32, 0.55);
+	animation: uc-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes uc-pulse {
+	50% { opacity: 0.35; }
+}
+
+.uc-bot-name {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-weight: 600;
+}
+
+.uc-bot-state {
+	flex-shrink: 0;
+	font-size: 0.85rem;
+	color: var(--uc-ink-3);
+}
+
+.uc-bot[aria-pressed="true"] .uc-bot-state {
+	color: var(--uc-accent);
+}
+
+/* Start/stop sits apart from selection so a tap can never do the wrong one. */
+.uc-run-bar {
+	display: flex;
+	align-items: center;
+	gap: 0.6rem;
+	padding: 0.7rem 0.8rem;
+	border: 1px solid var(--uc-line);
+	border-radius: var(--uc-radius);
+	background: var(--uc-inset);
+}
+
+.uc-run-label {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 0.95rem;
+	color: var(--uc-ink-2);
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+
+.uc-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.4rem;
+	min-height: 44px;
+	padding: 0 1rem;
+	border-radius: 12px;
+	border: 1px solid transparent;
+	font-family: inherit;
+	font-size: 0.95rem;
+	font-weight: 700;
+	white-space: nowrap;
+	cursor: pointer;
+	transition: transform var(--duration-fast) ease, background var(--duration-fast) ease,
+		border-color var(--duration-fast) ease, color var(--duration-fast) ease;
+}
+
+.uc-btn:active {
+	transform: translateY(1px);
+}
+
+.uc-btn:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+	transform: none;
+}
+
+.uc-btn--primary {
+	background: var(--uc-accent);
+	color: #04170c;
+}
+
+.uc-btn--primary:hover:not(:disabled) {
+	background: #5cffa0;
+}
+
+.uc-btn--ghost {
+	border-color: var(--uc-line);
+	background: var(--uc-surface);
+	color: var(--uc-ink-2);
+}
+
+.uc-btn--ghost:hover:not(:disabled) {
+	border-color: var(--uc-line-lit);
+	color: var(--uc-ink);
+}
+
+.uc-btn--stop {
+	border-color: rgba(255, 176, 32, 0.4);
+	background: transparent;
+	color: var(--signal-warn);
+}
+
+.uc-btn--stop:hover:not(:disabled) {
+	background: rgba(255, 176, 32, 0.1);
+}
+
+.uc-btn--sm {
+	min-height: 36px;
+	padding: 0 0.7rem;
+	font-size: 0.88rem;
+}
+
+.uc-btn--block {
+	width: 100%;
+}
+
+/* Square 36px control for destructive row actions — icon only, labelled. */
+.uc-icon-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	width: 36px;
+	height: 36px;
+	border: 1px solid var(--uc-line);
+	border-radius: 10px;
+	background: transparent;
+	color: var(--uc-ink-3);
+	font-size: 0.9rem;
+	cursor: pointer;
+	transition: color var(--duration-fast) ease, border-color var(--duration-fast) ease;
+}
+
+.uc-icon-btn:hover {
+	border-color: rgba(255, 69, 87, 0.45);
+	color: #ff6978;
+}
+
+/* ── Tabs ───────────────────────────────────────────────────────────────── */
+
+.uc-tabs {
+	display: flex;
+	gap: 0.35rem;
+	padding: 0.3rem;
+	border: 1px solid var(--uc-line);
+	border-radius: var(--uc-radius);
+	background: var(--uc-inset);
+	overflow-x: auto;
+	scrollbar-width: none;
+}
+
+.uc-tabs::-webkit-scrollbar {
+	display: none;
+}
+
+/* Shrinkable so all three fit a 360px phone; overflow-x on the track is the
+   fallback for anything narrower rather than the normal case. */
+.uc-tab {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.4rem;
+	flex: 1 1 auto;
+	justify-content: center;
+	min-width: 0;
+	min-height: 42px;
+	padding: 0 0.55rem;
+	border: 0;
+	border-radius: 10px;
+	background: transparent;
+	color: var(--uc-ink-2);
+	font-family: inherit;
+	font-size: 0.95rem;
+	font-weight: 600;
+	white-space: nowrap;
+	cursor: pointer;
+	transition: background var(--duration-fast) ease, color var(--duration-fast) ease;
+}
+
+.uc-tab:hover {
+	color: var(--uc-ink);
+}
+
+.uc-tab[aria-selected="true"] {
+	background: var(--uc-surface-lit);
+	color: var(--uc-ink);
+	box-shadow: inset 0 0 0 1px var(--uc-line-lit);
+}
+
+.uc-tab-count {
+	flex-shrink: 0;
+	min-width: 21px;
+	padding: 0 0.3rem;
+	border-radius: 999px;
+	background: rgba(136, 145, 163, 0.16);
+	color: var(--uc-ink-2);
+	font: 700 0.78rem/1.45 var(--font-mono);
+	text-align: center;
+}
+
+.uc-tab[aria-selected="true"] .uc-tab-count {
+	background: var(--uc-accent-soft);
+	color: var(--uc-accent);
+}
+
+.uc-panel {
+	animation: uc-rise var(--duration-normal) var(--ease-out-expo);
+}
+
+@keyframes uc-rise {
+	from { opacity: 0; transform: translateY(6px); }
+}
+
+/* ── Forms ──────────────────────────────────────────────────────────────── */
+
+.uc-form {
+	display: flex;
+	flex-direction: column;
+	gap: 0.65rem;
+	padding: 1rem;
+	border: 1px dashed var(--uc-line-lit);
+	border-radius: var(--uc-radius);
+	background: var(--uc-inset);
+}
+
+.uc-field {
+	display: flex;
+	flex-direction: column;
+	gap: 0.35rem;
+	min-width: 0;
+}
+
+.uc-field-label {
+	font-size: 0.85rem;
+	font-weight: 600;
+	color: var(--uc-ink-2);
+}
+
+/* Secondary half of a label — the part that explains rather than names. */
+.uc-field-hint {
+	font-weight: 400;
+	color: var(--uc-ink-3);
+}
+
+.uc-code {
+	padding: 0.08em 0.36em;
+	border-radius: 5px;
+	background: rgba(57, 255, 136, 0.1);
+	color: var(--uc-accent);
+	font-family: var(--font-mono);
+	font-size: 0.92em;
+	white-space: nowrap;
+}
+
+.uc-input,
+.uc-select,
+.uc-textarea {
+	width: 100%;
+	min-height: 44px;
+	padding: 0.6rem 0.75rem;
+	border: 1px solid var(--uc-line);
+	border-radius: 11px;
+	background: var(--uc-surface);
+	color: var(--uc-ink);
+	font-family: inherit;
+	font-size: 1rem;
+	transition: border-color var(--duration-fast) ease;
+}
+
+.uc-input::placeholder,
+.uc-textarea::placeholder {
+	color: var(--uc-ink-3);
+}
+
+.uc-input:focus,
+.uc-select:focus,
+.uc-textarea:focus {
+	outline: none;
+	border-color: var(--signal-go-dim);
+}
+
+.uc-textarea {
+	line-height: 1.5;
+	resize: vertical;
+}
+
+.uc-field-row {
+	display: flex;
+	gap: 0.6rem;
+}
+
+.uc-field-row > * {
+	flex: 1 1 0;
+	min-width: 0;
+}
+
+.uc-form-error {
+	margin: 0;
+	padding: 0.55rem 0.75rem;
+	border-radius: 10px;
+	background: rgba(255, 69, 87, 0.1);
+	color: #ff9aa4;
+	font-size: 0.9rem;
+}
+
+/* ── Search ─────────────────────────────────────────────────────────────── */
+
+.uc-search {
+	display: flex;
+	align-items: center;
+	gap: 0.55rem;
+	padding: 0 0.8rem;
+	border: 1px solid var(--uc-line);
+	border-radius: 11px;
+	background: var(--uc-inset);
+	color: var(--uc-ink-3);
+}
+
+.uc-search input {
+	flex: 1;
+	min-width: 0;
+	min-height: 44px;
+	border: 0;
+	background: transparent;
+	color: var(--uc-ink);
+	font-family: inherit;
+	font-size: 1rem;
+	outline: none;
+}
+
+/* ── Rows (rooms / keywords / scheduled posts) ──────────────────────────── */
+
+.uc-rows {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+	max-height: min(52vh, 460px);
+	overflow-y: auto;
+	overscroll-behavior: contain;
+}
+
+.uc-row {
+	display: flex;
+	align-items: center;
+	gap: 0.7rem;
+	padding: 0.7rem 0.8rem;
+	border: 1px solid var(--uc-line);
+	border-radius: var(--uc-radius);
+	background: var(--uc-inset);
+	transition: opacity var(--duration-fast) ease;
+}
+
+.uc-row--off {
+	opacity: 0.45;
+}
+
+.uc-row-main {
+	display: flex;
+	flex-direction: column;
+	gap: 0.15rem;
+	flex: 1;
+	min-width: 0;
+}
+
+.uc-row-title {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 0.98rem;
+	font-weight: 600;
+}
+
+.uc-row-sub {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--uc-ink-2);
+	font-size: 0.88rem;
+}
+
+.uc-row-actions {
+	display: flex;
+	align-items: center;
+	gap: 0.55rem;
+	flex-shrink: 0;
+}
+
+.uc-row-actions--end {
+	justify-content: flex-end;
+}
+
+.uc-tag {
+	flex-shrink: 0;
+	padding: 0.2rem 0.45rem;
+	border-radius: 6px;
+	background: rgba(136, 145, 163, 0.14);
+	color: var(--uc-ink-2);
+	font: 700 0.74rem/1.4 var(--font-mono);
+	letter-spacing: 0.04em;
+}
+
+/* Scheduled posts stack because the fire time, not the text, is the subject. */
+.uc-row--stack {
+	flex-direction: column;
+	align-items: stretch;
+	gap: 0.45rem;
+}
+
+.uc-sched-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.6rem;
+}
+
+.uc-sched-time {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+	font-size: 0.98rem;
+	font-weight: 700;
+}
+
+.uc-badge {
+	flex-shrink: 0;
+	padding: 0.2rem 0.55rem;
+	border-radius: 999px;
+	font-size: 0.75rem;
+	font-weight: 700;
+	white-space: nowrap;
+	background: rgba(136, 145, 163, 0.14);
+	color: var(--uc-ink-2);
+}
+
+.uc-badge--pending,
+.uc-badge--processing,
+.uc-badge--sent {
+	background: var(--uc-accent-soft);
+	color: var(--uc-accent);
+}
+
+.uc-badge--missed {
+	background: rgba(255, 69, 87, 0.12);
+	color: #ff6978;
+}
+
+/* ── Log terminal ───────────────────────────────────────────────────────── */
+
+.uc-log-body {
+	height: min(38vh, 340px);
+	margin: 0;
+	padding: 0.65rem 0.9rem;
+	overflow-y: auto;
+	background: var(--uc-inset);
+	border-radius: 0 0 var(--uc-radius-lg) var(--uc-radius-lg);
+	font-family: var(--font-mono);
+	font-size: 0.84rem;
+	line-height: 1.75;
+}
+
+.uc-log-line {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	column-gap: 0.5rem;
+	padding: 0.22rem 0;
+	border-bottom: 1px dashed rgba(255, 255, 255, 0.045);
+	color: #cfd8d1;
+}
+
+.uc-log-line:last-child {
+	border-bottom: 0;
+}
+
+.uc-log-line[data-ok="false"] {
+	color: #ff9aa4;
+}
+
+.uc-log-ts,
+.uc-log-src {
+	flex-shrink: 0;
+	color: var(--uc-ink-3);
+}
+
+.uc-log-tag {
+	flex-shrink: 0;
+	font-weight: 700;
+	color: var(--uc-accent);
+}
+
+.uc-log-line[data-ok="false"] .uc-log-tag {
+	color: var(--signal-bad);
+}
+
+.uc-log-bot {
+	flex-shrink: 0;
+	max-width: 40%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--uc-ink-2);
+}
+
+.uc-log-arrow {
+	flex-shrink: 0;
+	color: var(--uc-ink-3);
+}
+
+.uc-log-text {
+	flex: 1 1 160px;
+	min-width: 0;
+	color: var(--uc-ink);
+	word-break: break-word;
+}
+
+.uc-log-ms {
+	flex-shrink: 0;
+	margin-left: auto;
+	font-weight: 700;
+	color: var(--uc-accent);
+}
+
+.uc-log-line[data-ok="false"] .uc-log-ms {
+	color: var(--signal-bad);
+}
+
+/* ── Scrollbars inside scrolling regions ────────────────────────────────── */
+
+.uc-rows,
+.uc-log-body {
+	scrollbar-width: thin;
+	scrollbar-color: var(--uc-line-lit) transparent;
+}
+
+.uc-rows::-webkit-scrollbar,
+.uc-log-body::-webkit-scrollbar {
+	width: 8px;
+}
+
+.uc-rows::-webkit-scrollbar-thumb,
+.uc-log-body::-webkit-scrollbar-thumb {
+	background: var(--uc-line-lit);
+	border-radius: 999px;
+}
+
+/* ── QR / confirm panels (shared components, re-scoped) ─────────────────── */
+
+.uc .label {
+	font-size: 0.95rem;
+}
+
+.uc .hint {
+	font-size: 1rem;
+}
+
+.uc .line-pin-text,
+.uc .line-pin-help {
+	font-size: 0.98rem;
+}
+
+.uc .line-pin-code {
+	font-size: clamp(2.4rem, 12vw, 3.6rem);
+}
+
+/* ── Focus ──────────────────────────────────────────────────────────────── */
+
+.uc :focus-visible {
+	outline: 2px solid var(--uc-accent);
+	outline-offset: 2px;
+	border-radius: 8px;
+}
+
+/* ── Responsive ─────────────────────────────────────────────────────────── */
+
+@media (min-width: 640px) {
+	.uc {
+		padding-left: max(1.5rem, env(safe-area-inset-left));
+		padding-right: max(1.5rem, env(safe-area-inset-right));
+	}
+
+	.uc-username {
+		font-size: 1.45rem;
+	}
+
+	.uc-tab {
+		gap: 0.45rem;
+		padding: 0 0.95rem;
+	}
+
+	/* Enough width for two fields side by side without either going cramped. */
+	.uc-form--split {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 0.65rem;
+	}
+
+	.uc-form--split > .uc-field--wide,
+	.uc-form--split > .uc-btn,
+	.uc-form--split > .uc-form-error {
+		grid-column: 1 / -1;
+	}
+}
+
+@media (min-width: 1024px) {
+	.uc {
+		--uc-gap: 1.15rem;
+		padding-top: 1.5rem;
+	}
+
+	.uc-body {
+		grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+	}
+
+	/* The rail is status, so it stays on screen while the config scrolls. */
+	.uc-rail {
+		position: sticky;
+		top: 1.5rem;
+	}
+
+	.uc-log-body {
+		height: min(32vh, 300px);
+	}
+}
+
+@media (min-width: 1440px) {
+	.uc-body {
+		grid-template-columns: minmax(340px, 380px) minmax(0, 1fr);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.uc *,
+	.uc *::before,
+	.uc *::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+	}
+}

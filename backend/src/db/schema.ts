@@ -1,0 +1,344 @@
+export const SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS users (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+	password_hash TEXT NOT NULL,
+	role TEXT NOT NULL DEFAULT 'user',
+	active INTEGER NOT NULL DEFAULT 1,
+	-- How many bots this user may create for themselves. Only an admin can
+	-- raise it (see auth/users.ts setUserBotQuota); admins are uncapped.
+	bot_quota INTEGER NOT NULL DEFAULT 1,
+	created_at INTEGER NOT NULL
+);
+
+-- slot is the display number ("bot1", "bot2", ...) shown to users, separate
+-- from id. Unlike id (autoincrement, never reused), slots always run 1..N in
+-- creation order: deleting a bot closes the gap by renumbering the ones after
+-- it, so this is a position and not a durable handle — see
+-- resequenceBotSlots() in bot/bots.ts.
+CREATE TABLE IF NOT EXISTS bots (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	name TEXT NOT NULL,
+	slot INTEGER NOT NULL,
+	device TEXT NOT NULL DEFAULT 'DESKTOPWIN',
+	status TEXT NOT NULL DEFAULT 'offline',
+	owner_user_id INTEGER,
+	created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS kv (
+	bot_id INTEGER NOT NULL,
+	key TEXT NOT NULL,
+	value_json TEXT NOT NULL,
+	PRIMARY KEY (bot_id, key)
+);
+
+-- inbound_ms is how late LINE handed us the trigger, before any of the
+-- other timings started. Nullable: a manual test send has no inbound
+-- message to be late. See bot/inbound-delay.ts.
+CREATE TABLE IF NOT EXISTS latency_samples (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	bot_id INTEGER,
+	ts INTEGER NOT NULL,
+	surface TEXT NOT NULL,
+	target_mid TEXT,
+	latency_ms REAL NOT NULL,
+	ok INTEGER NOT NULL,
+	source TEXT NOT NULL,
+	text_preview TEXT,
+	inbound_ms REAL,
+	line_created_time INTEGER,
+	-- Per-phase breakdown (see metrics/latency.ts LatencyBreakdown), stored so
+	-- surfaces with very different cost profiles (square: no E2EE vs talk:
+	-- E2EE) can be told apart after the fact instead of only ever seen live
+	-- on the console/dashboard and then discarded.
+	line_ms REAL,
+	code_ms REAL,
+	decrypt_ms REAL,
+	match_ms REAL,
+	limiter_ms REAL,
+	routing_ms REAL,
+	protocol_prep_ms REAL,
+	relay_encode_ms REAL,
+	go_prep_ms REAL,
+	relay_and_parse_ms REAL,
+	upstream_calls INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_latency_samples_ts ON latency_samples(ts);
+-- The live-feed replay asks for one bot's newest replies by id.  The time
+-- index above cannot satisfy that ordering, so without this SQLite scans the
+-- whole table as traffic accumulates during the day.
+CREATE INDEX IF NOT EXISTS idx_latency_samples_bot_id ON latency_samples(bot_id, id DESC);
+
+-- One post-send result for every HTTP/2 lane race. Kept separate from bot
+-- latency so the dashboard can compare routes without touching the reply path.
+CREATE TABLE IF NOT EXISTS lane_race_events (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	ts INTEGER NOT NULL,
+	worker_id TEXT NOT NULL DEFAULT 'legacy',
+	origin TEXT NOT NULL,
+	lane_id INTEGER NOT NULL,
+	role TEXT NOT NULL DEFAULT 'send',
+	result TEXT NOT NULL,
+	rtt_ms REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_lane_race_events_ts ON lane_race_events(ts);
+CREATE INDEX IF NOT EXISTS idx_lane_race_events_lane ON lane_race_events(origin, lane_id, ts);
+
+CREATE TABLE IF NOT EXISTS rules (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	bot_id INTEGER NOT NULL,
+	surface TEXT NOT NULL,
+	match_type TEXT NOT NULL,
+	match_value TEXT NOT NULL,
+	reply_text TEXT NOT NULL,
+	enabled INTEGER NOT NULL DEFAULT 1,
+	priority INTEGER NOT NULL DEFAULT 0,
+	created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rules_bot ON rules(bot_id);
+
+CREATE TABLE IF NOT EXISTS chats (
+	bot_id INTEGER NOT NULL,
+	mid TEXT NOT NULL,
+	surface TEXT NOT NULL,
+	name TEXT,
+	joined_at INTEGER NOT NULL,
+	PRIMARY KEY (bot_id, mid)
+);
+
+-- Which specific ADMIN/CO_ADMIN members a room answers while its admin_only
+-- switch is on. No rows for a chat means "any admin" — see chat-access.ts.
+CREATE TABLE IF NOT EXISTS chat_admin_allowlist (
+	bot_id INTEGER NOT NULL,
+	mid TEXT NOT NULL,
+	member_mid TEXT NOT NULL,
+	PRIMARY KEY (bot_id, mid, member_mid)
+);
+
+CREATE TABLE IF NOT EXISTS auth_sessions (
+	token_hash TEXT PRIMARY KEY,
+	user_id INTEGER,
+	created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS app_meta (
+	key TEXT PRIMARY KEY,
+	value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS bot_events (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	bot_id INTEGER,
+	ts INTEGER NOT NULL,
+	type TEXT NOT NULL,
+	message TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_bot_events_bot_ts ON bot_events(bot_id, ts);
+
+CREATE TABLE IF NOT EXISTS user_actions (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	user_id INTEGER,
+	username TEXT NOT NULL,
+	ts INTEGER NOT NULL,
+	action TEXT NOT NULL,
+	detail TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_user_actions_ts ON user_actions(ts);
+
+-- Incoming messages, the half of the live feed that had no home before.
+-- Outgoing replies were already durable in latency_samples, so the feed lost
+-- only one side of the conversation on a refresh; it now survives both that
+-- and a restart. Written through the same write-behind worker as everything
+-- else on the reply path, never inline.
+-- created_time is LINE's own stamp for when its server accepted the
+-- message. It is the only clock every participant shares, so it is what
+-- makes one bot's speed comparable to another's — including a rival's,
+-- whose replies arrive here as ordinary incoming messages.
+-- from_mid is who sent it. Without it, "a rival bot answered" and "the
+-- same person typed again" are the same shape — one message following
+-- another — and nothing built on message order alone can tell them apart.
+CREATE TABLE IF NOT EXISTS messages_in (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	bot_id INTEGER NOT NULL,
+	ts INTEGER NOT NULL,
+	surface TEXT NOT NULL,
+	target_mid TEXT,
+	text TEXT,
+	created_time INTEGER,
+	from_mid TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_messages_in_bot_ts ON messages_in(bot_id, ts);
+-- Matches the live-feed replay's WHERE bot_id = ? ORDER BY id DESC query.
+CREATE INDEX IF NOT EXISTS idx_messages_in_bot_id ON messages_in(bot_id, id DESC);
+
+-- Anything that interfered with a reply the bot should have made: a message
+-- of ours deleted, a send LINE accepted but did not show, our own throttle
+-- swallowing an answer, a room we can no longer read. Kept apart from
+-- bot_events (lifecycle: started/online/stopped) because these are the rows
+-- worth opening when the bot "did not answer" and nobody knows why — mixing
+-- them into the lifecycle feed is what made the last round guesswork.
+CREATE TABLE IF NOT EXISTS anomalies (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	bot_id INTEGER,
+	ts INTEGER NOT NULL,
+	kind TEXT NOT NULL,
+	severity TEXT NOT NULL,
+	chat_mid TEXT,
+	detail TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_anomalies_ts ON anomalies(ts);
+CREATE INDEX IF NOT EXISTS idx_anomalies_bot_ts ON anomalies(bot_id, ts);
+
+-- One-shot posts fired by wall-clock time instead of a keyword — the "no
+-- keyword" rule: a bot that must speak first the instant a clock hits an
+-- exact date+time (Asia/Bangkok), not in reaction to anything anyone typed.
+-- run_at is epoch ms; sent_at stays NULL until the send actually goes out,
+-- so a restart can tell a still-pending post from one it already fired.
+-- See bot/scheduled-posts.ts (data) and bot/session-manager.ts (the timer
+-- that fires it at the exact millisecond rather than polling for it).
+CREATE TABLE IF NOT EXISTS scheduled_posts (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	bot_id INTEGER NOT NULL,
+	surface TEXT NOT NULL,
+	target_mid TEXT NOT NULL,
+	text TEXT NOT NULL,
+	run_at INTEGER NOT NULL,
+	enabled INTEGER NOT NULL DEFAULT 1,
+	sent_at INTEGER,
+	created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_scheduled_posts_bot ON scheduled_posts(bot_id);
+CREATE INDEX IF NOT EXISTS idx_scheduled_posts_run_at ON scheduled_posts(run_at);
+
+-- Shared by the public control plane and runtime shards so a confirmation
+-- link does not depend on which process receives the scanned request.
+CREATE TABLE IF NOT EXISTS start_confirmations (
+	token TEXT PRIMARY KEY,
+	bot_id INTEGER NOT NULL,
+	status TEXT NOT NULL,
+	created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_start_confirmations_bot ON start_confirmations(bot_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_start_confirmations_pending_bot
+	ON start_confirmations(bot_id) WHERE status = 'pending';
+`;
+
+export type Surface = "talk" | "square";
+export type RuleSurface = Surface | "all";
+export type BotStatus = "offline" | "connecting" | "online";
+export type UserRole = "admin" | "user";
+
+export interface UserRow {
+	id: number;
+	username: string;
+	password_hash: string;
+	role: UserRole;
+	active: number;
+	bot_quota: number;
+	created_at: number;
+}
+
+export interface BotRow {
+	id: number;
+	name: string;
+	slot: number;
+	device: string;
+	status: BotStatus;
+	owner_user_id: number | null;
+	created_at: number;
+}
+
+export interface LatencySampleRow {
+	id: number;
+	bot_id: number | null;
+	ts: number;
+	surface: Surface;
+	target_mid: string | null;
+	latency_ms: number;
+	ok: number;
+	source: "test" | "auto";
+	text_preview: string | null;
+}
+
+export interface RuleRow {
+	id: number;
+	bot_id: number;
+	surface: RuleSurface;
+	match_type: "equals" | "startsWith" | "regex" | "containsAny";
+	match_value: string;
+	reply_text: string;
+	enabled: number;
+	priority: number;
+	created_at: number;
+}
+
+export interface ChatRow {
+	bot_id: number;
+	mid: string;
+	surface: Surface;
+	name: string | null;
+	joined_at: number;
+	enabled: number;
+	admin_only: number;
+	is_primary: number;
+}
+
+export interface BotEventRow {
+	id: number;
+	bot_id: number | null;
+	ts: number;
+	type: string;
+	message: string | null;
+}
+
+export interface UserActionRow {
+	id: number;
+	user_id: number | null;
+	username: string;
+	ts: number;
+	action: string;
+	detail: string | null;
+}
+
+export interface MessageInRow {
+	id: number;
+	bot_id: number;
+	ts: number;
+	surface: Surface;
+	target_mid: string | null;
+	text: string | null;
+	created_time: number | null;
+	from_mid: string | null;
+}
+
+export type AnomalySeverity = "info" | "warn" | "critical";
+
+export interface AnomalyRow {
+	id: number;
+	bot_id: number | null;
+	ts: number;
+	kind: string;
+	severity: AnomalySeverity;
+	chat_mid: string | null;
+	detail: string | null;
+}
+
+export interface ScheduledPostRow {
+	id: number;
+	bot_id: number;
+	surface: Surface;
+	target_mid: string;
+	text: string;
+	run_at: number;
+	enabled: number;
+	sent_at: number | null;
+	created_at: number;
+}
+
+export interface StartConfirmationRow {
+	token: string;
+	bot_id: number;
+	status: "pending" | "accepted" | "declined";
+	created_at: number;
+}

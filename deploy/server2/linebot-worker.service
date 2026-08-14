@@ -1,0 +1,48 @@
+[Unit]
+Description=LINE Bot Worker 2 (standby)
+Wants=network-online.target
+After=network-online.target
+# Deliberate cutover gate. Provisioning and package updates cannot start LINE
+# sessions until an operator creates this file during an approved migration.
+ConditionPathExists=/etc/linebot/worker-enabled
+
+[Service]
+Type=simple
+User=linebot
+Group=linebot
+WorkingDirectory=/opt/linebot/current/backend
+Environment=NODE_ENV=production
+Environment=DB_PATH=/opt/linebot/shared/worker.db
+# Production configuration has one source of truth. Empty defaults prevent a
+# manager-wide environment from accidentally assigning this process to a
+# shard; the required EnvironmentFile below supplies the deliberate value.
+Environment=WORKER_OWNER_SCOPE=
+Environment=WORKER_OWNER_EXCLUDE=
+Environment=WORKER_OWNER_ROUTES=
+Environment=CONTROL_PLANE_URL=
+Environment=CONTROL_PLANE_TOKEN=
+EnvironmentFile=/etc/linebot/worker.env
+# Never auto-load a release-local .env. A stale file in an old rollback
+# release must not override or supplement the service-specific environment.
+ExecStart=/usr/local/bin/bun run --no-env-file src/index.ts
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+KillSignal=SIGTERM
+UMask=0077
+LimitNOFILE=65536
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/opt/linebot/shared
+
+[Install]
+WantedBy=multi-user.target
