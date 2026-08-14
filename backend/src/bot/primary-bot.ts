@@ -34,12 +34,8 @@ const siblingsStmt = db.prepare<{ bot_id: number; is_primary: number; joined_at:
 	 WHERE c.mid = ? AND c.surface = 'square' AND c.enabled = 1 AND b.owner_user_id = ?
 	 ORDER BY b.created_at ASC, b.id ASC`,
 );
-const clearPrimaryStmt = db.prepare<null, [number, string]>(
-	"UPDATE chats SET is_primary = 0 WHERE bot_id = ? AND mid = ?",
-);
-const setPrimaryStmt = db.prepare<null, [number, string]>(
-	"UPDATE chats SET is_primary = 1 WHERE bot_id = ? AND mid = ?",
-);
+const clearPrimaryStmt = db.prepare<null, [number, string]>("UPDATE chats SET is_primary = 0 WHERE bot_id = ? AND mid = ?");
+const setPrimaryStmt = db.prepare<null, [number, string]>("UPDATE chats SET is_primary = 1 WHERE bot_id = ? AND mid = ?");
 
 function siblings(ownerUserId: number, mid: string): RoomBot[] {
 	return siblingsStmt.all(mid, ownerUserId).map((row) => ({
@@ -55,8 +51,8 @@ function siblings(ownerUserId: number, mid: string): RoomBot[] {
  * `[]` when `botId` is unowned or the room has none of that owner's other
  * bots in it — the two cases where there is no "sibling" concept at all.
  */
-export function roomBotsFor(botId: number, mid: string): RoomBot[] {
-	const ownerUserId = getBot(botId)?.ownerUserId;
+export function roomBotsFor(botId: number, mid: string, knownOwnerUserId?: number | null): RoomBot[] {
+	const ownerUserId = knownOwnerUserId === undefined ? getBot(botId)?.ownerUserId : knownOwnerUserId;
 	if (ownerUserId === null || ownerUserId === undefined) return [];
 	return siblings(ownerUserId, mid);
 }
@@ -81,15 +77,12 @@ export function roomBotsFor(botId: number, mid: string): RoomBot[] {
  * back into the true last resort (every sibling also offline) it was meant
  * to be.
  */
-export function primaryBotIdFor(detectingBotId: number, mid: string): number | undefined {
-	const group = roomBotsFor(detectingBotId, mid);
+export function primaryBotIdFor(detectingBotId: number, mid: string, knownOwnerUserId?: number | null): number | undefined {
+	const group = roomBotsFor(detectingBotId, mid, knownOwnerUserId);
 	if (group.length <= 1) return undefined;
 	const explicit = group.find((bot) => bot.isPrimary);
 	const online = group.filter((bot) => bot.status === "online");
-	const primary = (explicit?.status === "online" ? explicit : undefined)
-		?? online[0]
-		?? explicit
-		?? group[0]!; // every sibling offline: keep the old behaviour, harmless since nothing can send anyway
+	const primary = (explicit?.status === "online" ? explicit : undefined) ?? online[0] ?? explicit ?? group[0]!; // every sibling offline: keep the old behaviour, harmless since nothing can send anyway
 	return primary.botId === detectingBotId ? undefined : primary.botId;
 }
 

@@ -26,8 +26,8 @@ export class AuthService implements BaseService {
 			this.client.emit("update:authtoken", RATR.accessToken);
 			await this.client.storage.set(
 				"expire",
-				(RATR.tokenIssueTimeEpochSec as number) +
-				(RATR.durationUntilRefreshInSec as number) as number,
+				((RATR.tokenIssueTimeEpochSec as number) +
+					(RATR.durationUntilRefreshInSec as number)) as number,
 			);
 		} else {
 			throw new InternalError("RefreshError", "refreshToken not found");
@@ -195,9 +195,7 @@ export class AuthService implements BaseService {
 	}
 
 	async resendIdentifierConfirmation(
-		...param: Parameters<
-			typeof LINEStruct.resendIdentifierConfirmation_args
-		>
+		...param: Parameters<typeof LINEStruct.resendIdentifierConfirmation_args>
 	): Promise<LINETypes.resendIdentifierConfirmation_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.resendIdentifierConfirmation_args(...param),
@@ -244,19 +242,19 @@ export class AuthService implements BaseService {
 		);
 	}
 
-	async logoutZ(...param: any[]): Promise<any> {
+	async logoutZ(..._param: any[]): Promise<any> {
 		const payload = Buffer.from([
 			0x82,
 			0x21,
 			0x00,
 			0x07,
-			0x6C,
-			0x6F,
+			0x6c,
+			0x6f,
 			0x67,
-			0x6F,
+			0x6f,
 			0x75,
 			0x74,
-			0x5A,
+			0x5a,
 			0x00,
 		]);
 		const reqClient = this.client.request;
@@ -288,7 +286,7 @@ export class AuthService implements BaseService {
 		this.client.thrift.rename_data(res, false);
 		const isRefresh = Boolean(
 			res.data.e && res.data.e.code === "MUST_REFRESH_V3_TOKEN" &&
-				await this.client.storage.get("refreshToken"),
+				(await this.client.storage.get("refreshToken")),
 		);
 		if (res.data.e && !isRefresh) {
 			throw new InternalError(

@@ -35,7 +35,16 @@ import { armSquareReplyForensics, clearSquareForensics, observeSquareForensicEve
 import { clearBotAnomalies, recordAnomaly } from "./anomalies.ts";
 import { inboundDelayMs, isSlowInbound, lineCreatedTimeOf, toLineEpochMs } from "./inbound-delay.ts";
 import type { SquareEvent, SquareMessageState } from "../linejs-core/types/line_types.ts";
-import { deleteBot, getBot, isBotOverQuota, isOwnerTestingEnabled, overQuotaBots, resetAllBotStatuses, updateBotStatus, type Bot } from "./bots.ts";
+import {
+	deleteBot,
+	getBot,
+	isBotOverQuota,
+	isOwnerTestingEnabled,
+	overQuotaBots,
+	resetAllBotStatuses,
+	updateBotStatus,
+	type Bot,
+} from "./bots.ts";
 import { inWorkerScope, WorkerScopeError } from "./worker-scope.ts";
 import { db } from "../db/sqlite.ts";
 import { enqueueMessageIn } from "../db/write-behind.ts";
@@ -83,9 +92,7 @@ const upsertChatStmt = db.prepare<null, [number, string, Surface, string | null,
 const persistedE2eeTargetsStmt = db.prepare<{ key: string }, [number]>(
 	"SELECT key FROM kv WHERE bot_id = ? AND key LIKE 'compactE2EETarget:%' AND value_json = 'true' ORDER BY rowid DESC",
 );
-const hasSquareChatStmt = db.prepare<{ n: number }, [number]>(
-	"SELECT COUNT(*) AS n FROM chats WHERE bot_id = ? AND surface = 'square'",
-);
+const hasSquareChatStmt = db.prepare<{ n: number }, [number]>("SELECT COUNT(*) AS n FROM chats WHERE bot_id = ? AND surface = 'square'");
 const enabledSquareChatMidsStmt = db.prepare<{ mid: string }, [number]>(
 	"SELECT mid FROM chats WHERE bot_id = ? AND surface = 'square' AND enabled = 1 ORDER BY joined_at DESC",
 );
@@ -95,10 +102,7 @@ const enabledSquareChatMidsStmt = db.prepare<{ mid: string }, [number]>(
  * between triggers is not mistaken for an abandoned one, short enough that
  * yesterday's busy room cannot hold the poller through today.
  */
-const FAST_POLL_ACTIVITY_WINDOW_MS = Math.max(
-	60_000,
-	Number(process.env.SQUARE_FAST_POLL_ACTIVITY_WINDOW_MS ?? 15 * 60_000),
-);
+const FAST_POLL_ACTIVITY_WINDOW_MS = Math.max(60_000, Number(process.env.SQUARE_FAST_POLL_ACTIVITY_WINDOW_MS ?? 15 * 60_000));
 const squareRoomActivityStmt = db.prepare<{ target_mid: string; n: number }, [number, number]>(
 	"SELECT target_mid, COUNT(*) AS n FROM messages_in WHERE bot_id = ? AND surface = 'square' AND ts >= ? AND target_mid IS NOT NULL GROUP BY target_mid",
 );
@@ -212,6 +216,8 @@ export type LoginPhase = "resuming" | "awaiting_scan" | "preparing";
 
 interface BotRuntime {
 	client?: Client;
+	/** Stable for the lifetime of a bot; cached so reply admission never queries SQLite for ownership. */
+	ownerUserId?: number | null;
 	listenAbort?: AbortController;
 	stopRequested: boolean;
 	loginRun?: Promise<void>;
@@ -383,6 +389,7 @@ export async function startBot(botId: number): Promise<void> {
 	if (!inWorkerScope(bot.ownerUserId)) throw new WorkerScopeError("บอทนี้ไม่ได้อยู่ในความรับผิดชอบของ worker นี้");
 	const rt = getRuntime(botId);
 	if (rt.client || rt.loginRun) throw new Error("บอทนี้ออนไลน์อยู่แล้วหรือกำลังเข้าสู่ระบบ");
+	rt.ownerUserId = bot.ownerUserId;
 
 	rt.stopRequested = false;
 	// An explicit start is the operator's signal that account access or room
@@ -429,6 +436,7 @@ export async function resumePreviouslyRunningBots(): Promise<void> {
 			logBotEvent(botId, "resume_skipped", "ไม่มีเซสชันที่บันทึกไว้ ต้องกดเริ่มแล้วสแกน QR ใหม่");
 			continue;
 		}
+		getRuntime(botId).ownerUserId = bot.ownerUserId;
 
 		const rt = getRuntime(botId);
 		if (rt.client) continue;
@@ -1007,7 +1015,9 @@ export function stopBot(botId: number): void {
 export function enforceBotQuota(userId: number, quota: number): Bot[] {
 	const excess = overQuotaBots(userId, quota);
 	if (excess.some((bot) => !inWorkerScope(bot.ownerUserId))) {
-		throw new WorkerScopeError("บอทบางตัวของผู้ใช้นี้อยู่ภายใต้ worker อื่น กรุณาปรับโควตาจากหน้าควบคุมของ worker ที่ดูแลบอทของผู้ใช้คนนี้");
+		throw new WorkerScopeError(
+			"บอทบางตัวของผู้ใช้นี้อยู่ภายใต้ worker อื่น กรุณาปรับโควตาจากหน้าควบคุมของ worker ที่ดูแลบอทของผู้ใช้คนนี้",
+		);
 	}
 	for (const bot of excess) {
 		stopBot(bot.id);
@@ -1120,9 +1130,7 @@ function startSquareStallWatch(botId: number, rt: BotRuntime): void {
 			// Marked before the await so a slow request cannot let the next
 			// 5s tick fire a second one and double the chain.
 			rt.squareStallRearmTried = true;
-			console.log(
-				`[bot ${botId}] [SQ_DIAG] square stalled ${Math.round(plan.staleMs)}ms — re-arming fetch chain in place (no teardown)`,
-			);
+			console.log(`[bot ${botId}] [SQ_DIAG] square stalled ${Math.round(plan.staleMs)}ms — re-arming fetch chain in place (no teardown)`);
 			void client.base.push.rearmSquareNow().catch((err) => {
 				recordAnomaly({
 					botId,
@@ -1307,7 +1315,13 @@ export function emitError(botId: number, err: unknown): void {
  * Log entries that mean the bot has stopped hearing something, rather
  * than routine protocol chatter.
  */
-const FAILURE_LOG_TYPES = new Set(["SignOnResponseError", "PushResponseError", "LegyPusherError", "LegyPusherError_cannot_init", "TalkMessageError"]);
+const FAILURE_LOG_TYPES = new Set([
+	"SignOnResponseError",
+	"PushResponseError",
+	"LegyPusherError",
+	"LegyPusherError_cannot_init",
+	"TalkMessageError",
+]);
 
 /** Emitted by the client when a talk/square event loop stops unexpectedly. */
 const LISTENER_STOPPED_LOG_TYPE = "ListenerStopped";
@@ -1342,13 +1356,14 @@ const RECEIVE_SOURCE = Symbol.for("linebot.receiveSource");
 
 function deliverFastSquareEvent(client: Client, event: SquareEvent, receivedAt: number): void {
 	fastDeliveredSquareEvents.add(event);
-	const raw = event.type === "RECEIVE_MESSAGE"
-		? event.payload.receiveMessage?.squareMessage
-		: event.type === "SEND_MESSAGE"
-		? event.payload.sendMessage?.squareMessage
-		: event.type === "NOTIFICATION_MESSAGE"
-		? event.payload.notificationMessage?.squareMessage
-		: undefined;
+	const raw =
+		event.type === "RECEIVE_MESSAGE"
+			? event.payload.receiveMessage?.squareMessage
+			: event.type === "SEND_MESSAGE"
+				? event.payload.sendMessage?.squareMessage
+				: event.type === "NOTIFICATION_MESSAGE"
+					? event.payload.notificationMessage?.squareMessage
+					: undefined;
 	if (raw) {
 		const message = new SquareMessage({ raw, client });
 		const timed = message as unknown as Record<symbol, number | string>;
@@ -1372,8 +1387,7 @@ function deliverFastSquareEvent(client: Client, event: SquareEvent, receivedAt: 
  * another unowned bot — those are unrelated accounts that happen to both
  * predate ownership, not a fleet.
  */
-function replyOwnerKey(botId: number): string {
-	const ownerUserId = getBot(botId)?.ownerUserId;
+function replyOwnerKey(botId: number, ownerUserId = runtimes.get(botId)?.ownerUserId): string {
 	return ownerUserId === null || ownerUserId === undefined ? `bot:${botId}` : `user:${ownerUserId}`;
 }
 
@@ -1389,9 +1403,7 @@ function fastPollCandidates(botId: number): FastPollCandidate[] {
 	const mids = enabledSquareChatMidsStmt.all(botId).map((row) => row.mid);
 	if (mids.length <= 1) return mids.map((mid) => ({ mid, recentMessages: 0 }));
 	const activity = new Map(
-		squareRoomActivityStmt
-			.all(botId, Date.now() - FAST_POLL_ACTIVITY_WINDOW_MS)
-			.map((row) => [row.target_mid, row.n] as const),
+		squareRoomActivityStmt.all(botId, Date.now() - FAST_POLL_ACTIVITY_WINDOW_MS).map((row) => [row.target_mid, row.n] as const),
 	);
 	return mids.map((mid) => ({ mid, recentMessages: activity.get(mid) ?? 0 }));
 }
@@ -1410,12 +1422,10 @@ export function syncFastSquarePollers(botId: number): void {
 	const parentAbort = rt?.listenAbort;
 	if (!rt || !client || !parentAbort) return;
 
-	const pollers = rt.fastSquarePollers ??= new Map<string, AbortController>();
+	const pollers = (rt.fastSquarePollers ??= new Map<string, AbortController>());
 	const current = [...pollers.keys()];
 	const candidates = fastPollCandidates(botId).filter((candidate) => !rt.fastSquarePollBlocked?.has(candidate.mid));
-	const chosen = FAST_SQUARE_POLL_ENABLED
-		? selectFastPollRooms(candidates, current, FAST_SQUARE_POLL_MAX_ROOMS)
-		: [];
+	const chosen = FAST_SQUARE_POLL_ENABLED ? selectFastPollRooms(candidates, current, FAST_SQUARE_POLL_MAX_ROOMS) : [];
 	const desired = new Set(chosen);
 	let intervalMs = FAST_SQUARE_POLL_INTERVAL_MS;
 	let releasedFastSlot = false;
@@ -1540,10 +1550,7 @@ export function syncFastSquarePollers(botId: number): void {
  * costs a grouped scan of `messages_in` and cannot usefully change between
  * two messages a second apart.
  */
-const FAST_POLL_RESELECT_INTERVAL_MS = Math.max(
-	5_000,
-	Number(process.env.SQUARE_FAST_POLL_RESELECT_INTERVAL_MS ?? 60_000),
-);
+const FAST_POLL_RESELECT_INTERVAL_MS = Math.max(5_000, Number(process.env.SQUARE_FAST_POLL_RESELECT_INTERVAL_MS ?? 60_000));
 const lastFastPollReselect = new Map<number, number>();
 
 function maybeReselectFastPollRoom(botId: number): void {
@@ -1782,7 +1789,8 @@ function noteSquareSendResult(
 	if (trace) trace.lineCreatedTime = toLineEpochMs(created.message.createdTime);
 	trackSentReply(botId, squareChatMid, messageId, text, attempt);
 	if (!isPlainlySentState(created.state)) {
-		const rejectedDetail = `LINE รับข้อความแล้วแต่ตอบสถานะ ${JSON.stringify(created.state)} (id ${messageId}) — ` +
+		const rejectedDetail =
+			`LINE รับข้อความแล้วแต่ตอบสถานะ ${JSON.stringify(created.state)} (id ${messageId}) — ` +
 			`บัญชีบอทน่าจะถูกจำกัดสิทธิ์/ปิดปากในห้องนี้ ส่งซ้ำกี่ครั้งก็จะไม่ขึ้น`;
 		recordAnomaly({
 			botId,
@@ -1813,7 +1821,8 @@ function noteSquareSendResult(
 				// Once a later event is visible, the stream has advanced past our LINE
 				// timestamp and an absent id is real evidence rather than a timeout.
 				if (visibility.presence !== "missing_after_later_event") return;
-				const invisibleDetail = `ส่งสำเร็จ แต่ event stream ผ่านไปถึงข้อความใหม่กว่าแล้วไม่พบข้อความเรา ` +
+				const invisibleDetail =
+					`ส่งสำเร็จ แต่ event stream ผ่านไปถึงข้อความใหม่กว่าแล้วไม่พบข้อความเรา ` +
 					`(id ${messageId}, checkpoint ${visibility.checkpointMs}ms, timeline ${JSON.stringify(visibility.timeline)})`;
 				recordAnomaly({
 					botId,
@@ -1893,7 +1902,8 @@ function isOwnMessage(botId: number, surface: Surface, message: TalkMessage | Sq
 async function fillSquareSelfMid(botId: number, squareChatMid: string): Promise<void> {
 	const key = squareSelfMidKey(botId, squareChatMid);
 	if (squareSelfMids.has(key) || squareSelfMidPending.has(key)) return;
-	const client = runtimes.get(botId)?.client;
+	const runtime = runtimes.get(botId);
+	const client = runtime?.client;
 	if (!client) return;
 
 	squareSelfMidPending.add(key);
@@ -1917,9 +1927,11 @@ async function handleIncoming(
 	botId: number,
 	surface: Surface,
 	message: TalkMessage | SquareMessage,
-	options: IncomingRunOptions = {},
+	options?: IncomingRunOptions,
 ): Promise<void> {
 	if (!shouldProcessIncomingMessage(botId, surface, message)) return;
+	const prewarmGuardBotId = options?.prewarmGuardBotId;
+	const messageId = messageIdOf(surface, message);
 
 	// The fast Square poller races the ordinary push connection on purpose
 	// (see fast-square-poller.ts) — whichever sees a trigger first should
@@ -1929,26 +1941,15 @@ async function handleIncoming(
 	// twice. Checked here, before any of it starts, using the same id both
 	// paths agree on. Skipped for prewarm — its probes carry synthetic,
 	// always-unique ids and are never a real race.
-	if (options.prewarmGuardBotId === undefined && !claimIncomingMessage(botId, surface, messageIdOf(surface, message))) {
+	if (prewarmGuardBotId === undefined && !claimIncomingMessage(botId, surface, messageId)) {
 		return;
 	}
 
-	const timedMessage = message as unknown as Record<symbol, number | string | undefined>;
-	const stampedReceivedAt = timedMessage[INTERNAL_RECEIVED_AT];
-	const stampedDecryptMs = timedMessage[DECRYPT_MS];
-	const receivedAt = typeof stampedReceivedAt === "number" ? stampedReceivedAt : performance.now();
-	const decryptMs = typeof stampedDecryptMs === "number" ? stampedDecryptMs : 0;
-	const stampedReceiveSource = timedMessage[RECEIVE_SOURCE];
-	const receiveSource = stampedReceiveSource === "dedicated-poll"
-		? "dedicated-poll"
-		: stampedReceiveSource === "normal-poll"
-			? "normal-poll"
-			: "push";
 	const targetMid = message.to.id;
 	const text = message.text ?? "";
 	if (isOwnMessage(botId, surface, message, targetMid)) {
 		if (!isOwnerTestingEnabled(botId)) return;
-		if (isAutomaticReplyEcho(botId, surface, targetMid, text, messageIdOf(surface, message))) return;
+		if (isAutomaticReplyEcho(botId, surface, targetMid, text, messageId)) return;
 	}
 
 	// The half of the race our own timings never covered: how late LINE
@@ -1956,7 +1957,7 @@ async function handleIncoming(
 	// every other number here begins counting only after this delay is
 	// already spent. Measured for real messages only — a prewarm probe has
 	// no LINE timestamp to be late against.
-	const inboundMs = options.prewarmGuardBotId === undefined ? inboundDelayMs(surface, message) : undefined;
+	const inboundMs = prewarmGuardBotId === undefined ? inboundDelayMs(surface, message) : undefined;
 	if (isSlowInbound(inboundMs)) {
 		recordAnomaly({
 			botId,
@@ -1972,25 +1973,10 @@ async function handleIncoming(
 	// the only thing this bot is judged on.
 	const matchStart = performance.now();
 	const rule = matchRule(getCompiledRules(botId), text, surface);
-	const matchMs = performance.now() - matchStart;
-	const client = runtimes.get(botId)?.client;
-	const trace: FastPathTrace = {
-		botId,
-		surface,
-		source: "auto",
-		receivedAt,
-		receiveSource,
-		inboundMs,
-		decryptMs,
-		matchMs,
-		admissionMs: 0,
-		protocolPrepMs: 0,
-		relayEncodeMs: 0,
-		goPrepMs: 0,
-		upstreamCalls: 0,
-		upstreamMs: 0,
-	};
-	const guardBotId = options.prewarmGuardBotId ?? botId;
+	const matchMs = rule ? performance.now() - matchStart : 0;
+	const runtime = runtimes.get(botId);
+	const client = runtime?.client;
+	const guardBotId = prewarmGuardBotId ?? botId;
 	let replyPromise: Promise<void> | undefined;
 	// Ordered deliberately: the per-bot claim is checked first because it is
 	// the cheaper of the two and rejects the ordinary push/poll duplicate,
@@ -1998,15 +1984,36 @@ async function handleIncoming(
 	// answered. Claiming the room from a bot with no matching rule would
 	// silence the sibling that did have one.
 	if (
-		rule && client &&
-		claimReply(guardBotId, targetMid, rule.id, messageIdOf(surface, message)) &&
-		(options.prewarmGuardBotId !== undefined ||
-			claimRoomAnswer(replyOwnerKey(botId), botId, targetMid, messageIdOf(surface, message)))
+		rule &&
+		client &&
+		claimReply(guardBotId, targetMid, rule.id, messageId) &&
+		(prewarmGuardBotId !== undefined || claimRoomAnswer(replyOwnerKey(botId, runtime?.ownerUserId), botId, targetMid, messageId))
 	) {
+		const timedMessage = message as unknown as Record<symbol, number | string | undefined>;
+		const stampedReceivedAt = timedMessage[INTERNAL_RECEIVED_AT];
+		const stampedDecryptMs = timedMessage[DECRYPT_MS];
+		const stampedReceiveSource = timedMessage[RECEIVE_SOURCE];
+		const trace: FastPathTrace = {
+			botId,
+			surface,
+			source: "auto",
+			receivedAt: typeof stampedReceivedAt === "number" ? stampedReceivedAt : matchStart,
+			receiveSource:
+				stampedReceiveSource === "dedicated-poll" ? "dedicated-poll" : stampedReceiveSource === "normal-poll" ? "normal-poll" : "push",
+			inboundMs,
+			decryptMs: typeof stampedDecryptMs === "number" ? stampedDecryptMs : 0,
+			matchMs,
+			admissionMs: 0,
+			protocolPrepMs: 0,
+			relayEncodeMs: 0,
+			goPrepMs: 0,
+			upstreamCalls: 0,
+			upstreamMs: 0,
+		};
 		// Real (non-prewarm) Square sends are tracked by message id so a
 		// moderator destroying this exact reply can be answered — see
 		// reply-defense.ts.
-		const isTrackableSquareSend = surface === "square" && options.prewarmGuardBotId === undefined;
+		const isTrackableSquareSend = surface === "square" && prewarmGuardBotId === undefined;
 		// This bot still won the detection race, but the send itself goes out
 		// under whichever bot is this room's designated answerer, so the room
 		// only ever sees one identity reply instead of a different account
@@ -2014,7 +2021,7 @@ async function handleIncoming(
 		// this exact bot's own send path. Falls back to the detecting bot's
 		// own (already-verified-live) client if the primary is not connected
 		// right now — answering under the "wrong" name beats not answering.
-		const primaryBotId = isTrackableSquareSend ? primaryBotIdFor(botId, targetMid) : undefined;
+		const primaryBotId = isTrackableSquareSend ? primaryBotIdFor(botId, targetMid, runtime?.ownerUserId) : undefined;
 		const primaryClient = primaryBotId !== undefined ? runtimes.get(primaryBotId)?.client : undefined;
 		const sendingBotId = primaryClient ? primaryBotId! : botId;
 		const sendingClient = primaryClient ?? client;
@@ -2022,17 +2029,16 @@ async function handleIncoming(
 		// nothing downstream can key on "the bot's message is exactly this
 		// string". Prewarm keeps the literal text — it measures the real
 		// send path and must not drift from it.
-		const outgoingText =
-			options.prewarmGuardBotId === undefined ? uniquifyReply(sendingBotId, targetMid, rule.replyText) : rule.replyText;
+		const outgoingText = prewarmGuardBotId === undefined ? uniquifyReply(sendingBotId, targetMid, rule.replyText) : rule.replyText;
 		// Echo suppression compares against what actually went out, not the
 		// rule's text, or a varied reply would come back looking like a
 		// stranger's message and answer itself. Checked and tracked against
 		// the sending bot: its own account is what will see this reply come
 		// back as an incoming event, never the detecting bot's when the two differ.
 		const cancelEchoTracking =
-			options.prewarmGuardBotId === undefined && isOwnerTestingEnabled(sendingBotId)
+			prewarmGuardBotId === undefined && isOwnerTestingEnabled(sendingBotId)
 				? trackAutomaticReply(sendingBotId, surface, targetMid, outgoingText)
-				: () => {};
+				: undefined;
 		let completedSquareResult: unknown;
 		replyPromise = sendTimed(
 			// The rate limiter and anomaly log below key off this id — it must
@@ -2053,10 +2059,10 @@ async function handleIncoming(
 				return result;
 			},
 			trace,
-			options.prewarmGuardBotId,
+			prewarmGuardBotId,
 		).then((sent) => {
 			if (!sent) {
-				cancelEchoTracking();
+				cancelEchoTracking?.();
 				return;
 			}
 			// Visibility/destroy bookkeeping is post-send observation. Keeping it
@@ -2068,7 +2074,7 @@ async function handleIncoming(
 		});
 	}
 
-	if (options.prewarmGuardBotId === undefined) {
+	if (prewarmGuardBotId === undefined) {
 		const ts = Date.now();
 		// createdTime rides along so the feed can time *other* bots in the
 		// room the same way it times ours — a rival's reply is just an
@@ -2202,16 +2208,10 @@ async function fireScheduledPost(armed: ScheduledPost): Promise<void> {
 	// reply to here), synchronous non-blocking admission: a scheduled post
 	// either goes out right now or is dropped, never queued behind a cooldown
 	// — waiting would defeat the entire point of an exact-time post.
-	const sent = await sendTimed(
-		post.botId,
-		post.surface,
-		post.targetMid,
-		post.text,
-		"test",
-		() =>
-			post.surface === "talk"
-				? client.base.talk.sendCompactMessage({ to: post.targetMid, text: post.text, fastAck: true })
-				: client.base.square.sendMessage({ squareChatMid: post.targetMid, text: post.text, fastAck: false }),
+	const sent = await sendTimed(post.botId, post.surface, post.targetMid, post.text, "test", () =>
+		post.surface === "talk"
+			? client.base.talk.sendCompactMessage({ to: post.targetMid, text: post.text, fastAck: true })
+			: client.base.square.sendMessage({ squareChatMid: post.targetMid, text: post.text, fastAck: false }),
 	);
 	if (sent) {
 		markScheduledPostSent(post.id, Date.now());
@@ -2300,9 +2300,7 @@ async function sendTimed(
 	};
 	const admissionStart = performance.now();
 	const admissionBotId = prewarmGuardBotId ?? botId;
-	const admission = admissionReserved
-		? { allowed: true, retryAfterMs: 0 }
-		: tryAcquireSend(admissionBotId);
+	const admission = admissionReserved ? { allowed: true, retryAfterMs: 0 } : tryAcquireSend(admissionBotId);
 	activeTrace.admissionMs = performance.now() - admissionStart;
 	if (!admission.allowed) {
 		if (prewarmGuardBotId !== undefined) return false;
@@ -2346,8 +2344,12 @@ async function sendTimed(
 	const preDispatchMs = Math.max(0, (activeTrace.dispatchStartedAt ?? performance.now()) - activeTrace.receivedAt);
 	const routingMs = Math.max(
 		0,
-		preDispatchMs - activeTrace.decryptMs - activeTrace.matchMs - activeTrace.admissionMs -
-			activeTrace.protocolPrepMs - activeTrace.relayEncodeMs,
+		preDispatchMs -
+			activeTrace.decryptMs -
+			activeTrace.matchMs -
+			activeTrace.admissionMs -
+			activeTrace.protocolPrepMs -
+			activeTrace.relayEncodeMs,
 	);
 	const relayAndParseMs = Math.max(0, fastSample.internalMs - preDispatchMs - activeTrace.goPrepMs);
 	// These are the only terms in the displayed equation. CODE is their

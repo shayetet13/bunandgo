@@ -1,21 +1,36 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./lib/api.ts";
 import { useLiveSocket } from "./lib/useWebSocket.ts";
 import { reconcileFetchedBots } from "./lib/bot-status-sync.ts";
 import { groupBotsByOwner } from "./lib/group-bots.ts";
-import type { Bot, BotStatus, ChatRow, FastPathSnapshot, HealthStatus, LaneRaceSnapshot, LatencySample, LatencySnapshot, LoginPhase, MessageIn, Rule, ScheduledPost, UserRole } from "./lib/types.ts";
+import type {
+	Bot,
+	BotStatus,
+	ChatRow,
+	FastPathSnapshot,
+	HealthStatus,
+	LaneRaceSnapshot,
+	LatencySample,
+	LatencySnapshot,
+	LoginPhase,
+	MessageIn,
+	Rule,
+	ScheduledPost,
+	UserRole,
+} from "./lib/types.ts";
 import { Sidebar, type ViewKey } from "./components/Sidebar.tsx";
 import { Topbar, type Notification } from "./components/Topbar.tsx";
 import { HelpModal } from "./components/HelpModal.tsx";
 import type { ConfirmState, QrState } from "./components/BotsPanel.tsx";
 import type { FeedItem } from "./lib/types.ts";
 import { OverviewPage } from "./pages/OverviewPage.tsx";
-import { BotFleetPage } from "./pages/BotFleetPage.tsx";
-import { RulesPage } from "./pages/RulesPage.tsx";
-import { LiveFeedPage } from "./pages/LiveFeedPage.tsx";
-import { SettingsPage } from "./pages/SettingsPage.tsx";
-import { UsersPage } from "./pages/UsersPage.tsx";
-import { LogsPage } from "./pages/LogsPage.tsx";
+
+const BotFleetPage = lazy(async () => ({ default: (await import("./pages/BotFleetPage.tsx")).BotFleetPage }));
+const RulesPage = lazy(async () => ({ default: (await import("./pages/RulesPage.tsx")).RulesPage }));
+const LiveFeedPage = lazy(async () => ({ default: (await import("./pages/LiveFeedPage.tsx")).LiveFeedPage }));
+const SettingsPage = lazy(async () => ({ default: (await import("./pages/SettingsPage.tsx")).SettingsPage }));
+const UsersPage = lazy(async () => ({ default: (await import("./pages/UsersPage.tsx")).UsersPage }));
+const LogsPage = lazy(async () => ({ default: (await import("./pages/LogsPage.tsx")).LogsPage }));
 
 const EMPTY_SNAPSHOT: LatencySnapshot = { p50: 0, p95: 0, p99: 0, okRate: 100, count: 0, windowSize: 500 };
 const EMPTY_FAST_SNAPSHOT: FastPathSnapshot = { p50: 0, p95: 0, p99: 0, max: 0, count: 0 };
@@ -81,11 +96,14 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 	useEffect(() => {
 		let cancelled = false;
 		function poll() {
-			api.health().then((h) => {
-				if (!cancelled) setHealth(h);
-			}).catch(() => {
-				if (!cancelled) setHealth(undefined);
-			});
+			api
+				.health()
+				.then((h) => {
+					if (!cancelled) setHealth(h);
+				})
+				.catch(() => {
+					if (!cancelled) setHealth(undefined);
+				});
 		}
 		poll();
 		const timer = setInterval(poll, 5000);
@@ -140,7 +158,7 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 	async function handleToggleChatEnabled(chat: ChatRow) {
 		try {
 			await api.setChatEnabled(chat.bot_id, chat.mid, !chat.enabled);
-			setChats((prev) => prev.map((c) => c.mid === chat.mid ? { ...c, enabled: chat.enabled ? 0 : 1 } : c));
+			setChats((prev) => prev.map((c) => (c.mid === chat.mid ? { ...c, enabled: chat.enabled ? 0 : 1 } : c)));
 		} catch (err) {
 			pushNotification(err instanceof Error ? err.message : String(err));
 		}
@@ -148,7 +166,7 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 	async function handleToggleChatAdminOnly(chat: ChatRow) {
 		try {
 			await api.setChatAdminOnly(chat.bot_id, chat.mid, !chat.admin_only);
-			setChats((prev) => prev.map((c) => c.mid === chat.mid ? { ...c, admin_only: chat.admin_only ? 0 : 1 } : c));
+			setChats((prev) => prev.map((c) => (c.mid === chat.mid ? { ...c, admin_only: chat.admin_only ? 0 : 1 } : c)));
 		} catch (err) {
 			pushNotification(err instanceof Error ? err.message : String(err));
 		}
@@ -214,15 +232,14 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 		// twice. `cancelled` guards a fast group switch resolving out of order
 		// and painting the previous group's history.
 		let cancelled = false;
-		Promise.all([...feedBotIds].map((botId) => api.botFeed(botId).catch(() => [] as FeedItem[])))
-			.then((results) => {
-				if (cancelled) return;
-				const history = results.flat().sort((a, b) => a.data.ts - b.data.ts);
-				setFeed((live) => {
-					const liveIds = new Set(live.map((item) => item.id));
-					return [...history.filter((item) => !liveIds.has(item.id)), ...live].slice(-FEED_CAP);
-				});
+		Promise.all([...feedBotIds].map((botId) => api.botFeed(botId).catch(() => [] as FeedItem[]))).then((results) => {
+			if (cancelled) return;
+			const history = results.flat().sort((a, b) => a.data.ts - b.data.ts);
+			setFeed((live) => {
+				const liveIds = new Set(live.map((item) => item.id));
+				return [...history.filter((item) => !liveIds.has(item.id)), ...live].slice(-FEED_CAP);
 			});
+		});
 		return () => {
 			cancelled = true;
 		};
@@ -320,11 +337,39 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 			return;
 		}
 		let cancelled = false;
-		api.metricsSnapshot().then((s) => { if (!cancelled) setSnapshot(s); }).catch(() => { if (!cancelled) setSnapshot(EMPTY_SNAPSHOT); });
-		api.metricsFastPath().then((metrics) => { if (!cancelled) setFastSnapshot(metrics.snapshot); }).catch(() => { if (!cancelled) setFastSnapshot(EMPTY_FAST_SNAPSHOT); });
-		api.metricsHistory(DISPATCH_SAMPLE_CAP).then((rows) => { if (!cancelled) setDispatchSamples(rows); }).catch(() => { if (!cancelled) setDispatchSamples([]); });
+		api
+			.metricsSnapshot()
+			.then((s) => {
+				if (!cancelled) setSnapshot(s);
+			})
+			.catch(() => {
+				if (!cancelled) setSnapshot(EMPTY_SNAPSHOT);
+			});
+		api
+			.metricsFastPath()
+			.then((metrics) => {
+				if (!cancelled) setFastSnapshot(metrics.snapshot);
+			})
+			.catch(() => {
+				if (!cancelled) setFastSnapshot(EMPTY_FAST_SNAPSHOT);
+			});
+		api
+			.metricsHistory(DISPATCH_SAMPLE_CAP)
+			.then((rows) => {
+				if (!cancelled) setDispatchSamples(rows);
+			})
+			.catch(() => {
+				if (!cancelled) setDispatchSamples([]);
+			});
 		function refreshLaneRace() {
-			api.laneRace().then((race) => { if (!cancelled) setLaneRace(race); }).catch(() => { if (!cancelled) setLaneRace(EMPTY_LANE_RACE); });
+			api
+				.laneRace()
+				.then((race) => {
+					if (!cancelled) setLaneRace(race);
+				})
+				.catch(() => {
+					if (!cancelled) setLaneRace(EMPTY_LANE_RACE);
+				});
 		}
 		refreshLaneRace();
 		const laneRaceTimer = setInterval(refreshLaneRace, 15_000);
@@ -345,19 +390,25 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 		if (!wsConnected) return;
 		let cancelled = false;
 		const fetchedAt = Date.now();
-		api.listBots().then((freshBots) => {
-			if (cancelled) return;
-			applyFetchedBots(freshBots, fetchedAt);
-			for (const bot of freshBots) {
-				if (bot.status !== "connecting") continue;
-				api.getCurrentQr(bot.id).then((qr) => {
-					if (cancelled) return;
-					if (qr.phase) patchLoginPhase(bot.id, qr.phase);
-					if (!qr.url && !qr.pincode) return;
-					setQrByBot((prev) => ({ ...prev, [bot.id]: { url: qr.url, pincode: qr.pincode, phase: qr.phase } }));
-				}).catch(() => {});
-			}
-		}).catch(() => {});
+		api
+			.listBots()
+			.then((freshBots) => {
+				if (cancelled) return;
+				applyFetchedBots(freshBots, fetchedAt);
+				for (const bot of freshBots) {
+					if (bot.status !== "connecting") continue;
+					api
+						.getCurrentQr(bot.id)
+						.then((qr) => {
+							if (cancelled) return;
+							if (qr.phase) patchLoginPhase(bot.id, qr.phase);
+							if (!qr.url && !qr.pincode) return;
+							setQrByBot((prev) => ({ ...prev, [bot.id]: { url: qr.url, pincode: qr.pincode, phase: qr.phase } }));
+						})
+						.catch(() => {});
+				}
+			})
+			.catch(() => {});
 		return () => {
 			cancelled = true;
 		};
@@ -399,7 +450,9 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 
 	async function handleStopAll() {
 		const targets = bots.filter((b) => b.status !== "offline");
-		await Promise.all(targets.map((b) => api.stopBot(b.id).catch((err) => pushNotification(err instanceof Error ? err.message : String(err)))));
+		await Promise.all(
+			targets.map((b) => api.stopBot(b.id).catch((err) => pushNotification(err instanceof Error ? err.message : String(err)))),
+		);
 	}
 
 	async function handleDeleteBot(botId: number) {
@@ -427,7 +480,7 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 	async function handleToggleOwnerTesting(bot: Bot) {
 		try {
 			const updated = await api.updateBotSettings(bot.id, { allowOwnerTesting: !bot.allowOwnerTesting });
-			setBots((prev) => prev.map((item) => item.id === updated.id ? updated : item));
+			setBots((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
 		} catch (err) {
 			pushNotification(err instanceof Error ? err.message : String(err));
 		}
@@ -517,9 +570,19 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 
 	return (
 		<div style={{ display: "flex", height: "100vh", overflow: "hidden" }} className="app-shell dashboard-shell">
-			<Sidebar activeView={activeView} onNavigate={setActiveView} wsConnected={wsConnected} username={username} role={role} onLogout={handleLogout} />
+			<Sidebar
+				activeView={activeView}
+				onNavigate={setActiveView}
+				wsConnected={wsConnected}
+				username={username}
+				role={role}
+				onLogout={handleLogout}
+			/>
 
-			<div className="dashboard-content" style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+			<div
+				className="dashboard-content"
+				style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}
+			>
 				<Topbar
 					title={meta.title}
 					subtitle={meta.subtitle}
@@ -534,76 +597,81 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 					onShowHelp={() => setShowHelp(true)}
 				/>
 
-				<main className="dashboard-main" style={{ padding: "var(--space-lg)", flex: 1, overflowY: "auto", width: "100%", boxSizing: "border-box" }}>
-					{activeView === "overview" && (
-						<OverviewPage
-							bots={bots}
-							snapshot={snapshot}
-							fastSnapshot={fastSnapshot}
-							throughputPerMin={throughputPerMin}
-							autoReplyRatePercent={autoReplyRatePercent}
-							historySamples={dispatchSamples}
-							laneRace={laneRace}
-							health={health}
-							wsConnected={wsConnected}
-							onCreateBot={() => setActiveView("fleet")}
-							onViewFleet={() => setActiveView("fleet")}
-						/>
-					)}
+				<main
+					className="dashboard-main"
+					style={{ padding: "var(--space-lg)", flex: 1, overflowY: "auto", width: "100%", boxSizing: "border-box" }}
+				>
+					<Suspense fallback={<div className="hint">กำลังโหลดหน้า…</div>}>
+						{activeView === "overview" && (
+							<OverviewPage
+								bots={bots}
+								snapshot={snapshot}
+								fastSnapshot={fastSnapshot}
+								throughputPerMin={throughputPerMin}
+								autoReplyRatePercent={autoReplyRatePercent}
+								historySamples={dispatchSamples}
+								laneRace={laneRace}
+								health={health}
+								wsConnected={wsConnected}
+								onCreateBot={() => setActiveView("fleet")}
+								onViewFleet={() => setActiveView("fleet")}
+							/>
+						)}
 
-					{activeView === "fleet" && (
-						<BotFleetPage
-							bots={bots}
-							role={role}
-							selectedBotId={selectedBotId}
-							onSelect={(bot) => setSelectedBotId(bot.id)}
-							qrByBot={qrByBot}
-							confirmByBot={confirmByBot}
-							onCreateBot={handleCreateBot}
-							onStart={handleStart}
-							onStop={handleStop}
-							onDelete={handleDeleteBot}
-						/>
-					)}
+						{activeView === "fleet" && (
+							<BotFleetPage
+								bots={bots}
+								role={role}
+								selectedBotId={selectedBotId}
+								onSelect={(bot) => setSelectedBotId(bot.id)}
+								qrByBot={qrByBot}
+								confirmByBot={confirmByBot}
+								onCreateBot={handleCreateBot}
+								onStart={handleStart}
+								onStop={handleStop}
+								onDelete={handleDeleteBot}
+							/>
+						)}
 
-					{activeView === "rules" && (
-						<RulesPage
-							bots={bots}
-							role={role}
-							selectedBotId={selectedBotId}
-							onSelectBotId={setSelectedBotId}
-							onToggleOwnerTesting={handleToggleOwnerTesting}
-							rules={rules}
-							onCreate={handleCreateRule}
-							onToggle={handleToggleRule}
-							onUpdate={handleUpdateRule}
-							onDelete={handleDeleteRule}
-							chats={chats}
-							selectedMids={selectedMids}
-							onSelectMids={setSelectedMids}
-							onToggleChatEnabled={handleToggleChatEnabled}
-							onToggleChatAdminOnly={handleToggleChatAdminOnly}
-							scheduledPosts={scheduledPosts}
-							onCreateScheduledPost={handleCreateScheduledPost}
-							onUpdateScheduledPost={handleUpdateScheduledPost}
-							onToggleScheduledPost={handleToggleScheduledPost}
-							onDeleteScheduledPost={handleDeleteScheduledPost}
-						/>
-					)}
+						{activeView === "rules" && (
+							<RulesPage
+								bots={bots}
+								role={role}
+								selectedBotId={selectedBotId}
+								onSelectBotId={setSelectedBotId}
+								onToggleOwnerTesting={handleToggleOwnerTesting}
+								rules={rules}
+								onCreate={handleCreateRule}
+								onToggle={handleToggleRule}
+								onUpdate={handleUpdateRule}
+								onDelete={handleDeleteRule}
+								chats={chats}
+								selectedMids={selectedMids}
+								onSelectMids={setSelectedMids}
+								onToggleChatEnabled={handleToggleChatEnabled}
+								onToggleChatAdminOnly={handleToggleChatAdminOnly}
+								scheduledPosts={scheduledPosts}
+								onCreateScheduledPost={handleCreateScheduledPost}
+								onUpdateScheduledPost={handleUpdateScheduledPost}
+								onToggleScheduledPost={handleToggleScheduledPost}
+								onDeleteScheduledPost={handleDeleteScheduledPost}
+							/>
+						)}
 
-					{activeView === "feed" && (
-						<LiveFeedPage
-						bots={bots}
-						role={role}
-						selectedGroupKey={selectedFeedGroupKey}
-						onSelectGroupKey={setSelectedFeedGroupKey}
-						feed={feed}
-					/>
-					)}
+						{activeView === "feed" && (
+							<LiveFeedPage
+								bots={bots}
+								role={role}
+								selectedGroupKey={selectedFeedGroupKey}
+								onSelectGroupKey={setSelectedFeedGroupKey}
+								feed={feed}
+							/>
+						)}
 
-					{activeView === "users" && role === "admin" && <UsersPage onNotify={pushNotification} />}
-					{activeView === "logs" && role === "admin" && <LogsPage bots={bots} onNotify={pushNotification} />}
-					{activeView === "settings" && <SettingsPage username={username} role={role} onLogout={handleLogout} />}
+						{activeView === "users" && role === "admin" && <UsersPage onNotify={pushNotification} />}
+						{activeView === "logs" && role === "admin" && <LogsPage bots={bots} onNotify={pushNotification} />}
+						{activeView === "settings" && <SettingsPage username={username} role={role} onLogout={handleLogout} />}
+					</Suspense>
 				</main>
 			</div>
 

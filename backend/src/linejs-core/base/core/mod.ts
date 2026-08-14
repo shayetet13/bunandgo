@@ -39,8 +39,14 @@ import {
 	type HotLineFetch,
 } from "../../../dispatch/direct-request.ts";
 import { attachRawDispatchBody } from "../../../dispatch/raw-response.ts";
-import { PREWARM_SQUARE_ACK, PREWARM_TALK_ACK } from "../../../dispatch/prewarm-ack.ts";
-import { currentPrewarmScope, runInPrewarmScope } from "../../../dispatch/prewarm-scope.ts";
+import {
+	PREWARM_SQUARE_ACK,
+	PREWARM_TALK_ACK,
+} from "../../../dispatch/prewarm-ack.ts";
+import {
+	currentPrewarmScope,
+	runInPrewarmScope,
+} from "../../../dispatch/prewarm-scope.ts";
 import { Polling } from "../polling/mod.ts";
 import { ConnManager } from "../push/mod.ts";
 
@@ -144,7 +150,8 @@ export class BaseClient extends TypedEventEmitter<ClientEvents> {
 	#customFetch?: FetchLike;
 	#hotFetch?: HotLineFetch;
 	#hotPrewarmFetch?: HotLineFetch;
-	readonly debugLogsEnabled = globalThis.process?.env?.LINEJS_DEBUG_LOGS === "1";
+	readonly debugLogsEnabled =
+		globalThis.process?.env?.LINEJS_DEBUG_LOGS === "1";
 	disabled?: boolean;
 	profile?: LINETypes.Profile;
 	config: Config;
@@ -227,7 +234,8 @@ export class BaseClient extends TypedEventEmitter<ClientEvents> {
 		// failures. Full protocol and Square fetch diagnostics remain available
 		// behind their opt-in environment switches. Logging one line per empty
 		// long-poll competes with replies through stdout/journald over time.
-		const squareDiagnosticsEnabled = globalThis.process?.env?.LINEJS_SQUARE_DIAGNOSTICS === "1";
+		const squareDiagnosticsEnabled =
+			globalThis.process?.env?.LINEJS_SQUARE_DIAGNOSTICS === "1";
 		if (
 			globalThis.process?.env?.LINEJS_DEBUG_LOGS !== "1" &&
 			!type.startsWith("SignOnResponseError") &&
@@ -236,21 +244,32 @@ export class BaseClient extends TypedEventEmitter<ClientEvents> {
 			type !== "LegyPusherError_cannot_init" &&
 			type !== "TalkMessageError" &&
 			type !== "ListenerStopped"
-		) return;
+		) {
+			return;
+		}
 		this.emit("log", { type, data });
 	}
 	getToType(mid: string): number | null {
-		const typeMapping: { [key: string]: number } = {
-			u: 0,
-			r: 1,
-			c: 2,
-			s: 3,
-			m: 4,
-			p: 5,
-			v: 6,
-			t: 7,
-		};
-		return typeMapping[mid[0]] ?? null;
+		switch (mid[0]) {
+			case "u":
+				return 0;
+			case "r":
+				return 1;
+			case "c":
+				return 2;
+			case "s":
+				return 3;
+			case "m":
+				return 4;
+			case "p":
+				return 5;
+			case "v":
+				return 6;
+			case "t":
+				return 7;
+			default:
+				return null;
+		}
 	}
 	reqseqs?: Record<string, number>;
 	#reqseqPersistQueued = false;
@@ -337,8 +356,12 @@ export class BaseClient extends TypedEventEmitter<ClientEvents> {
 		if (currentPrewarmScope()) {
 			const prewarmFetch = this.#hotPrewarmFetch;
 			if (prewarmFetch) return prewarmFetch(info, init);
-			const body = String(info).includes("/SQ1") ? PREWARM_SQUARE_ACK : PREWARM_TALK_ACK;
-			return Promise.resolve(attachRawDispatchBody(new Response(body as BodyInit), body));
+			const body = String(info).includes("/SQ1")
+				? PREWARM_SQUARE_ACK
+				: PREWARM_TALK_ACK;
+			return Promise.resolve(
+				attachRawDispatchBody(new Response(body as BodyInit), body),
+			);
 		}
 		return hotFetch ? hotFetch(info, init) : this.fetch(info, init);
 	};
@@ -387,15 +410,16 @@ export class BaseClient extends TypedEventEmitter<ClientEvents> {
 			}
 			if (v instanceof Uint8Array) {
 				return `Uint8Array[${v.length}]<${
-					Array.from(v).map((e) => e.toString(16).padStart(2, "0")).join(" ")
+					Array.from(v)
+						.map((e) => e.toString(16).padStart(2, "0"))
+						.join(" ")
 				}>`;
 			}
 			if (v.type === "Buffer" && Array.isArray(v.data)) {
 				return `Buffer[${v.data.length}]<${
-					Array.from(v.data).map((e) => Number(e).toString(16).padStart(2, "0"))
-						.join(
-							" ",
-						)
+					Array.from(v.data)
+						.map((e) => Number(e).toString(16).padStart(2, "0"))
+						.join(" ")
 				}>`;
 			}
 			if (v instanceof Blob) {
@@ -410,9 +434,7 @@ export class BaseClient extends TypedEventEmitter<ClientEvents> {
 					const midType = key.match(/(.)[0123456789abcdef]{32}/);
 					if (midType && midType[1]) {
 						midCount++;
-						newObj[
-							`[${midType[1].toUpperCase()} mid ${midCount}]`
-						] = value;
+						newObj[`[${midType[1].toUpperCase()} mid ${midCount}]`] = value;
 					} else {
 						newObj[key] = value;
 					}

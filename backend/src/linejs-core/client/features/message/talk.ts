@@ -39,12 +39,14 @@ export class TalkMessage {
 	 * Replys to message.
 	 */
 	async reply(
-		input: string | {
-			e2ee?: boolean;
-			text?: string;
-			contentType?: ContentType;
-			contentMetadata?: Record<string, string>;
-		},
+		input:
+			| string
+			| {
+				e2ee?: boolean;
+				text?: string;
+				contentType?: ContentType;
+				contentMetadata?: Record<string, string>;
+			},
 	): Promise<void> {
 		if (typeof input === "string") {
 			return this.reply({
@@ -72,14 +74,16 @@ export class TalkMessage {
 	 * Sends to message.
 	 */
 	async send(
-		input: string | {
-			e2ee?: boolean;
-			text?: string;
-			contentType?: ContentType;
-			contentMetadata?: Record<string, string>;
-			relatedMessageId?: string;
-			location?: Location;
-		},
+		input:
+			| string
+			| {
+				e2ee?: boolean;
+				text?: string;
+				contentType?: ContentType;
+				contentMetadata?: Record<string, string>;
+				relatedMessageId?: string;
+				location?: Location;
+			},
 	): Promise<void> {
 		if (typeof input === "string") {
 			return this.reply({
@@ -146,9 +150,7 @@ export class TalkMessage {
 	 */
 	async unsend() {
 		if (!this.isMyMessage) {
-			throw new TypeError(
-				"Cannot unsend the message which is not yours.",
-			);
+			throw new TypeError("Cannot unsend the message which is not yours.");
 		}
 		await this.#client.base.talk.unsendMessage({
 			messageId: this.raw.id,
@@ -183,7 +185,7 @@ export class TalkMessage {
 		const emojiUrls: string[] = [];
 		const emojiData = this.raw.contentMetadata;
 		const replace = emojiData?.REPLACE
-			? JSON.parse(emojiData?.REPLACE) as EmojiMeta["REPLACE"]
+			? (JSON.parse(emojiData?.REPLACE) as EmojiMeta["REPLACE"])
 			: undefined;
 		const emojiResources = replace?.sticon?.resources ?? [];
 		for (const emoji of emojiResources) {
@@ -205,7 +207,7 @@ export class TalkMessage {
 		const mentionees: MentionTarget[] = [];
 		const mentionData = content.metadata;
 		const mention = mentionData?.MENTION
-			? JSON.parse(mentionData.MENTION) as MentionMeta["MENTION"]
+			? (JSON.parse(mentionData.MENTION) as MentionMeta["MENTION"])
 			: undefined;
 		const mentions = mention?.MENTIONEES ?? [];
 		for (const mention of mentions) {
@@ -242,7 +244,7 @@ export class TalkMessage {
 		const mentionData = content.metadata;
 		const emojiData = content.metadata;
 		const mention = mentionData?.MENTION
-			? JSON.parse(mentionData.MENTION) as MentionMeta["MENTION"]
+			? (JSON.parse(mentionData.MENTION) as MentionMeta["MENTION"])
 			: undefined;
 		const mentions = mention?.MENTIONEES ?? [];
 		mentions.forEach((e, i) => {
@@ -253,7 +255,7 @@ export class TalkMessage {
 			});
 		});
 		const replace = emojiData?.REPLACE
-			? JSON.parse(emojiData?.REPLACE) as EmojiMeta["REPLACE"]
+			? (JSON.parse(emojiData?.REPLACE) as EmojiMeta["REPLACE"])
 			: undefined;
 		const emojiResources = replace?.sticon?.resources ?? [];
 		emojiResources.forEach((e, i) => {
@@ -265,10 +267,7 @@ export class TalkMessage {
 			.forEach((e) => {
 				if (lastSplit - e.start) {
 					texts.push({
-						text: this.raw.text?.substring(
-							lastSplit,
-							e.start,
-						) as string,
+						text: this.raw.text?.substring(lastSplit, e.start) as string,
 					});
 				}
 				const content: DecorationsData = {
@@ -284,7 +283,7 @@ export class TalkMessage {
 					};
 				} else if (typeof e.mention === "number") {
 					const _mention = mentionData?.MENTION
-						? JSON.parse(mentionData.MENTION) as MentionMeta["MENTION"]
+						? (JSON.parse(mentionData.MENTION) as MentionMeta["MENTION"])
 						: undefined;
 					const mentions = _mention?.MENTIONEES ?? [];
 					const mention = mentions[e.mention];
@@ -306,9 +305,7 @@ export class TalkMessage {
 	 */
 	getSharedContact(): ContactMeta {
 		if (this.#content.type !== "CONTACT") {
-			throw new TypeError(
-				"The message does not share contact infomation.",
-			);
+			throw new TypeError("The message does not share contact infomation.");
 		}
 		const contactData = this.#content.metadata as unknown as ContactMeta;
 		return { mid: contactData.mid, displayName: contactData.displayName };
@@ -346,10 +343,7 @@ export class TalkMessage {
 			(this.raw.messageRelationType === 3 ||
 				this.raw.messageRelationType === "REPLY")
 		) {
-			return new UnresolvedTalkMessage(
-				this.raw.relatedMessageId,
-				this.#client,
-			);
+			return new UnresolvedTalkMessage(this.raw.relatedMessageId, this.#client);
 		}
 		return null;
 	}
@@ -359,25 +353,23 @@ export class TalkMessage {
 	 */
 	async getData(preview?: boolean): Promise<Blob> {
 		if (!hasContents.includes(this.#content.type as string)) {
-			throw new TypeError(
-				"message have no contents",
-			);
+			throw new TypeError("message have no contents");
 		}
 		if (this.raw.contentMetadata.DOWNLOAD_URL) {
 			if (preview) {
-				const r = await this.#client.base
-					.fetch(this.raw.contentMetadata.PREVIEW_URL);
+				const r = await this.#client.base.fetch(
+					this.raw.contentMetadata.PREVIEW_URL,
+				);
 				return await r.blob();
 			} else {
-				const r = await this.#client.base
-					.fetch(this.raw.contentMetadata.DOWNLOAD_URL);
+				const r = await this.#client.base.fetch(
+					this.raw.contentMetadata.DOWNLOAD_URL,
+				);
 				return await r.blob();
 			}
 		}
 		if (this.raw.chunks) {
-			const file = await this.#client.base.obs.downloadMediaByE2EE(
-				this.raw,
-			);
+			const file = await this.#client.base.obs.downloadMediaByE2EE(this.raw);
 			if (!file) {
 				throw new InternalError("ObsError", "Download failed");
 			}
@@ -417,18 +409,7 @@ export class TalkMessage {
 	get text(): string {
 		return this.raw.text;
 	}
-	/*
-	static fromSource(
-		source: SourceEvent & { type: "talk" },
-		client: Client,
-	): Promise<TalkMessage> {
-		return this.fromRawTalk(source.event.message, client);
-	}
-	*/
-	static async fromRawTalk(
-		raw: Message,
-		client: Client,
-	): Promise<TalkMessage> {
+	static async fromRawTalk(raw: Message, client: Client): Promise<TalkMessage> {
 		if (raw.contentMetadata.e2eeVersion) {
 			raw = await client.base.e2ee.decryptE2EEMessage(raw);
 		}
@@ -441,10 +422,8 @@ export class TalkMessage {
 
 export class UnresolvedTalkMessage {
 	readonly id: string;
-	readonly #client: Client;
-	constructor(id: string, client: Client) {
+	constructor(id: string, _client: Client) {
 		this.id = id;
-		this.#client = client;
 	}
 	then(_resolve: (value: TalkMessage) => void) {
 		throw new Error("Method not implemented.");

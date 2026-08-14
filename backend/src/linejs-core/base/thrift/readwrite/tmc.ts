@@ -64,7 +64,7 @@ export class TMoreCompactProtocol {
 			this.currentPosition += 1;
 			result |= BigInt(byte & 127) << BigInt(shift);
 			if ((byte & 128) !== 128) {
-				return (result > Number.MAX_SAFE_INTEGER)
+				return result > Number.MAX_SAFE_INTEGER
 					? <LooseType> result
 					: Number(result);
 			}
@@ -134,8 +134,6 @@ export class TMoreCompactProtocol {
 		let value: unknown = null;
 		let temp: unknown = null;
 		let valData: unknown = null;
-		// deno-lint-ignore no-unused-vars
-		let subType: number[] | null = null;
 
 		if (typeId === 2) {
 			// BOOL
@@ -169,23 +167,18 @@ export class TMoreCompactProtocol {
 			valData = {};
 
 			for (const fid of fieldIds) {
-				const [_, fieldValue] = this.readDataByType(
-					this.getNextType(),
-					fid,
-				);
+				const [_, fieldValue] = this.readDataByType(this.getNextType(), fid);
 				(<LooseType> valData)[fid] = fieldValue;
 			}
 		} else if (typeId === 13) {
 			// MAP
 			value = {} as Record<string, unknown>;
 			const mapSize = this.readVarint();
-			subType = [0, 0];
 			valData = {} as Record<string, unknown>;
 
 			if (mapSize !== 0) {
 				const typesByte = this.readSingleByte();
 				const [keyType, valueType] = this.decodeMapTypes(typesByte);
-				subType = [keyType, valueType];
 
 				for (let i = 0; i < mapSize; i++) {
 					const [, kVal] = this.readDataByType(keyType);
@@ -201,18 +194,16 @@ export class TMoreCompactProtocol {
 
 			let count = sizeType >> 4;
 			const elementType = sizeType & 0x0f;
+			const elementTType = this.convertCompactTypeToTType(elementType);
 
 			if (count === 15) {
 				count = this.readVarint();
 			}
 
-			subType = [this.convertCompactTypeToTType(elementType)];
 			valData = [];
 
 			for (let i = 0; i < count; i++) {
-				const [, val] = this.readDataByType(
-					this.convertCompactTypeToTType(elementType),
-				);
+				const [, val] = this.readDataByType(elementTType);
 				(<Array<LooseType>> valData).push(val);
 			}
 		} else if (typeId === 16) {
