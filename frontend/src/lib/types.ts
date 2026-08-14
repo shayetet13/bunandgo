@@ -135,6 +135,9 @@ export interface LaneStat {
 	pollRttMs?: number;
 	lastSendOkAt: number;
 	lastPollOkAt: number;
+	applicationRttMs?: number;
+	applicationSampleAt: number;
+	routingEligible: boolean;
 	consecutiveFailures: number;
 }
 
@@ -281,6 +284,9 @@ export interface LaneRaceLane {
 	inFlight: number;
 	sendRttMs?: number;
 	pollRttMs?: number;
+	applicationRttMs?: number;
+	applicationSampleAt: number;
+	routingEligible: boolean;
 	send: LaneRaceScore;
 	poll: LaneRaceScore;
 }

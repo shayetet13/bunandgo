@@ -98,6 +98,9 @@ interface LaneRaceResponseLane {
 	inFlight: number;
 	sendRttMs?: number;
 	pollRttMs?: number;
+	applicationRttMs?: number;
+	applicationSampleAt: number;
+	routingEligible: boolean;
 	send: LaneRaceScore;
 	poll: LaneRaceScore;
 }
@@ -117,11 +120,18 @@ metricsRoute.get("/lane-race", (c) => {
 			inFlight: lane.inFlight,
 			sendRttMs: lane.sendRttMs,
 			pollRttMs: lane.pollRttMs,
+			applicationRttMs: lane.applicationRttMs,
+			applicationSampleAt: lane.applicationSampleAt,
+			routingEligible: lane.routingEligible,
 			send: laneRaceScore(lane.origin, lane.id, "send"),
 			poll: laneRaceScore(lane.origin, lane.id, "poll"),
 		};
 	});
-	lanes.sort((a, b) => (b.send.stars + b.poll.stars) - (a.send.stars + a.poll.stars) || a.laneId - b.laneId);
+	lanes.sort((a, b) =>
+		Number(b.routingEligible) - Number(a.routingEligible) ||
+		(a.applicationRttMs ?? Number.POSITIVE_INFINITY) - (b.applicationRttMs ?? Number.POSITIVE_INFINITY) ||
+		a.laneId - b.laneId
+	);
 	return c.json({
 		retentionDays: LANE_RACE_RETENTION_DAYS,
 		lanes,

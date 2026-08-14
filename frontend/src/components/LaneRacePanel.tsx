@@ -1,3 +1,4 @@
+import { laneRoutingState } from "../lib/lane-routing-state.ts";
 import type { LaneRaceSnapshot } from "../lib/types.ts";
 
 interface LaneRacePanelProps {
@@ -19,7 +20,7 @@ export function LaneRacePanel({ race }: LaneRacePanelProps) {
 				<div>
 					<div className="label" style={{ color: "var(--signal-go)" }}>LANE RACE</div>
 					<div style={{ fontWeight: 700, marginTop: 3 }}>แข่งความเร็วของเลน · สดและย้อนหลัง {race.retentionDays || 30} วัน</div>
-					<p className="hint" style={{ margin: "0.35rem 0 0" }}>บันทึกแบบ batch นอก hot path และโหลดคะแนนกลับหลังรีสตาร์ต · SEND แข่งส่งจริงเฉพาะเลนที่เลือก · POLL วัดทุกเลนแล้วใช้เลนเร็วสุด</p>
+					<p className="hint" style={{ margin: "0.35rem 0 0" }}>HOT = ผลวัดงานจริงล่าสุดยังใหม่และต่ำกว่า 23ms · COOL = ไม่ถูกเลือกใน hot path ตอนนี้ · ดาวเป็นคะแนนย้อนหลังเท่านั้น</p>
 				</div>
 				<div className="chip chip--go">⭐ ครบ 10 = ดาวใหญ่</div>
 			</div>
@@ -31,9 +32,9 @@ export function LaneRacePanel({ race }: LaneRacePanelProps) {
 					const activeScore = lane.send.samples > 0 ? lane.send : lane.poll;
 					const total = activeScore.stars + activeScore.bananas;
 					const winRate = total ? Math.round(activeScore.stars / total * 100) : 0;
-					const state = activeScore.samples === 0 ? "WAIT" : activeScore.stars >= activeScore.bananas ? "HOT" : "COOL";
+					const state = laneRoutingState(lane);
 					const stateClass = state === "HOT" ? "chip--go" : state === "COOL" ? "chip--bad" : "";
-					const rtt = lane.sendRttMs ?? lane.pollRttMs ?? activeScore.avgRttMs;
+					const rtt = lane.applicationRttMs ?? activeScore.avgRttMs;
 					return (
 						<div key={`${lane.origin}-${lane.laneId}`} style={{ display: "grid", gridTemplateColumns: "minmax(110px, 1fr) auto auto", gap: "var(--space-sm)", alignItems: "center", padding: "0.55rem 0.65rem", border: "1px solid var(--border-hair)", borderRadius: "var(--radius-sm)" }}>
 							<div style={{ minWidth: 0 }}>

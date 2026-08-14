@@ -157,6 +157,10 @@ export interface LaneStat {
 	pollRttMs?: number;
 	lastSendOkAt: number;
 	lastPollOkAt: number;
+	/** Freshest real send/poll RTT — the same value used by hot routing. */
+	applicationRttMs?: number;
+	applicationSampleAt: number;
+	routingEligible: boolean;
 	consecutiveFailures: number;
 	openedAt: number;
 }
@@ -1010,8 +1014,10 @@ export function laneFetch(info: RequestInfo | URL, init?: RequestInit): Promise<
 
 export function laneStats(): LaneStat[] {
 	const stats: LaneStat[] = [];
+	const now = Date.now();
 	for (const [origin, lanes] of pools) {
 		for (const lane of lanes) {
+			const applicationRttMs = measuredApplicationRtt(lane);
 			stats.push({
 				origin,
 				id: lane.id,
@@ -1023,6 +1029,9 @@ export function laneStats(): LaneStat[] {
 				pollRttMs: lane.pollRttMs,
 				lastSendOkAt: lane.lastSendOkAt,
 				lastPollOkAt: lane.lastPollOkAt,
+				applicationRttMs,
+				applicationSampleAt: applicationSampleAt(lane),
+				routingEligible: isUsable(lane) && hasFreshEligibleApplicationSample(lane, now),
 				consecutiveFailures: lane.consecutiveFailures,
 				openedAt: lane.openedAt,
 			});

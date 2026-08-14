@@ -25,8 +25,8 @@ function stateChipClass(state: LaneStat["state"]): string {
 	return "chip--bad";
 }
 
-/** [good, warn] ceilings in ms — above `warn` reads as bad. Real LINE round trips normally land in the 15-50ms band; this project's own floor is Akamai-to-Akamai, so anything sustained past 80ms is worth a look. */
-function rttToneClass(ms: number): string {
+function rttToneClass(ms: number, applicationMeasurement: boolean, routingEligible: boolean): string {
+	if (applicationMeasurement) return routingEligible ? "chip--go" : "chip--bad";
 	if (ms <= 40) return "chip--go";
 	if (ms <= 80) return "chip--warn";
 	return "chip--bad";
@@ -53,7 +53,7 @@ export function NetworkSpeedPanel({ lanes }: NetworkSpeedPanelProps) {
 					<div className="hint">ยังไม่มี connection ที่ยืนยันสถานะ — รอข้อความหรือ ping รอบแรก</div>
 				) : (
 					live.map((lane) => {
-						const applied = lane.sendRttMs ?? lane.pollRttMs;
+						const applied = lane.applicationRttMs;
 						const primary = applied ?? lane.rttMs;
 						return (
 							<div
@@ -87,7 +87,7 @@ export function NetworkSpeedPanel({ lanes }: NetworkSpeedPanelProps) {
 									title={applied !== undefined ? "วัดจากงานจริง (ส่งข้อความ/poll)" : "ยังไม่มีงานจริงผ่านเลนนี้"}
 								>
 									{primary !== undefined ? (
-										<span className={`chip ${rttToneClass(primary)} mono`}>{primary.toFixed(1)}ms</span>
+										<span className={`chip ${rttToneClass(primary, applied !== undefined, lane.routingEligible)} mono`}>{primary.toFixed(1)}ms</span>
 									) : (
 										<span className="hint">—</span>
 									)}
