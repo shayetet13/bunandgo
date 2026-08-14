@@ -471,10 +471,18 @@ describe("rolling lane refresh", () => {
 		expect(selectDegradedLaneForRepair(lanes, 23)?.id).toBe(2);
 	});
 
-	test("does not churn connections when every measured route is over 23ms", () => {
+	test("keeps the fastest fallback and repairs only the worst lane when every route is over 23ms", () => {
 		const lanes = [
 			{ id: 0, state: "ready" as const, inFlight: 0, openedAt: old, sendRttMs: 24, lastSendOkAt: now, lastOkAt: now },
 			{ id: 1, state: "ready" as const, inFlight: 0, openedAt: old, pollRttMs: 31, lastPollOkAt: now, lastOkAt: now },
+			{ id: 2, state: "ready" as const, inFlight: 0, openedAt: old, pollRttMs: 27, lastPollOkAt: now, lastOkAt: now },
+		];
+		expect(selectDegradedLaneForRepair(lanes, 23)?.id).toBe(1);
+	});
+
+	test("never repairs the only measured route", () => {
+		const lanes = [
+			{ id: 0, state: "ready" as const, inFlight: 0, openedAt: old, sendRttMs: 31, lastSendOkAt: now, lastOkAt: now },
 		];
 		expect(selectDegradedLaneForRepair(lanes, 23)).toBeUndefined();
 	});

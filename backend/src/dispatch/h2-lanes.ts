@@ -513,16 +513,19 @@ export function selectDegradedLaneForRepair<T extends RecyclableLane & LaneChoic
 	ceilingMs: number = APPLICATION_LANE_CEILING_MS,
 ): T | undefined {
 	const ready = lanes.filter((lane) => lane.state === "ready");
-	const hasHealthyStandby = ready.some((lane) => {
-		const rtt = measuredApplicationRtt(lane);
-		return rtt !== undefined && rtt < ceilingMs;
-	});
-	if (!hasHealthyStandby) return undefined;
+	const measured = ready.filter((lane) => measuredApplicationRtt(lane) !== undefined);
+	if (measured.length < 2) return undefined;
+	// When every route is over the ceiling, retain the fastest measured lane
+	// as the live fallback while one worse idle connection looks for a new
+	// edge. This makes forward progress without ever draining the best route.
+	const fastest = [...measured].sort((left, right) =>
+		measuredApplicationRtt(left)! - measuredApplicationRtt(right)! || left.id - right.id
+	)[0]!;
 
-	return ready
+	return measured
 		.filter((lane) => {
 			const rtt = measuredApplicationRtt(lane);
-			return lane.inFlight === 0 && rtt !== undefined && rtt >= ceilingMs;
+			return lane.id !== fastest.id && lane.inFlight === 0 && rtt !== undefined && rtt >= ceilingMs;
 		})
 		.sort((left, right) =>
 			(measuredApplicationRtt(right)! - measuredApplicationRtt(left)!) ||
