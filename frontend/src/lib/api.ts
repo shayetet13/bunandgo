@@ -128,6 +128,10 @@ export const api = {
 	metricsSummary: () => request<MetricsSummary>("/api/metrics/summary"),
 	laneRace: () => request<LaneRaceSnapshot>("/api/metrics/lane-race"),
 	health: () => request<HealthStatus>("/api/health"),
+	restartWorker: () => request<{ ok: true; unit: string; requestedAt: number }>("/api/system/restart-worker", {
+		method: "POST",
+		body: JSON.stringify({ confirm: "restart-linebot-worker" }),
+	}),
 
 	// Logs page (admin only) — `from`/`to` are epoch-ms bounds.
 	metricsHistoryRange: (from: number, to: number, limit = 500) =>

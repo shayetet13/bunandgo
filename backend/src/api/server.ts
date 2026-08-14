@@ -18,6 +18,7 @@ import { metricsRoute } from "./routes/metrics.ts";
 import { healthRoute } from "./routes/health.ts";
 import { usersRoute } from "./routes/users.ts";
 import { logsRoute } from "./routes/logs.ts";
+import { systemRoute } from "./routes/system.ts";
 import { confirmRoute } from "./routes/confirm.ts";
 import { securityHeaders } from "./security-headers.ts";
 import {
@@ -80,6 +81,7 @@ app.use("/api/health", requireAuth);
 app.use("/api/users", requireAuth);
 app.use("/api/users/*", requireAuth);
 app.use("/api/logs/*", requireAuth);
+app.use("/api/system/*", requireAuth);
 
 // Keep one public Nginx upstream (the control plane), then route every
 // runtime-sensitive operation to the process that owns the bot/user.
@@ -103,6 +105,7 @@ app.route("/api/metrics", metricsRoute);
 app.route("/api/health", healthRoute);
 app.route("/api/users", usersRoute);
 app.route("/api/logs", logsRoute);
+app.route("/api/system", systemRoute);
 // Deliberately outside requireAuth — see confirm.ts for why.
 app.route("/api/confirm", confirmRoute);
 

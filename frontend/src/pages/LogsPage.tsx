@@ -47,6 +47,7 @@ const USER_ACTION_LABELS: Record<string, string> = {
 	"auth.login.failed": "เข้าสู่ระบบไม่สำเร็จ",
 	"auth.login.throttled": "ล็อกอินถูกจำกัดชั่วคราว",
 	"bot.create": "สร้างบอท",
+	"system.worker.restart.requested": "สั่งรีสตาร์ท linebot-worker",
 };
 
 function userActionLabel(action: string): string {

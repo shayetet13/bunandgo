@@ -1,5 +1,10 @@
 import { enqueueUserAction } from "../db/write-behind.ts";
+import { db } from "../db/sqlite.ts";
 import type { AuthUser } from "./users.ts";
+
+const immediateUserActionStmt = db.prepare<null, [number | null, string, number, string, string | null]>(
+	"INSERT INTO user_actions (user_id, username, ts, action, detail) VALUES (?, ?, ?, ?, ?)",
+);
 
 /**
  * Persists an audit-trail entry for something an authenticated user did
@@ -18,6 +23,15 @@ export function logUserAction(user: AuthUser, action: string, detail?: unknown):
 		action,
 		detail: detail === undefined ? null : JSON.stringify(detail),
 	});
+}
+
+/**
+ * Persists an audit entry before an operation that is about to terminate this
+ * process. The normal write-behind worker is deliberately not used here: a
+ * service restart can kill it before the queued message reaches SQLite.
+ */
+export function logUserActionImmediately(user: AuthUser, action: string, detail?: unknown): void {
+	immediateUserActionStmt.run(user.id, user.username, Date.now(), action, detail === undefined ? null : JSON.stringify(detail));
 }
 
 /**
