@@ -3,6 +3,7 @@ import type { Context } from "hono";
 import { z } from "zod";
 import { formatZodError } from "../validate.ts";
 import {
+	clearStoredAuthToken,
 	deleteBotSession,
 	disarmScheduledPostTimer,
 	getCurrentQr,
@@ -182,10 +183,27 @@ botDetailRoute.patch("/settings", async (c) => {
 // replacement needs to scan in. Deliberately narrower than the owner-or-
 // admin check the rest of this router uses: letting the owner self-serve
 // this would let whoever controls that login also clear its own lock.
-botDetailRoute.post("/reset-id-lock", requireAdmin, (c) => {
+//
+// Clearing locked_line_mid alone is not enough: as long as the bot's
+// stored LINE session token is still valid, its next "start" resumes that
+// same old account via resumeWithStoredToken (session-manager.ts) without
+// ever presenting a fresh QR, and immediately re-locks right back to it.
+// The stored token must go too — which means logging that session off
+// first if it is still running, so nothing is using the account this
+// action is meant to release.
+botDetailRoute.post("/reset-id-lock", requireAdmin, async (c) => {
 	const botId = botIdOf(c);
 	const bot = getBot(botId);
 	if (!bot) return c.json({ error: "bot not found" }, 404);
+	if (bot.status !== "offline") {
+		try {
+			stopBot(botId);
+		} catch (error) {
+			if (error instanceof WorkerScopeError) return c.json({ error: error.message }, 409);
+			throw error;
+		}
+	}
+	await clearStoredAuthToken(botId);
 	resetBotLockedLineMid(botId);
 	logUserAction(requestUser(c)!, "bot.reset_id_lock", { botId, botName: bot.name });
 	return c.json({ ok: true });

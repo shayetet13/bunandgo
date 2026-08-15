@@ -488,8 +488,11 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 	async function handleResetIdLock(botId: number) {
 		try {
 			await api.resetBotIdLock(botId);
-			setBots((prev) => prev.map((b) => (b.id === botId ? { ...b, lockedLineMid: null } : b)));
-			pushNotification("รีเซ็ตล็อกบัญชี LINE แล้ว — สแกน QR ครั้งถัดไปจะล็อกกับบัญชีใหม่โดยอัตโนมัติ");
+			// The backend stops the session as part of this action (see
+			// bot-detail.ts) — the WS bot_status event confirms it, but
+			// reflecting it here too avoids a stale "online" flash in between.
+			setBots((prev) => prev.map((b) => (b.id === botId ? { ...b, status: "offline", lockedLineMid: null } : b)));
+			pushNotification("รีเซ็ตล็อกบัญชี LINE และออกจากระบบ session เดิมแล้ว — กดเริ่มเพื่อสแกน QR บัญชีใหม่ได้เลย");
 		} catch (err) {
 			pushNotification(err instanceof Error ? err.message : String(err));
 		}

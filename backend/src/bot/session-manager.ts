@@ -934,6 +934,18 @@ async function resumeWithStoredToken(botId: number, device: Device): Promise<Cli
 }
 
 /**
+ * Erases a bot's stored LINE session token without touching anything else
+ * (rules, chats, id lock). Its next login can then no longer silently
+ * resume the old account via `resumeWithStoredToken` above — it must
+ * present a fresh QR — which is what makes an admin's "reset lock" action
+ * (bot/bots.ts resetBotLockedLineMid) actually let a *different* account
+ * in, rather than immediately resuming and re-locking to the same one.
+ */
+export async function clearStoredAuthToken(botId: number): Promise<void> {
+	await new SqliteStorage(botId).delete(AUTH_TOKEN_KEY).catch(() => {});
+}
+
+/**
  * Persists the current token and every rotation LINE sends afterwards.
  *
  * LINE hands back a replacement token in `x-line-next-access` as sessions

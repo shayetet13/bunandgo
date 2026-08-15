@@ -246,7 +246,7 @@ export function BotsPanel({ bots, role, selectedBotId, onSelect, qrByBot, confir
 											<button
 												onClick={() => setConfirmResetIdLockId(bot.id)}
 												style={actionBtnStyle}
-												title="ปลดล็อกบัญชี LINE ของบอทนี้ — ใช้เมื่อบัญชีเดิมโดนแบน/ต้องเปลี่ยนบัญชีใหม่"
+												title="ปลดล็อกบัญชี LINE ของบอทนี้ — จะหยุดบอทและออกจากระบบ session เดิมด้วย ใช้เมื่อบัญชีเดิมโดนแบน/ต้องเปลี่ยนบัญชีใหม่"
 											>
 												รีเซ็ตล็อกบัญชี
 											</button>
