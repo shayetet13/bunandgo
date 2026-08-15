@@ -6,3 +6,9 @@
  */
 process.env.ADMIN_USERNAME ??= "test-admin";
 process.env.ADMIN_PASSWORD ??= "test-admin-password-fixture";
+
+// session-manager.ts requires this at module load time (shared secret with
+// backend/sender). Setting it here means whichever test file happens to be
+// the first to pull that module in transitively no longer depends on load
+// order relative to worker-proxy.test.ts's own inline fallback.
+process.env.DISPATCH_TOKEN ??= "test-dispatch-token-fixture";

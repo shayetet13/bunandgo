@@ -1,5 +1,6 @@
 import type { Context, Next } from "hono";
 import { config } from "../config.ts";
+import { isTrustedWorkerForward } from "./worker-proxy.ts";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
@@ -19,6 +20,14 @@ function trustedBrowserOrigin(c: Context): boolean {
 /** Blocks browser cross-site writes while preserving CLI/internal callers. */
 export async function rejectCrossSiteWrite(c: Context, next: Next) {
 	if (SAFE_METHODS.has(c.req.method)) return await next();
+	// A request the control plane already verified and forwarded to this
+	// shard (see worker-proxy.ts's proxyRequestToWorker) carries the
+	// original browser's Origin untouched but a rewritten Host — it's a
+	// server-to-server hop authenticated by the shared control token, not a
+	// browser navigation, so the same-origin check below does not apply to
+	// it at all and would otherwise reject every owner-scoped write for
+	// whichever owner happens to live on a shard.
+	if (isTrustedWorkerForward(c)) return await next();
 	if (c.req.header("sec-fetch-site") === "cross-site" || !trustedBrowserOrigin(c)) {
 		return c.json({ error: "cross-site request rejected" }, 403);
 	}
