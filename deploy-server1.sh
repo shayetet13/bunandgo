@@ -166,7 +166,7 @@ ls -la ~/bunandgo/frontend/dist/index.html | head -1
 
 echo ""
 echo "--- Nginx Config Check ---"
-sudo nginx -t 2>&1 | head -1
+sudo nginx -t
 
 HEALTH_CHECK
 
