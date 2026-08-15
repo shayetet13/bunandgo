@@ -1,6 +1,6 @@
 import { db } from "../db/sqlite.ts";
 import type { UserRole, UserRow } from "../db/schema.ts";
-import { hashPassword } from "./password.ts";
+import { hashPassword, verifyPassword } from "./password.ts";
 
 export interface AuthUser {
 	id: number;
@@ -49,6 +49,7 @@ const createStmt = db.prepare<UserRow, [string, string, number]>(
 );
 const setActiveStmt = db.prepare<null, [number, number]>("UPDATE users SET active = ? WHERE id = ? AND role = 'user'");
 const setBotQuotaStmt = db.prepare<null, [number, number]>("UPDATE users SET bot_quota = ? WHERE id = ? AND role = 'user'");
+const setPasswordStmt = db.prepare<null, [string, number]>("UPDATE users SET password_hash = ? WHERE id = ? AND active = 1");
 const deleteSessionsStmt = db.prepare<null, [number]>("DELETE FROM auth_sessions WHERE user_id = ?");
 const deleteUserStmt = db.prepare<null, [number]>("DELETE FROM users WHERE id = ? AND role = 'user'");
 
@@ -127,6 +128,19 @@ export function createUser(username: string, password: string): ManagedUser {
 	if (findByUsernameStmt.get(value)) throw new UserValidationError("ชื่อผู้ใช้นี้มีอยู่แล้ว");
 	const row = createStmt.get(value, hashPassword(password), Date.now())!;
 	return { ...fromRow(row), createdAt: row.created_at, botCount: 0 };
+}
+
+/** Replaces the password and revokes every existing browser session. */
+export function changePassword(id: number, currentPassword: string, newPassword: string): boolean {
+	const row = getStmt.get(id);
+	if (!row || row.active === 0 || !verifyPassword(currentPassword, row.password_hash)) return false;
+	if (currentPassword === newPassword) throw new UserValidationError("รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านเดิม");
+	validatePassword(newPassword);
+	db.transaction(() => {
+		setPasswordStmt.run(hashPassword(newPassword), id);
+		deleteSessionsStmt.run(id);
+	})();
+	return true;
 }
 
 /**

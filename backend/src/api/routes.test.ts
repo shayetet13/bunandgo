@@ -262,6 +262,43 @@ describe("API routes", () => {
 		expect(me.botPricePerMonthThb).toBe(100);
 		cookie = adminCookie;
 	});
+
+	test("changes a password, revokes older sessions, and keeps the caller signed in", async () => {
+		cookie = adminCookie;
+		const created = await request("/api/users", {
+			method: "POST",
+			body: JSON.stringify({ username: "grace", password: "grace-old-secure-123" }),
+		});
+		expect(created.status).toBe(201);
+
+		const login = await request("/api/auth/login", {
+			method: "POST",
+			body: JSON.stringify({ username: "grace", password: "grace-old-secure-123" }),
+		});
+		const oldCookie = login.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
+		cookie = oldCookie;
+		const changed = await request("/api/auth/change-password", {
+			method: "POST",
+			body: JSON.stringify({ currentPassword: "grace-old-secure-123", newPassword: "grace-new-secure-456" }),
+		});
+		expect(changed.status).toBe(200);
+		const newCookie = changed.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
+		expect(newCookie).not.toBe(oldCookie);
+
+		cookie = oldCookie;
+		expect((await request("/api/bots")).status).toBe(401);
+		cookie = newCookie;
+		expect((await request("/api/bots")).status).toBe(200);
+		expect((await request("/api/auth/login", {
+			method: "POST",
+			body: JSON.stringify({ username: "grace", password: "grace-old-secure-123" }),
+		})).status).toBe(401);
+		expect((await request("/api/auth/login", {
+			method: "POST",
+			body: JSON.stringify({ username: "grace", password: "grace-new-secure-456" }),
+		})).status).toBe(200);
+		cookie = adminCookie;
+	});
 });
 
 describe("PATCH /api/users/:id refuses bot-affecting changes for a user outside this worker's scope", () => {

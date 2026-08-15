@@ -11,7 +11,7 @@ import {
 	sessionMaxAgeSeconds,
 } from "../../auth/session.ts";
 import type { AuthUser } from "../../auth/users.ts";
-import { BOT_PRICE_THB_PER_MONTH, MAX_BOT_QUOTA } from "../../auth/users.ts";
+import { BOT_PRICE_THB_PER_MONTH, changePassword, MAX_BOT_QUOTA, UserValidationError } from "../../auth/users.ts";
 import { clearLoginAttempts, tryAcquireLoginAttempt } from "../../auth/login-throttle.ts";
 import { logUnauthenticatedUserAction, logUserAction } from "../../auth/user-actions.ts";
 import { isSecureRequest } from "../request-protocol.ts";
@@ -89,6 +89,39 @@ authRoute.post("/logout", (c) => {
 	deleteCookie(c, SESSION_COOKIE, { path: "/" });
 	if (user) logUserAction(user, "logout");
 	return c.json({ ok: true });
+});
+
+const changePasswordBodySchema = z.object({
+	currentPassword: z.string().min(1).max(200),
+	newPassword: z.string().min(12).max(200),
+});
+
+authRoute.post("/change-password", async (c) => {
+	const token = getCookie(c, SESSION_COOKIE);
+	const user = getSessionUser(token);
+	if (!user) return c.json({ error: "unauthorized" }, 401);
+	const throttleKey = `password-change|${remoteAddress(c)}|${user.id}`;
+	const admission = tryAcquireLoginAttempt(throttleKey);
+	if (!admission.allowed) {
+		c.header("Retry-After", String(Math.ceil(admission.retryAfterMs / 1000)));
+		return c.json({ error: "พยายามเปลี่ยนรหัสผ่านบ่อยเกินไป กรุณาลองใหม่ภายหลัง" }, 429);
+	}
+	const result = changePasswordBodySchema.safeParse(await c.req.json().catch(() => undefined));
+	if (!result.success) return c.json({ error: "รหัสผ่านใหม่ต้องยาวอย่างน้อย 12 ตัวอักษร" }, 400);
+	try {
+		if (!changePassword(user.id, result.data.currentPassword, result.data.newPassword)) {
+			logUserAction(user, "auth.password.change.failed", { reason: "invalid_current_password" });
+			return c.json({ error: "รหัสผ่านปัจจุบันไม่ถูกต้อง" }, 400);
+		}
+		const newToken = createSession(user.id);
+		clearLoginAttempts(throttleKey);
+		writeSessionCookie(c, newToken, user);
+		logUserAction(user, "auth.password.changed");
+		return c.json({ ok: true });
+	} catch (error) {
+		if (error instanceof UserValidationError) return c.json({ error: error.message }, 400);
+		throw error;
+	}
 });
 
 authRoute.get("/me", (c) => {

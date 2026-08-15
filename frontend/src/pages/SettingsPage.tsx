@@ -20,6 +20,33 @@ function Row({ label, value }: { label: string; value: string }) {
 export function SettingsPage({ username, role, onLogout }: SettingsPageProps) {
 	const [restartState, setRestartState] = useState<"idle" | "requesting" | "waiting" | "ready" | "error">("idle");
 	const [restartMessage, setRestartMessage] = useState("");
+	const [currentPassword, setCurrentPassword] = useState("");
+	const [newPassword, setNewPassword] = useState("");
+	const [confirmPassword, setConfirmPassword] = useState("");
+	const [passwordState, setPasswordState] = useState<"idle" | "saving" | "done" | "error">("idle");
+	const [passwordMessage, setPasswordMessage] = useState("");
+
+	async function handleChangePassword(event: React.FormEvent) {
+		event.preventDefault();
+		if (newPassword !== confirmPassword) {
+			setPasswordState("error");
+			setPasswordMessage("ยืนยันรหัสผ่านใหม่ไม่ตรงกัน");
+			return;
+		}
+		setPasswordState("saving");
+		setPasswordMessage("กำลังเปลี่ยนรหัสผ่าน…");
+		try {
+			await api.changePassword(currentPassword, newPassword);
+			setCurrentPassword("");
+			setNewPassword("");
+			setConfirmPassword("");
+			setPasswordState("done");
+			setPasswordMessage("เปลี่ยนรหัสผ่านแล้ว และออกจากระบบอุปกรณ์อื่นทั้งหมดเรียบร้อย");
+		} catch (error) {
+			setPasswordState("error");
+			setPasswordMessage(error instanceof Error ? error.message : "เปลี่ยนรหัสผ่านไม่สำเร็จ");
+		}
+	}
 
 	async function waitForWorker(): Promise<boolean> {
 		const deadline = Date.now() + 90_000;
@@ -70,7 +97,7 @@ export function SettingsPage({ username, role, onLogout }: SettingsPageProps) {
 			<section className="panel" style={{ padding: "var(--space-md)" }}>
 				<div className="label" style={{ marginBottom: "var(--space-sm)" }}>เซสชัน</div>
 				<p className="hint" style={{ margin: "0 0 var(--space-sm)" }}>
-					เซสชันถูกเก็บอย่างปลอดภัยและใช้งานต่อได้หลังรีสตาร์ท จนกว่าจะออกจากระบบหรือ admin หยุดบัญชี
+					Admin หมดอายุเมื่อไม่ใช้งาน 30 นาทีและไม่เกิน 12 ชั่วโมง ส่วนผู้ใช้ทั่วไปไม่เกิน 7 วัน
 				</p>
 				<button
 					onClick={onLogout}
@@ -78,6 +105,19 @@ export function SettingsPage({ username, role, onLogout }: SettingsPageProps) {
 				>
 					ออกจากระบบ
 				</button>
+			</section>
+
+			<section className="panel" style={{ padding: "var(--space-md)" }}>
+				<div className="label" style={{ marginBottom: "var(--space-sm)" }}>เปลี่ยนรหัสผ่าน</div>
+				<form onSubmit={(event) => void handleChangePassword(event)} style={{ display: "grid", gap: "var(--space-sm)", maxWidth: 480 }}>
+					<input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} placeholder="รหัสผ่านปัจจุบัน" required maxLength={200} />
+					<input type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="รหัสผ่านใหม่ (อย่างน้อย 12 ตัว)" required minLength={12} maxLength={200} />
+					<input type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="ยืนยันรหัสผ่านใหม่" required minLength={12} maxLength={200} />
+					<button type="submit" disabled={passwordState === "saving"} style={{ justifySelf: "start", background: "transparent", border: "1px solid var(--border-strong)", color: "var(--text-primary)", borderRadius: "var(--radius-sm)", padding: "0.5rem 1rem", cursor: passwordState === "saving" ? "wait" : "pointer", fontWeight: 700 }}>
+						{passwordState === "saving" ? "กำลังบันทึก…" : "เปลี่ยนรหัสผ่าน"}
+					</button>
+				</form>
+				{passwordMessage && <p className="hint" style={{ margin: "var(--space-sm) 0 0", color: passwordState === "error" ? "var(--signal-bad)" : passwordState === "done" ? "var(--signal-go)" : undefined }}>{passwordMessage}</p>}
 			</section>
 
 			{role === "admin" && (
