@@ -8,8 +8,9 @@ import {
 	destroySession,
 	getSessionUser,
 	SESSION_COOKIE,
-	SESSION_MAX_AGE_SECONDS,
+	sessionMaxAgeSeconds,
 } from "../../auth/session.ts";
+import type { AuthUser } from "../../auth/users.ts";
 import { BOT_PRICE_THB_PER_MONTH, MAX_BOT_QUOTA } from "../../auth/users.ts";
 import { clearLoginAttempts, tryAcquireLoginAttempt } from "../../auth/login-throttle.ts";
 import { logUnauthenticatedUserAction, logUserAction } from "../../auth/user-actions.ts";
@@ -17,25 +18,27 @@ import { isSecureRequest } from "../request-protocol.ts";
 
 export const authRoute = new Hono();
 
-function writeSessionCookie(c: Parameters<typeof setCookie>[0], token: string): void {
+function writeSessionCookie(c: Parameters<typeof setCookie>[0], token: string, user: AuthUser): void {
 	setCookie(c, SESSION_COOKIE, token, {
 		httpOnly: true,
-		sameSite: "Lax",
+		sameSite: "Strict",
 		path: "/",
-		// Chromium caps persistent cookies at 400 days. `/me` and authenticated
-		// API calls renew this window, so an actively used login remains alive
-		// until explicit Logout.
-		maxAge: SESSION_MAX_AGE_SECONDS,
+		maxAge: sessionMaxAgeSeconds(user.role),
 		secure: isSecureRequest(c),
 	});
 }
 
 const loginBodySchema = z.object({
-	username: z.string().min(1),
-	password: z.string().min(1),
+	username: z.string().min(1).max(50),
+	password: z.string().min(1).max(200),
 });
 
 function remoteAddress(c: Parameters<typeof getConnInfo>[0]): string {
+	// Server 2 accepts API traffic only from our Nginx gateway, which replaces
+	// this header. It therefore identifies the browser more accurately than
+	// the WireGuard peer address seen by Bun.
+	const forwarded = c.req.header("x-real-ip")?.trim();
+	if (forwarded && forwarded.length <= 64 && /^[0-9a-f:.]+$/i.test(forwarded)) return forwarded;
 	// getConnInfo needs a real Bun.serve request context; falls back to a
 	// shared bucket (still throttled, just not per-IP) under Hono's in-memory
 	// `app.request()` test harness or any other adapter that doesn't provide it.
@@ -49,20 +52,21 @@ function remoteAddress(c: Parameters<typeof getConnInfo>[0]): string {
 authRoute.post("/login", async (c) => {
 	const rawBody = await c.req.json().catch(() => ({}));
 	const rawUsername = typeof (rawBody as { username?: unknown })?.username === "string" ? (rawBody as { username: string }).username : "";
+	const auditUsername = rawUsername.slice(0, 100);
 	const ip = remoteAddress(c);
-	const throttleKey = `${ip}|${rawUsername.toLowerCase()}`;
+	const throttleKey = `${ip}|${rawUsername.slice(0, 64).toLowerCase()}`;
 
 	// Throttle before validating so a flood of malformed bodies can't dodge the limiter.
 	const admission = tryAcquireLoginAttempt(throttleKey);
 	if (!admission.allowed) {
-		logUnauthenticatedUserAction(rawUsername, "auth.login.throttled", { ip });
+		logUnauthenticatedUserAction(auditUsername, "auth.login.throttled", { ip });
 		c.header("Retry-After", String(Math.ceil(admission.retryAfterMs / 1000)));
 		return c.json({ ok: false, error: "พยายามเข้าสู่ระบบบ่อยเกินไป กรุณาลองใหม่ภายหลัง" }, 429);
 	}
 
 	const result = loginBodySchema.safeParse(rawBody);
 	if (!result.success) {
-		logUnauthenticatedUserAction(rawUsername, "auth.login.failed", { ip, reason: "invalid_request" });
+		logUnauthenticatedUserAction(auditUsername, "auth.login.failed", { ip, reason: "invalid_request" });
 		return c.json({ ok: false, error: "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง" }, 400);
 	}
 
@@ -73,7 +77,7 @@ authRoute.post("/login", async (c) => {
 	}
 	clearLoginAttempts(throttleKey);
 	const token = createSession(user.id);
-	writeSessionCookie(c, token);
+	writeSessionCookie(c, token, user);
 	logUserAction(user, "auth.login.success", { ip });
 	return c.json({ ok: true, user: { username: user.username, role: user.role } });
 });
@@ -90,7 +94,6 @@ authRoute.post("/logout", (c) => {
 authRoute.get("/me", (c) => {
 	const token = getCookie(c, SESSION_COOKIE);
 	const user = getSessionUser(token);
-	if (user && token) writeSessionCookie(c, token);
 	return c.json({
 		authenticated: !!user,
 		username: user?.username ?? null,
@@ -102,5 +105,3 @@ authRoute.get("/me", (c) => {
 		botPricePerMonthThb: BOT_PRICE_THB_PER_MONTH,
 	});
 });
-
-export { writeSessionCookie };

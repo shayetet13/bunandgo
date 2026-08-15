@@ -6,7 +6,7 @@ import { createUser, setUserBotQuota, type AuthUser } from "../auth/users.ts";
 let nextUsername = 0;
 
 function makeUser(quota: number): AuthUser {
-	const user = createUser(`quota-test-${nextUsername++}`, "password123");
+	const user = createUser(`quota-test-${nextUsername++}`, "password-secure-123");
 	if (quota !== 1) setUserBotQuota(user.id, quota);
 	return { ...user, botQuota: quota };
 }

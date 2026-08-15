@@ -9,7 +9,7 @@ import { config } from "../config.ts";
 import { botEvents, resumePreviouslyRunningBots } from "../bot/session-manager.ts";
 import { recordAnomaly } from "../bot/anomalies.ts";
 import { getSessionUser, SESSION_COOKIE } from "../auth/session.ts";
-import { authRoute, writeSessionCookie } from "./routes/auth.ts";
+import { authRoute } from "./routes/auth.ts";
 import { canAccessBot, resequenceBotSlots } from "../bot/bots.ts";
 import type { AuthUser } from "../auth/users.ts";
 import { botsRoute } from "./routes/bots.ts";
@@ -21,6 +21,7 @@ import { logsRoute } from "./routes/logs.ts";
 import { systemRoute } from "./routes/system.ts";
 import { confirmRoute } from "./routes/confirm.ts";
 import { securityHeaders } from "./security-headers.ts";
+import { rejectCrossSiteWrite, rejectUntrustedWebSocketOrigin } from "./request-security.ts";
 import {
 	routeBotOwner,
 	routeConfirmationOwner,
@@ -47,6 +48,8 @@ app.use(
 	}),
 );
 app.use("*", securityHeaders);
+app.use("/api/*", rejectCrossSiteWrite);
+app.use("/ws", rejectUntrustedWebSocketOrigin);
 
 app.onError((err, c) => {
 	if (err instanceof HTTPException) return err.getResponse();
@@ -69,7 +72,6 @@ async function requireAuth(c: Context, next: Next) {
 	if (!getSessionUser(token)) {
 		return c.json({ error: "unauthorized" }, 401);
 	}
-	writeSessionCookie(c, token!);
 	await next();
 }
 

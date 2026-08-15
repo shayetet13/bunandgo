@@ -5,13 +5,11 @@ import { getCookie } from "hono/cookie";
 import { createSession, getSessionUser, SESSION_COOKIE } from "../../auth/session.ts";
 import { createUser } from "../../auth/users.ts";
 import { db } from "../../db/sqlite.ts";
-import { writeSessionCookie } from "./auth.ts";
 import { createSystemRoute } from "./system.ts";
 
 async function requireAuth(c: Context, next: Next) {
 	const token = getCookie(c, SESSION_COOKIE);
 	if (!getSessionUser(token)) return c.json({ error: "unauthorized" }, 401);
-	writeSessionCookie(c, token!);
 	await next();
 }
 

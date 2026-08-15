@@ -108,6 +108,20 @@ cd ~/${APP_DIR}/frontend
 bun install
 bun run build
 
+echo "--- Installing tested Nginx security policy ---"
+NGINX_SITE=/etc/nginx/sites-available/linebot
+NGINX_BACKUP=/tmp/linebot.nginx.before-deploy
+sudo cp "$NGINX_SITE" "$NGINX_BACKUP"
+sudo install -m 0644 ~/${APP_DIR}/deploy/server1/nginx-security-headers.conf /etc/nginx/snippets/linebot-security-headers.conf
+sudo install -m 0644 ~/${APP_DIR}/deploy/server1/nginx-linebot.conf "$NGINX_SITE"
+if ! sudo nginx -t; then
+	echo "--- Nginx policy invalid; restoring previous config ---"
+	sudo cp "$NGINX_BACKUP" "$NGINX_SITE"
+	sudo nginx -t
+	exit 1
+fi
+sudo systemctl reload nginx
+
 echo "--- Publishing frontend to Nginx ---"
 sudo rm -rf /var/www/linebot/*
 sudo cp -r ~/${APP_DIR}/frontend/dist/* /var/www/linebot/

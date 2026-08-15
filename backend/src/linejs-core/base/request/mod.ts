@@ -12,6 +12,21 @@ import { H2_LANE_ROLE_HEADER } from "../../../dispatch/h2-lanes.ts";
 import { markProtocolPrep } from "../../../metrics/fast-path.ts";
 
 const square = ["/SQ1", "/SQLV1"];
+const SENSITIVE_RESPONSE_HEADERS = /^(?:authorization|cookie|set-cookie|x-line-access|x-line-next-access|x-line-.*token)$/i;
+const ERROR_BODY_PREVIEW_BYTES = 256;
+
+export function safeResponseHeaders(headers: Headers): Array<[string, string]> {
+	return [...headers.entries()].map(([name, value]) => [
+		name,
+		SENSITIVE_RESPONSE_HEADERS.test(name) ? "[REDACTED]" : value,
+	]);
+}
+
+function hexBodyPreview(body: Uint8Array): string {
+	const preview = body.subarray(0, ERROR_BODY_PREVIEW_BYTES);
+	const hex = [...preview].map((value) => value.toString(16)).join(" ");
+	return body.byteLength > preview.byteLength ? `${hex} … (${body.byteLength} bytes total)` : hex;
+}
 
 /**
  * Request Client
@@ -202,8 +217,10 @@ export class RequestClient {
 			: await responseBody;
 		if (this.client.debugLogsEnabled) {
 			this.client.log("response", {
-				...response,
-				parsedBody,
+				status: response.status,
+				statusText: response.statusText,
+				headers: safeResponseHeaders(response.headers),
+				bodyBytes: parsedBody.byteLength,
 				methodName,
 			});
 		}
@@ -226,8 +243,8 @@ export class RequestClient {
 		} catch {
 			throw new Error(
 				`Request internal failed: status=${response.status} ` +
-					`headers=${JSON.stringify([...response.headers.entries()])} ` +
-					`body=<${[...parsedBody].map((e) => e.toString(16)).join(" ")}>`,
+					`headers=${JSON.stringify(safeResponseHeaders(response.headers))} ` +
+					`body=<${hexBodyPreview(parsedBody)}>`,
 			);
 		}
 		if (!res.data[0] && Object.keys(res.data).length) {

@@ -71,8 +71,8 @@ function validateUsername(username: string): string {
 }
 
 function validatePassword(password: string): void {
-	if (password.length < 6 || password.length > 200) {
-		throw new UserValidationError("รหัสผ่านต้องยาว 6-200 ตัวอักษร");
+	if (password.length < 12 || password.length > 200) {
+		throw new UserValidationError("รหัสผ่านต้องยาว 12-200 ตัวอักษร");
 	}
 }
 
@@ -94,8 +94,10 @@ function bootstrapAdmin(): UserRow {
 					"Set both env vars (see backend/.env.example) to bootstrap the first admin account.",
 			);
 		}
+		const validUsername = validateUsername(username);
+		validatePassword(password);
 		db.prepare("INSERT INTO users (username, password_hash, role, active, created_at) VALUES (?, ?, 'admin', 1, ?)")
-			.run(username, hashPassword(password), Date.now());
+			.run(validUsername, hashPassword(password), Date.now());
 	}
 	const admin = db.prepare<UserRow, []>("SELECT * FROM users WHERE role = 'admin' ORDER BY created_at ASC LIMIT 1").get()!;
 	db.prepare("UPDATE bots SET owner_user_id = ? WHERE owner_user_id IS NULL").run(admin.id);

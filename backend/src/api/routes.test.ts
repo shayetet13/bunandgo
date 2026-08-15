@@ -5,7 +5,7 @@ import { getCookie } from "hono/cookie";
 
 process.env.DISPATCH_TOKEN = "api-route-test-token";
 
-const { authRoute, writeSessionCookie } = await import("./routes/auth.ts");
+const { authRoute } = await import("./routes/auth.ts");
 const { SESSION_COOKIE } = await import("../auth/session.ts");
 const { botsRoute } = await import("./routes/bots.ts");
 const { botDetailRoute } = await import("./routes/bot-detail.ts");
@@ -33,7 +33,6 @@ let botId = 0;
 async function requireAuth(c: Context, next: Next) {
 	const token = getCookie(c, SESSION_COOKIE);
 	if (!isValidSession(token)) return c.json({ error: "unauthorized" }, 401);
-	writeSessionCookie(c, token!);
 	await next();
 }
 
@@ -55,7 +54,12 @@ beforeAll(async () => {
 		body: JSON.stringify({ username: process.env.ADMIN_USERNAME, password: process.env.ADMIN_PASSWORD }),
 	});
 	expect(login.status).toBe(200);
-	cookie = login.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
+	const sessionCookie = login.headers.get("set-cookie") ?? "";
+	expect(sessionCookie).toContain(`${SESSION_COOKIE}=`);
+	expect(sessionCookie).toContain("HttpOnly");
+	expect(sessionCookie).toContain("SameSite=Strict");
+	expect(sessionCookie).toContain("Max-Age=43200");
+	cookie = sessionCookie.split(";", 1)[0] ?? "";
 	adminCookie = cookie;
 });
 
@@ -148,18 +152,18 @@ describe("API routes", () => {
 		cookie = adminCookie;
 		const aliceResponse = await request("/api/users", {
 			method: "POST",
-			body: JSON.stringify({ username: "alice", password: "alice123" }),
+			body: JSON.stringify({ username: "alice", password: "alice-secure-123" }),
 		});
 		expect(aliceResponse.status).toBe(201);
 		const alice = await aliceResponse.json() as { id: number };
 		expect((await request("/api/users", {
 			method: "POST",
-			body: JSON.stringify({ username: "bob", password: "bob12345" }),
+			body: JSON.stringify({ username: "bob", password: "bob-secure-123" }),
 		})).status).toBe(201);
 
 		const aliceLogin = await request("/api/auth/login", {
 			method: "POST",
-			body: JSON.stringify({ username: "alice", password: "alice123" }),
+			body: JSON.stringify({ username: "alice", password: "alice-secure-123" }),
 		});
 		cookie = aliceLogin.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
 		const aliceBotResponse = await request("/api/bots", {
@@ -173,7 +177,7 @@ describe("API routes", () => {
 
 		const bobLogin = await request("/api/auth/login", {
 			method: "POST",
-			body: JSON.stringify({ username: "bob", password: "bob12345" }),
+			body: JSON.stringify({ username: "bob", password: "bob-secure-123" }),
 		});
 		cookie = bobLogin.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
 		expect((await (await request("/api/bots")).json() as unknown[])).toHaveLength(0);
@@ -187,7 +191,7 @@ describe("API routes", () => {
 		})).status).toBe(200);
 		const stoppedLogin = await request("/api/auth/login", {
 			method: "POST",
-			body: JSON.stringify({ username: "alice", password: "alice123" }),
+			body: JSON.stringify({ username: "alice", password: "alice-secure-123" }),
 		});
 		expect(stoppedLogin.status).toBe(401);
 		cookie = adminCookie;
@@ -197,14 +201,14 @@ describe("API routes", () => {
 		cookie = adminCookie;
 		const created = await request("/api/users", {
 			method: "POST",
-			body: JSON.stringify({ username: "carol", password: "carol123" }),
+			body: JSON.stringify({ username: "carol", password: "carol-secure-123" }),
 		});
 		const carol = await created.json() as { id: number; botQuota: number };
 		expect(carol.botQuota).toBe(1);
 
 		const carolLogin = await request("/api/auth/login", {
 			method: "POST",
-			body: JSON.stringify({ username: "carol", password: "carol123" }),
+			body: JSON.stringify({ username: "carol", password: "carol-secure-123" }),
 		});
 		cookie = carolLogin.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
 
@@ -269,7 +273,7 @@ describe("PATCH /api/users/:id refuses bot-affecting changes for a user outside 
 		cookie = adminCookie;
 		const created = await request("/api/users", {
 			method: "POST",
-			body: JSON.stringify({ username: "dana", password: "dana12345" }),
+			body: JSON.stringify({ username: "dana", password: "dana-secure-123" }),
 		});
 		const dana = await created.json() as { id: number; botQuota: number };
 		// Room to hold more than the quota we'll try to lower to.
@@ -277,7 +281,7 @@ describe("PATCH /api/users/:id refuses bot-affecting changes for a user outside 
 
 		const danaLogin = await request("/api/auth/login", {
 			method: "POST",
-			body: JSON.stringify({ username: "dana", password: "dana12345" }),
+			body: JSON.stringify({ username: "dana", password: "dana-secure-123" }),
 		});
 		cookie = danaLogin.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
 		await request("/api/bots", { method: "POST", body: JSON.stringify({ name: "dana 1" }) });
@@ -300,13 +304,13 @@ describe("PATCH /api/users/:id refuses bot-affecting changes for a user outside 
 		cookie = adminCookie;
 		const created = await request("/api/users", {
 			method: "POST",
-			body: JSON.stringify({ username: "erin", password: "erin12345" }),
+			body: JSON.stringify({ username: "erin", password: "erin-secure-123" }),
 		});
 		const erin = await created.json() as { id: number };
 
 		const erinLogin = await request("/api/auth/login", {
 			method: "POST",
-			body: JSON.stringify({ username: "erin", password: "erin12345" }),
+			body: JSON.stringify({ username: "erin", password: "erin-secure-123" }),
 		});
 		cookie = erinLogin.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
 		await request("/api/bots", { method: "POST", body: JSON.stringify({ name: "erin 1" }) });
@@ -324,14 +328,14 @@ describe("PATCH /api/users/:id refuses bot-affecting changes for a user outside 
 		cookie = adminCookie;
 		const created = await request("/api/users", {
 			method: "POST",
-			body: JSON.stringify({ username: "frank", password: "frank12345" }),
+			body: JSON.stringify({ username: "frank", password: "frank-secure-123" }),
 		});
 		const frank = await created.json() as { id: number };
 		await request(`/api/users/${frank.id}`, { method: "PATCH", body: JSON.stringify({ botQuota: 2 }) });
 
 		const frankLogin = await request("/api/auth/login", {
 			method: "POST",
-			body: JSON.stringify({ username: "frank", password: "frank12345" }),
+			body: JSON.stringify({ username: "frank", password: "frank-secure-123" }),
 		});
 		cookie = frankLogin.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
 		const bot = await (await request("/api/bots", { method: "POST", body: JSON.stringify({ name: "frank 1" }) })).json() as { id: number };

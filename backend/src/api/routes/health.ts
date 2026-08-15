@@ -7,8 +7,10 @@ import { getSystemLoadSnapshot } from "../../monitoring/system-load.ts";
 import { botEvents, getRuntimeDiagnostics } from "../../bot/session-manager.ts";
 import { isControlPlane } from "../../bot/worker-topology.ts";
 import { workerEventRelayDiagnostics } from "../worker-events.ts";
+import { requireAdmin } from "../../auth/request-user.ts";
 
 export const healthRoute = new Hono();
+healthRoute.use("*", requireAdmin);
 
 const DISPATCH_ADDR = process.env.DISPATCH_ADDR ?? "127.0.0.1:4790";
 const SERVER1_STATUS_URL = process.env.SERVER1_STATUS_URL ?? "http://10.77.0.1:8792/healthz";

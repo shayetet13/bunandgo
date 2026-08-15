@@ -1,0 +1,2 @@
+from="10.77.0.1",restrict ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICs3v9cZXr9uCCRFkk3M+5+KQiKNxfCq/swsvhs40Y8f linebot-server2-2026-08-08
+from="10.77.0.1",restrict ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDDezRH7jm5xAwPF7dKbq4DTKaZx6NNL+N1CIgCZHe76 maxpc-deploy

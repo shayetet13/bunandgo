@@ -347,6 +347,19 @@ const migrations: Migration[] = [
 			}
 		},
 	},
+	{
+		// Web sessions used to be valid for 400 days and had no server-side
+		// inactivity cutoff. Keep this nullable on upgraded databases so an old
+		// process finishing a rolling restart can still insert a session. Deleting
+		// the old rows deliberately invalidates every pre-hardening token once.
+		id: "025_auth_session_last_seen",
+		up: (db) => {
+			if (!hasColumn(db, "auth_sessions", "last_seen_at")) {
+				db.exec("ALTER TABLE auth_sessions ADD COLUMN last_seen_at INTEGER");
+			}
+			db.exec("DELETE FROM auth_sessions");
+		},
+	},
 ];
 
 export function runMigrations(db: Database): void {

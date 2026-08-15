@@ -11,7 +11,12 @@ export async function securityHeaders(c: Context, next: Next): Promise<void> {
 	await next();
 	c.header("X-Content-Type-Options", "nosniff");
 	c.header("X-Frame-Options", "DENY");
-	c.header("Referrer-Policy", "strict-origin-when-cross-origin");
+	c.header("Referrer-Policy", "no-referrer");
+	c.header("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
+	if (c.req.path.startsWith("/api/") || c.req.path.startsWith("/internal/") || c.req.path === "/ws") {
+		c.header("Cache-Control", "no-store");
+		c.header("Pragma", "no-cache");
+	}
 	if (isSecureRequest(c)) {
 		c.header("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
 	}
