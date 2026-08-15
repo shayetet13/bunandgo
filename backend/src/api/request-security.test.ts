@@ -26,6 +26,18 @@ describe("browser request origin checks", () => {
 		expect((await app.request("/api/change", { method: "POST" })).status).toBe(200);
 	});
 
+	test("allows the production same-origin host supplied by the trusted gateway", async () => {
+		expect((await app.request("https://dakotabot.site/api/change", {
+			method: "POST",
+			headers: {
+				host: "dakotabot.site",
+				origin: "https://dakotabot.site",
+				"x-forwarded-proto": "https",
+				"sec-fetch-site": "same-origin",
+			},
+		})).status).toBe(200);
+	});
+
 	test("rejects a websocket opened by an untrusted page", async () => {
 		expect((await app.request("/ws", { headers: { origin: "https://evil.example" } })).status).toBe(403);
 		expect((await app.request("/ws", { headers: { origin: "http://localhost:5173" } })).status).toBe(200);
