@@ -30,6 +30,12 @@ const sessionUserStmt = db.prepare<SessionUserRow, [string]>(
 const touchSessionStmt = db.prepare<null, [number, string, number]>(
 	"UPDATE auth_sessions SET last_seen_at = ? WHERE token_hash = ? AND COALESCE(last_seen_at, created_at) <= ?",
 );
+const activeSessionsStmt = db.prepare<SessionUserRow, []>(
+	"SELECT users.*, auth_sessions.created_at AS session_created_at, " +
+		"auth_sessions.last_seen_at AS session_last_seen_at FROM auth_sessions " +
+		"JOIN users ON users.id = auth_sessions.user_id " +
+		"WHERE users.active = 1 ORDER BY COALESCE(auth_sessions.last_seen_at, auth_sessions.created_at) DESC",
+);
 
 function hashToken(token: string): string {
 	return createHash("sha256").update(token).digest("hex");
@@ -61,25 +67,65 @@ export function createSession(userId = bootstrapAdminUser.id): string {
 	return token;
 }
 
+/** Shared by getSessionUser and listActiveSessions so "expired" means one thing everywhere. */
+function isSessionExpired(row: SessionUserRow, now: number): boolean {
+	const maxAgeMs = sessionMaxAgeSeconds(row.role) * 1000;
+	const lastSeenAt = row.session_last_seen_at ?? row.session_created_at;
+	const idleTimeoutMs = row.role === "admin" ? ADMIN_IDLE_TIMEOUT_MS : USER_IDLE_TIMEOUT_MS;
+	return now - row.session_created_at >= maxAgeMs || now - lastSeenAt >= idleTimeoutMs;
+}
+
 export function getSessionUser(token: string | undefined): AuthUser | undefined {
 	if (!token) return undefined;
 	const tokenHash = hashToken(token);
 	const row = sessionUserStmt.get(tokenHash);
 	if (!row) return undefined;
 	const now = Date.now();
-	const maxAgeMs = sessionMaxAgeSeconds(row.role) * 1000;
-	const lastSeenAt = row.session_last_seen_at ?? row.session_created_at;
-	const idleTimeoutMs = row.role === "admin" ? ADMIN_IDLE_TIMEOUT_MS : USER_IDLE_TIMEOUT_MS;
-	if (now - row.session_created_at >= maxAgeMs || now - lastSeenAt >= idleTimeoutMs) {
+	if (isSessionExpired(row, now)) {
 		deleteSessionStmt.run(tokenHash);
 		return undefined;
 	}
+	const lastSeenAt = row.session_last_seen_at ?? row.session_created_at;
 	// At most one tiny dashboard-only write per five minutes per session. Bot
 	// receive/send paths never call this function.
 	if (now - lastSeenAt >= SESSION_TOUCH_INTERVAL_MS) {
 		touchSessionStmt.run(now, tokenHash, now - SESSION_TOUCH_INTERVAL_MS);
 	}
 	return publicUser(row);
+}
+
+export interface ActiveSessionInfo {
+	userId: number;
+	username: string;
+	role: AuthUser["role"];
+	createdAt: number;
+	lastSeenAt: number;
+}
+
+/**
+ * Every session live right now, most recently active first — the admin
+ * dashboard's "who's logged in" view. Read-only and off the bot reply path
+ * entirely: this is the same auth_sessions table `getSessionUser` already
+ * reads on every dashboard request, just without a token to filter by.
+ *
+ * A logout or password change deletes its row immediately (see users.ts /
+ * this file's destroySession), so the only staleness here is a session that
+ * expired without anyone touching it since — filtered out with the same
+ * expiry rule getSessionUser enforces, rather than left to be discovered by
+ * whichever admin looks at this list first.
+ */
+export function listActiveSessions(): ActiveSessionInfo[] {
+	const now = Date.now();
+	return activeSessionsStmt
+		.all()
+		.filter((row) => !isSessionExpired(row, now))
+		.map((row) => ({
+			userId: row.id,
+			username: row.username,
+			role: row.role,
+			createdAt: row.session_created_at,
+			lastSeenAt: row.session_last_seen_at ?? row.session_created_at,
+		}));
 }
 
 export function sessionMaxAgeSeconds(role: AuthUser["role"]): number {

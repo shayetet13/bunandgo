@@ -14,6 +14,7 @@ import {
 } from "../../auth/users.ts";
 import { overQuotaBots } from "../../bot/bots.ts";
 import { roomCoverageReport } from "../../bot/room-coverage.ts";
+import { listActiveSessions } from "../../auth/session.ts";
 import { deleteBotSession, enforceBotQuota, stopBot } from "../../bot/session-manager.ts";
 import { inWorkerScope, WorkerScopeError } from "../../bot/worker-scope.ts";
 import { clearStartConfirmationsForBot } from "../../bot/start-confirmation.ts";
@@ -28,6 +29,10 @@ usersRoute.get("/", (c) => c.json(listUsers()));
 // Which OpenChats each user's bots actually sit in, and how many — see
 // room-coverage.ts. Read-only, derived entirely from existing chats/bots.
 usersRoute.get("/room-coverage", (c) => c.json(roomCoverageReport()));
+
+// Who is logged into the dashboard right now, most recently active first —
+// distinct from /logs/user-actions, which is history rather than live state.
+usersRoute.get("/active-sessions", (c) => c.json(listActiveSessions()));
 
 const createUserBodySchema = z.object({ username: z.string(), password: z.string() });
 

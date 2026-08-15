@@ -63,6 +63,8 @@ export function RulesPage({
 	const selectedBot = bots.find((b) => b.id === selectedBotId);
 	const ownerNames = useOwnerNames(role);
 	const groups = groupBotsByOwner(bots);
+	const selectedGroup = groups.find((group) => group.bots.some((bot) => bot.id === selectedBotId));
+	const hasSiblings = (selectedGroup?.bots.length ?? 0) > 1;
 
 	return (
 		<div style={{ display: "flex", flexDirection: "column", gap: "var(--space-md)", }}>
@@ -123,7 +125,7 @@ export function RulesPage({
 
 					{selectedBot.status === "online" ? (
 						<>
-							<ChatList botId={selectedBot.id} chats={chats} selectedMids={selectedMids} onSelect={onSelectMids} onToggleEnabled={onToggleChatEnabled} onToggleAdminOnly={onToggleChatAdminOnly} />
+							<ChatList botId={selectedBot.id} chats={chats} selectedMids={selectedMids} onSelect={onSelectMids} onToggleEnabled={onToggleChatEnabled} onToggleAdminOnly={onToggleChatAdminOnly} hasSiblings={hasSiblings} />
 							<TestSendPanel
 								botId={selectedBot.id}
 								selectedChats={chats.filter((c) => selectedMids.includes(c.mid))}

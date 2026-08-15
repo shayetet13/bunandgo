@@ -221,6 +221,25 @@ export interface ChatRow {
 	admin_only: number;
 }
 
+/** One of an owner's bots that also sits in a given OpenChat room — see primary-bot.ts. */
+export interface RoomBotInfo {
+	botId: number;
+	isPrimary: boolean;
+	joinedAt: number;
+	status: BotStatus;
+	name: string | null;
+	slot: number | null;
+}
+
+/** One live dashboard login — distinct from UserActionLogEntry, which is history. */
+export interface ActiveSessionInfo {
+	userId: number;
+	username: string;
+	role: UserRole;
+	createdAt: number;
+	lastSeenAt: number;
+}
+
 /** OpenChat-only — LINE's own ADMIN/CO_ADMIN/MEMBER role for one member. */
 export interface SquareMemberInfo {
 	mid: string;

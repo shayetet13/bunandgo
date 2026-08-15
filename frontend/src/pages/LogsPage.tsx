@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api.ts";
-import type { Anomaly, AnomalySummaryRow, Bot, BotEvent, LatencySample, UserActionLogEntry } from "../lib/types.ts";
+import type { ActiveSessionInfo, Anomaly, AnomalySummaryRow, Bot, BotEvent, LatencySample, UserActionLogEntry } from "../lib/types.ts";
 
 interface LogsPageProps {
 	bots: Bot[];
@@ -97,6 +97,7 @@ export function LogsPage({ bots, onNotify }: LogsPageProps) {
 	const [loading, setLoading] = useState(false);
 	const [botEvents, setBotEvents] = useState<BotEvent[]>([]);
 	const [userActions, setUserActions] = useState<UserActionLogEntry[]>([]);
+	const [activeSessions, setActiveSessions] = useState<ActiveSessionInfo[]>([]);
 	const [latency, setLatency] = useState<LatencySample[]>([]);
 	const [anomalies, setAnomalies] = useState<Anomaly[]>([]);
 	const [anomalySummary, setAnomalySummary] = useState<AnomalySummaryRow[]>([]);
@@ -149,9 +150,10 @@ export function LogsPage({ bots, onNotify }: LogsPageProps) {
 				if (token !== loadTokenRef.current) return;
 				setBotEvents(rows);
 			} else if (tab === "userActions") {
-				const rows = await api.userActionLog(fromMs, toMs);
+				const [rows, sessions] = await Promise.all([api.userActionLog(fromMs, toMs), api.activeSessions()]);
 				if (token !== loadTokenRef.current) return;
 				setUserActions(rows);
+				setActiveSessions(sessions);
 			} else {
 				const rows = await api.metricsHistoryRange(fromMs, toMs);
 				if (token !== loadTokenRef.current) return;
@@ -312,20 +314,41 @@ export function LogsPage({ bots, onNotify }: LogsPageProps) {
 			)}
 
 			{tab === "userActions" && (
-				<section className="panel" style={{ padding: "var(--space-md)" }}>
-					<div className="label" style={{ marginBottom: "var(--space-xs)" }}>การกระทำผู้ใช้ · {userActions.length}</div>
-					<div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)", maxHeight: 480, overflowY: "auto" }}>
-						{userActions.length === 0 && <p className="hint">ไม่มีข้อมูลในช่วงที่เลือก</p>}
-						{userActions.map((entry) => (
-							<div key={entry.id} className="rule-row" style={{ display: "flex", gap: "var(--space-sm)", padding: "0.5rem 0.7rem", background: "var(--bg-inset)", border: "1px solid var(--border-hair)", borderRadius: "var(--radius-sm)" }}>
-								<span className="mono" style={{ fontSize: "var(--text-xs)", color: "var(--text-dim)", whiteSpace: "nowrap" }}>{formatTs(entry.ts)}</span>
-								<span className="chip chip--go" style={{ fontSize: "var(--text-xs)" }}>{entry.username}</span>
-								<span className="mono" style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>{userActionLabel(entry.action)}</span>
-								{userActionDetail(entry.detail) && <span style={{ fontSize: "var(--text-xs)", color: "var(--text-dim)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{userActionDetail(entry.detail)}</span>}
-							</div>
-						))}
-					</div>
-				</section>
+				<>
+					<section className="panel" style={{ padding: "var(--space-md)" }}>
+						<div className="label" style={{ marginBottom: "var(--space-xs)" }}>ออนไลน์ตอนนี้ · {activeSessions.length}</div>
+						{activeSessions.length === 0
+							? <p className="hint" style={{ margin: 0 }}>ไม่มีใครล็อกอินอยู่ในระบบขณะนี้</p>
+							: (
+								<div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-xs)" }}>
+									{activeSessions.map((session) => (
+										<span
+											key={`${session.userId}:${session.createdAt}`}
+											className="chip chip--go"
+											style={{ fontSize: "var(--text-xs)" }}
+											title={`เข้าสู่ระบบ ${formatTs(session.createdAt)} · ใช้งานล่าสุด ${formatTs(session.lastSeenAt)}`}
+										>
+											{session.username} ({session.role === "admin" ? "แอดมิน" : "ผู้ใช้"})
+										</span>
+									))}
+								</div>
+							)}
+					</section>
+					<section className="panel" style={{ padding: "var(--space-md)" }}>
+						<div className="label" style={{ marginBottom: "var(--space-xs)" }}>การกระทำผู้ใช้ · {userActions.length}</div>
+						<div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)", maxHeight: 480, overflowY: "auto" }}>
+							{userActions.length === 0 && <p className="hint">ไม่มีข้อมูลในช่วงที่เลือก</p>}
+							{userActions.map((entry) => (
+								<div key={entry.id} className="rule-row" style={{ display: "flex", gap: "var(--space-sm)", padding: "0.5rem 0.7rem", background: "var(--bg-inset)", border: "1px solid var(--border-hair)", borderRadius: "var(--radius-sm)" }}>
+									<span className="mono" style={{ fontSize: "var(--text-xs)", color: "var(--text-dim)", whiteSpace: "nowrap" }}>{formatTs(entry.ts)}</span>
+									<span className="chip chip--go" style={{ fontSize: "var(--text-xs)" }}>{entry.username}</span>
+									<span className="mono" style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>{userActionLabel(entry.action)}</span>
+									{userActionDetail(entry.detail) && <span style={{ fontSize: "var(--text-xs)", color: "var(--text-dim)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{userActionDetail(entry.detail)}</span>}
+								</div>
+							))}
+						</div>
+					</section>
+				</>
 			)}
 
 			{tab === "latency" && (

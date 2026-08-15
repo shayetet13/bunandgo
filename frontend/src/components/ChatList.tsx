@@ -3,6 +3,7 @@ import type { ChatRow, SquareMemberInfo } from "../lib/types.ts";
 import { api } from "../lib/api.ts";
 import { ToggleSwitch } from "./ToggleSwitch.tsx";
 import { AdminOnlyControl } from "./AdminOnlyControl.tsx";
+import { RoomBotsPanel } from "./RoomBotsPanel.tsx";
 
 interface ChatListProps {
 	botId: number;
@@ -11,13 +12,19 @@ interface ChatListProps {
 	onSelect: (mids: string[]) => void;
 	onToggleEnabled: (chat: ChatRow) => void;
 	onToggleAdminOnly: (chat: ChatRow) => void;
+	/**
+	 * Whether this bot's owner has other bots at all — gates the room-bots
+	 * panel below so a solo owner (the common case) never even renders a
+	 * button for a feature that would only ever say "just you".
+	 */
+	hasSiblings?: boolean;
 }
 
 function isAdminRole(role: SquareMemberInfo["role"]): boolean {
 	return role === "ADMIN" || role === 1 || role === "CO_ADMIN" || role === 2;
 }
 
-export function ChatList({ botId, chats, selectedMids = [], onSelect, onToggleEnabled, onToggleAdminOnly }: ChatListProps) {
+export function ChatList({ botId, chats, selectedMids = [], onSelect, onToggleEnabled, onToggleAdminOnly, hasSiblings = false }: ChatListProps) {
 	const [query, setQuery] = useState("");
 	const [surface, setSurface] = useState<"all" | "talk" | "square">("all");
 	const [adminsByMid, setAdminsByMid] = useState<Record<string, SquareMemberInfo[]>>({});
@@ -155,6 +162,7 @@ export function ChatList({ botId, chats, selectedMids = [], onSelect, onToggleEn
 											? "ยังไม่ทราบ admin ในห้องนี้"
 											: `admin: ${adminsByMid[chat.mid]!.map((m) => m.displayName).join(", ")}`}
 									</div>
+									{hasSiblings && <RoomBotsPanel botId={botId} mid={chat.mid} />}
 								</>
 							)}
 						</div>

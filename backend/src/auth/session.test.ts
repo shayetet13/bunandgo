@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { db } from "../db/sqlite.ts";
-import { createSession, destroySession, isValidSession } from "./session.ts";
+import { createSession, destroySession, isValidSession, listActiveSessions } from "./session.ts";
+import { bootstrapAdminUser } from "./users.ts";
 
 describe("dashboard sessions", () => {
 	test("stores only a hash and becomes invalid after explicit logout", () => {
@@ -34,5 +35,37 @@ describe("dashboard sessions", () => {
 		db.prepare("UPDATE auth_sessions SET created_at = ?, last_seen_at = ? WHERE token_hash = ?")
 			.run(Date.now() - 13 * 60 * 60 * 1000, Date.now(), tokenHash);
 		expect(isValidSession(token)).toBe(false);
+	});
+});
+
+describe("listActiveSessions", () => {
+	test("includes a freshly created session and drops it once logged out", () => {
+		const since = Date.now();
+		const token = createSession();
+		try {
+			const mine = listActiveSessions().find((s) => s.userId === bootstrapAdminUser.id && s.createdAt >= since);
+			expect(mine?.username).toBe(bootstrapAdminUser.username);
+			expect(mine?.role).toBe("admin");
+		} finally {
+			destroySession(token);
+		}
+		expect(listActiveSessions().some((s) => s.userId === bootstrapAdminUser.id && s.createdAt >= since)).toBe(false);
+	});
+
+	test("excludes a session that has gone idle past the timeout, without deleting its row", () => {
+		const since = Date.now();
+		const token = createSession();
+		const tokenHash = createHash("sha256").update(token).digest("hex");
+		try {
+			db.prepare("UPDATE auth_sessions SET last_seen_at = ? WHERE token_hash = ?")
+				.run(Date.now() - 31 * 60 * 1000, tokenHash);
+			expect(listActiveSessions().some((s) => s.userId === bootstrapAdminUser.id && s.createdAt >= since)).toBe(false);
+			// Read-only, unlike getSessionUser: an expired row stays put for an
+			// admin to still see who was logged in, rather than vanishing the
+			// moment nobody happens to be actively using that exact token.
+			expect(db.prepare("SELECT 1 FROM auth_sessions WHERE token_hash = ?").get(tokenHash)).not.toBeNull();
+		} finally {
+			destroySession(token);
+		}
 	});
 });

@@ -1,4 +1,4 @@
-import type { Anomaly, AnomalySummaryRow, Bot, BotEvent, ChatRow, FastPathMetrics, FeedItem, HealthStatus, LaneRaceSnapshot, LatencySample, LatencySnapshot, LoginPhase, ManagedUser, MetricsSummary, QuotaPreview, Rule, ScheduledPost, SquareMemberInfo, Surface, UserActionLogEntry, UserRole } from "./types.ts";
+import type { ActiveSessionInfo, Anomaly, AnomalySummaryRow, Bot, BotEvent, ChatRow, FastPathMetrics, FeedItem, HealthStatus, LaneRaceSnapshot, LatencySample, LatencySnapshot, LoginPhase, ManagedUser, MetricsSummary, QuotaPreview, RoomBotInfo, Rule, ScheduledPost, SquareMemberInfo, Surface, UserActionLogEntry, UserRole } from "./types.ts";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
 	const res = await fetch(path, {
@@ -52,6 +52,8 @@ export const api = {
 			body: JSON.stringify({ botQuota }),
 		}),
 	deleteUser: (userId: number) => request<{ ok: boolean }>(`/api/users/${userId}`, { method: "DELETE" }),
+	// Live logins, most recently active first — see LogsPage's "userActions" tab.
+	activeSessions: () => request<ActiveSessionInfo[]>("/api/users/active-sessions"),
 
 	listBots: () => request<Bot[]>("/api/bots"),
 	createBot: (name: string) =>
@@ -108,6 +110,12 @@ export const api = {
 	// OpenChat-only — 400s if called for a "talk" chat.
 	listSquareMembers: (botId: number, mid: string) =>
 		request<SquareMemberInfo[]>(`/api/bots/${botId}/chats/${mid}/members`),
+	// OpenChat-only: every one of this bot's owner's other bots also sitting
+	// in `mid`, including offline ones — see primary-bot.ts.
+	listRoomBots: (botId: number, mid: string) =>
+		request<RoomBotInfo[]>(`/api/bots/${botId}/chats/${mid}/room-bots`),
+	setPrimaryBot: (botId: number, mid: string) =>
+		request<{ ok: boolean }>(`/api/bots/${botId}/chats/${mid}/primary`, { method: "PATCH" }),
 
 	listRules: (botId: number) => request<Rule[]>(`/api/bots/${botId}/rules`),
 	createRule: (botId: number, input: Omit<Rule, "id" | "botId">) =>
