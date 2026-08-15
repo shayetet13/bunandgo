@@ -73,7 +73,7 @@ describe("bot quota", () => {
 	});
 
 	test("an admin is never over quota whatever the column says", () => {
-		const admin: AuthUser = { id: 1, username: "admin", role: "admin", active: true, botQuota: 1 };
+		const admin: AuthUser = { id: 1, username: "admin", role: "admin", active: true, botQuota: 1, exemptIdLock: false };
 		const ids = makeBots(admin.id, 3);
 
 		// bootstrapAdmin owns id 1 in the test database.

@@ -9,6 +9,7 @@ import type {
 	ChatRow,
 	FastPathSnapshot,
 	HealthStatus,
+	IdLockMismatchEvent,
 	LaneRaceSnapshot,
 	LatencySample,
 	LatencySnapshot,
@@ -21,6 +22,7 @@ import type {
 import { Sidebar, type ViewKey } from "./components/Sidebar.tsx";
 import { Topbar, type Notification } from "./components/Topbar.tsx";
 import { HelpModal } from "./components/HelpModal.tsx";
+import { IdLockAlertModal } from "./components/IdLockAlertModal.tsx";
 import type { ConfirmState, QrState } from "./components/BotsPanel.tsx";
 import type { FeedItem } from "./lib/types.ts";
 import { OverviewPage } from "./pages/OverviewPage.tsx";
@@ -81,6 +83,7 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 	const [notifications, setNotifications] = useState<Notification[]>([]);
 	const [health, setHealth] = useState<HealthStatus>();
 	const [laneRace, setLaneRace] = useState<LaneRaceSnapshot>(EMPTY_LANE_RACE);
+	const [idLockAlert, setIdLockAlert] = useState<IdLockMismatchEvent>();
 
 	// Rolling logs (timestamps only) for throughput / auto-reply-rate —
 	// trimmed to RATE_WINDOW_MS so old activity ages out of the stats.
@@ -286,6 +289,11 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 			clearConfirm(botId);
 			pushNotification("ยกเลิกการยืนยันแล้ว — บอทยังไม่เริ่มเชื่อมต่อ");
 		},
+		id_lock_mismatch: (data) => {
+			const event = data as IdLockMismatchEvent;
+			clearConfirm(event.botId);
+			setIdLockAlert(event);
+		},
 		ready: (data) => {
 			const { botId } = data as { botId: number };
 			setSelectedBotId(botId);
@@ -477,6 +485,16 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 		}
 	}
 
+	async function handleResetIdLock(botId: number) {
+		try {
+			await api.resetBotIdLock(botId);
+			setBots((prev) => prev.map((b) => (b.id === botId ? { ...b, lockedLineMid: null } : b)));
+			pushNotification("รีเซ็ตล็อกบัญชี LINE แล้ว — สแกน QR ครั้งถัดไปจะล็อกกับบัญชีใหม่โดยอัตโนมัติ");
+		} catch (err) {
+			pushNotification(err instanceof Error ? err.message : String(err));
+		}
+	}
+
 	async function handleToggleOwnerTesting(bot: Bot) {
 		try {
 			const updated = await api.updateBotSettings(bot.id, { allowOwnerTesting: !bot.allowOwnerTesting });
@@ -630,6 +648,7 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 								onStart={handleStart}
 								onStop={handleStop}
 								onDelete={handleDeleteBot}
+								onResetIdLock={handleResetIdLock}
 							/>
 						)}
 
@@ -676,6 +695,7 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 			</div>
 
 			{showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
+			{idLockAlert && <IdLockAlertModal event={idLockAlert} onDismiss={() => setIdLockAlert(undefined)} />}
 		</div>
 	);
 }

@@ -37,11 +37,13 @@ import { inboundDelayMs, isSlowInbound, lineCreatedTimeOf, toLineEpochMs } from 
 import type { SquareEvent, SquareMessageState } from "../linejs-core/types/line_types.ts";
 import {
 	deleteBot,
+	evaluateIdLock,
 	getBot,
 	isBotOverQuota,
 	isOwnerTestingEnabled,
 	overQuotaBots,
 	resetAllBotStatuses,
+	setBotLockedLineMid,
 	updateBotStatus,
 	type Bot,
 } from "./bots.ts";
@@ -571,6 +573,37 @@ async function attemptLogin(botId: number, device: Device, options: AttemptLogin
 
 		rt.client = client;
 		rt.watchdogFailures = 0;
+
+		// One LINE account per bot slot: the first account to log in locks
+		// it, and a different account scanning this bot's QR afterward is
+		// rejected before its token is ever persisted (trackAuthToken below)
+		// or the session goes online. evaluateIdLock is the pure decision
+		// (see bot/bots.ts); everything here is the I/O it requires.
+		const lineMid = client.base.profile?.mid;
+		if (lineMid) {
+			const loginBot = getBot(botId);
+			const idLockOutcome = loginBot ? evaluateIdLock(loginBot, lineMid) : "exempt";
+			if (idLockOutcome === "first_login") {
+				setBotLockedLineMid(botId, lineMid);
+			} else if (idLockOutcome === "mismatch") {
+				rt.client = undefined;
+				rt.listenAbort?.abort();
+				rt.listenAbort = undefined;
+				clearLoginPending(rt);
+				updateBotStatus(botId, "offline");
+				botEvents.emit("bot_status", { botId, status: "offline" });
+				botEvents.emit("id_lock_mismatch", { botId, botName: loginBot?.name ?? String(botId) });
+				recordAnomaly({
+					botId,
+					kind: "id_lock_mismatch",
+					severity: "critical",
+					detail: "มีความพยายามเข้าสู่ระบบด้วยบัญชี LINE อื่น — บอทนี้ผูกไว้กับบัญชีแรกที่เคยเข้าสู่ระบบสำเร็จแล้ว",
+				});
+				logBotEvent(botId, "id_lock_rejected", "ปฏิเสธการเข้าสู่ระบบ — บัญชี LINE ไม่ตรงกับที่ผูกไว้กับบอทนี้");
+				return;
+			}
+		}
+
 		trackAuthToken(botId, client);
 		// Pull the persisted reqseq counters into memory now; otherwise the
 		// first send would be the one that waits on that read.

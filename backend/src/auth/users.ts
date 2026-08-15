@@ -9,6 +9,8 @@ export interface AuthUser {
 	active: boolean;
 	/** How many bots this user may create for themselves. Ignored for admins. */
 	botQuota: number;
+	/** Excused from the one-LINE-account-per-bot lock (see bot/bots.ts isIdLockExempt). Admins are always exempt regardless of this flag. */
+	exemptIdLock: boolean;
 }
 
 export interface ManagedUser extends AuthUser {
@@ -49,6 +51,9 @@ const createStmt = db.prepare<UserRow, [string, string, number]>(
 );
 const setActiveStmt = db.prepare<null, [number, number]>("UPDATE users SET active = ? WHERE id = ? AND role = 'user'");
 const setBotQuotaStmt = db.prepare<null, [number, number]>("UPDATE users SET bot_quota = ? WHERE id = ? AND role = 'user'");
+const setExemptIdLockStmt = db.prepare<null, [number, number]>(
+	"UPDATE users SET exempt_id_lock = ? WHERE id = ? AND role = 'user'",
+);
 const setPasswordStmt = db.prepare<null, [string, number]>("UPDATE users SET password_hash = ? WHERE id = ? AND active = 1");
 const deleteSessionsStmt = db.prepare<null, [number]>("DELETE FROM auth_sessions WHERE user_id = ?");
 const deleteUserStmt = db.prepare<null, [number]>("DELETE FROM users WHERE id = ? AND role = 'user'");
@@ -60,6 +65,7 @@ function fromRow(row: UserRow): AuthUser {
 		role: row.role,
 		active: row.active !== 0,
 		botQuota: row.bot_quota,
+		exemptIdLock: row.exempt_id_lock !== 0,
 	};
 }
 
@@ -165,6 +171,14 @@ export function setUserActive(id: number, active: boolean): AuthUser | undefined
 	if (!current || current.role === "admin") return undefined;
 	setActiveStmt.run(active ? 1 : 0, id);
 	if (!active) deleteSessionsStmt.run(id);
+	return getUser(id);
+}
+
+/** Marks (or unmarks) a user's bots exempt from the one-LINE-account-per-bot lock. */
+export function setUserExemptIdLock(id: number, exempt: boolean): AuthUser | undefined {
+	const current = getUser(id);
+	if (!current || current.role === "admin") return undefined;
+	setExemptIdLockStmt.run(exempt ? 1 : 0, id);
 	return getUser(id);
 }
 

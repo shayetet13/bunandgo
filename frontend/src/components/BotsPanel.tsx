@@ -27,6 +27,7 @@ interface BotsPanelProps {
 	onStart: (botId: number) => void;
 	onStop: (botId: number) => void;
 	onDelete: (botId: number) => void;
+	onResetIdLock: (botId: number) => void;
 }
 
 const STATUS_COLOR: Record<BotStatus, string> = {
@@ -51,10 +52,11 @@ const actionBtnStyle = {
 	cursor: "pointer",
 };
 
-export function BotsPanel({ bots, role, selectedBotId, onSelect, qrByBot, confirmByBot, onCreateBot, onStart, onStop, onDelete }: BotsPanelProps) {
+export function BotsPanel({ bots, role, selectedBotId, onSelect, qrByBot, confirmByBot, onCreateBot, onStart, onStop, onDelete, onResetIdLock }: BotsPanelProps) {
 	const [showForm, setShowForm] = useState(false);
 	const [name, setName] = useState("");
 	const [confirmDeleteId, setConfirmDeleteId] = useState<number>();
+	const [confirmResetIdLockId, setConfirmResetIdLockId] = useState<number>();
 	const ownerNames = useOwnerNames(role);
 	const groups = groupBotsByOwner(bots);
 
@@ -222,6 +224,33 @@ export function BotsPanel({ bots, role, selectedBotId, onSelect, qrByBot, confir
 										<button onClick={() => setConfirmDeleteId(bot.id)} style={actionBtnStyle}>
 											ลบ
 										</button>
+									)}
+
+									{role === "admin" && bot.lockedLineMid && (
+										confirmResetIdLockId === bot.id ? (
+											<>
+												<button
+													onClick={() => {
+														onResetIdLock(bot.id);
+														setConfirmResetIdLockId(undefined);
+													}}
+													style={{ ...actionBtnStyle, color: "var(--signal-warn)", borderColor: "var(--signal-warn-dim)", fontWeight: 700 }}
+												>
+													ยืนยันรีเซ็ตล็อก?
+												</button>
+												<button onClick={() => setConfirmResetIdLockId(undefined)} style={actionBtnStyle}>
+													ยกเลิก
+												</button>
+											</>
+										) : (
+											<button
+												onClick={() => setConfirmResetIdLockId(bot.id)}
+												style={actionBtnStyle}
+												title="ปลดล็อกบัญชี LINE ของบอทนี้ — ใช้เมื่อบัญชีเดิมโดนแบน/ต้องเปลี่ยนบัญชีใหม่"
+											>
+												รีเซ็ตล็อกบัญชี
+											</button>
+										)
 									)}
 								</div>
 

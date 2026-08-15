@@ -13,6 +13,7 @@ interface BotFleetPageProps {
 	onStart: (botId: number) => void;
 	onStop: (botId: number) => void;
 	onDelete: (botId: number) => void;
+	onResetIdLock: (botId: number) => void;
 }
 
 export function BotFleetPage(props: BotFleetPageProps) {

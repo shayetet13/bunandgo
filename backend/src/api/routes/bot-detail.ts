@@ -29,7 +29,7 @@ import {
 	type ScheduledPostInput,
 	updateScheduledPost,
 } from "../../bot/scheduled-posts.ts";
-import { getBot, updateOwnerTesting } from "../../bot/bots.ts";
+import { getBot, resetBotLockedLineMid, updateOwnerTesting } from "../../bot/bots.ts";
 import { canAccessBot } from "../../bot/bots.ts";
 import { WorkerScopeError } from "../../bot/worker-scope.ts";
 import {
@@ -42,7 +42,7 @@ import {
 import { isAdminRole, listSquareMembers } from "../../bot/square-roles.ts";
 import { roomBotsFor, setPrimaryBot } from "../../bot/primary-bot.ts";
 import { copyRoomConfig } from "../../bot/room-config-copy.ts";
-import { requestUser } from "../../auth/request-user.ts";
+import { requestUser, requireAdmin } from "../../auth/request-user.ts";
 import { logUserAction } from "../../auth/user-actions.ts";
 import { db } from "../../db/sqlite.ts";
 import type { BotEventRow, ChatRow, LatencySampleRow, MessageInRow, Surface } from "../../db/schema.ts";
@@ -175,6 +175,20 @@ botDetailRoute.patch("/settings", async (c) => {
 	const bot = getBot(botId);
 	if (!bot) return c.json({ error: "bot not found" }, 404);
 	return c.json(bot);
+});
+
+// Admin-only recovery for a single bot's one-LINE-account lock (see
+// bot/bots.ts evaluateIdLock) — e.g. its LINE account was banned and a
+// replacement needs to scan in. Deliberately narrower than the owner-or-
+// admin check the rest of this router uses: letting the owner self-serve
+// this would let whoever controls that login also clear its own lock.
+botDetailRoute.post("/reset-id-lock", requireAdmin, (c) => {
+	const botId = botIdOf(c);
+	const bot = getBot(botId);
+	if (!bot) return c.json({ error: "bot not found" }, 404);
+	resetBotLockedLineMid(botId);
+	logUserAction(requestUser(c)!, "bot.reset_id_lock", { botId, botName: bot.name });
+	return c.json({ ok: true });
 });
 
 botDetailRoute.get("/chats", (c) => c.json(chatsStmt.all(botIdOf(c))));

@@ -927,3 +927,84 @@ textarea {
 	gap: var(--space-xs);
 	margin-top: var(--space-xs);
 }
+
+/* Big, hard-to-miss center-screen alert — reserved for things the operator
+   must notice immediately (an account trying to hijack an already-locked
+   bot), not routine confirmations. */
+.id-lock-modal-backdrop {
+	position: fixed;
+	inset: 0;
+	background: rgba(20, 2, 4, 0.82);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	z-index: 200;
+	padding: var(--space-lg);
+}
+
+.id-lock-modal {
+	width: 100%;
+	max-width: 520px;
+	padding: var(--space-lg) var(--space-lg) var(--space-md);
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--space-sm);
+	text-align: center;
+	border: 2px solid var(--signal-bad);
+	box-shadow: 0 0 0 6px rgba(255, 69, 87, 0.12), 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+
+.id-lock-modal-icon {
+	width: 56px;
+	height: 56px;
+	border-radius: 50%;
+	background: rgba(255, 69, 87, 0.14);
+	color: var(--signal-bad);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 1.9rem;
+	font-weight: 800;
+}
+
+.id-lock-modal-title {
+	margin: 0;
+	font-size: 1.4rem;
+	font-weight: 800;
+	color: var(--signal-bad);
+}
+
+.id-lock-modal-bot {
+	margin: 0;
+	font-size: var(--text-sm);
+	color: var(--text-secondary);
+}
+
+.id-lock-modal-bot strong {
+	color: var(--text-primary);
+}
+
+.id-lock-modal-line {
+	margin: 0;
+	font-size: var(--text-sm);
+	line-height: 1.7;
+	color: var(--text-secondary);
+}
+
+.id-lock-modal-actions {
+	margin-top: var(--space-sm);
+	width: 100%;
+}
+
+.id-lock-modal-actions button {
+	width: 100%;
+	padding: 0.7rem;
+	font-size: var(--text-sm);
+	font-weight: 700;
+	border-radius: var(--radius-sm);
+	border: 1px solid var(--signal-bad);
+	background: var(--signal-bad);
+	color: #1a0507;
+	cursor: pointer;
+}

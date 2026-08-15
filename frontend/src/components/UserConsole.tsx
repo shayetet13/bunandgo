@@ -1,6 +1,6 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api.ts";
-import type { Bot, BotStatus, ChatRow, LatencySample, LatencySnapshot, LoginPhase, Rule, ScheduledPost } from "../lib/types.ts";
+import type { Bot, BotStatus, ChatRow, IdLockMismatchEvent, LatencySample, LatencySnapshot, LoginPhase, Rule, ScheduledPost } from "../lib/types.ts";
 import { useLiveSocket } from "../lib/useWebSocket.ts";
 import { reconcileFetchedBots } from "../lib/bot-status-sync.ts";
 import { previewReplyText } from "../lib/text-preview.ts";
@@ -12,6 +12,7 @@ import { QrPanel } from "./QrPanel.tsx";
 import { StartConfirmPanel } from "./StartConfirmPanel.tsx";
 import { ToggleSwitch } from "./ToggleSwitch.tsx";
 import { AdminOnlyControl } from "./AdminOnlyControl.tsx";
+import { IdLockAlertModal } from "./IdLockAlertModal.tsx";
 
 interface ConfirmState {
 	token: string;
@@ -83,6 +84,7 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 	const [qrByBot, setQrByBot] = useState<Record<number, QrState>>({});
 	const [confirmByBot, setConfirmByBot] = useState<Record<number, ConfirmState>>({});
 	const [errorMessage, setErrorMessage] = useState<string>();
+	const [idLockAlert, setIdLockAlert] = useState<IdLockMismatchEvent>();
 
 	const [tab, setTab] = useState<TabId>("rooms");
 
@@ -286,6 +288,11 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 			const { botId } = data as { botId: number };
 			clearConfirm(botId);
 			setErrorMessage("ยกเลิกการยืนยันแล้ว — บอทยังไม่เริ่มเชื่อมต่อ กด \"เริ่ม\" ใหม่ได้เมื่อพร้อม");
+		},
+		id_lock_mismatch: (data) => {
+			const event = data as IdLockMismatchEvent;
+			clearConfirm(event.botId);
+			setIdLockAlert(event);
 		},
 		chats_updated: (data) => {
 			const { botId } = data as { botId: number };
@@ -957,6 +964,7 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 					</div>
 				</section>
 			</div>
+			{idLockAlert && <IdLockAlertModal event={idLockAlert} onDismiss={() => setIdLockAlert(undefined)} />}
 		</div>
 	);
 }

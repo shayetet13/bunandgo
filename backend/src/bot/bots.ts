@@ -19,6 +19,8 @@ export interface Bot {
 	 * to keep in sync for no gain.
 	 */
 	overQuota: boolean;
+	/** The LINE account (profile.mid) locked to this bot slot, or null before its first login. */
+	lockedLineMid: string | null;
 	createdAt: number;
 }
 
@@ -53,8 +55,59 @@ function fromRow(row: BotRow): Bot {
 		ownerUserId: row.owner_user_id,
 		allowOwnerTesting: ownerTestingBotIds.has(row.id),
 		overQuota: isRowOverQuota(row),
+		lockedLineMid: row.locked_line_mid,
 		createdAt: row.created_at,
 	};
+}
+
+/**
+ * Whether this bot's owner is excused from the one-LINE-account-per-bot
+ * lock — an admin's own bots, or a user an admin has explicitly marked
+ * exempt (a test account that legitimately needs to swap LINE accounts).
+ * An orphaned (unowned) bot has nobody to exempt, so it stays locked.
+ */
+export function isIdLockExempt(bot: Bot): boolean {
+	if (bot.ownerUserId === null) return false;
+	const owner = getUser(bot.ownerUserId);
+	return !!owner && (owner.role === "admin" || owner.exemptIdLock);
+}
+
+export type IdLockOutcome = "exempt" | "first_login" | "match" | "mismatch";
+
+/**
+ * What should happen when `lineMid` just logged into `bot`.
+ *
+ * Pure decision, no I/O — session-manager.ts acts on the result (persisting
+ * the lock on "first_login", rejecting the session on "mismatch") so this
+ * stays testable without a real LINE client.
+ */
+export function evaluateIdLock(bot: Bot, lineMid: string): IdLockOutcome {
+	if (isIdLockExempt(bot)) return "exempt";
+	if (!bot.lockedLineMid) return "first_login";
+	return bot.lockedLineMid === lineMid ? "match" : "mismatch";
+}
+
+const setLockedLineMidStmt = db.prepare<null, [string, number]>(
+	"UPDATE bots SET locked_line_mid = ? WHERE id = ?",
+);
+
+/** Records the LINE account a bot's first successful login belongs to. */
+export function setBotLockedLineMid(botId: number, lineMid: string): void {
+	setLockedLineMidStmt.run(lineMid, botId);
+}
+
+const clearLockedLineMidStmt = db.prepare<null, [number]>(
+	"UPDATE bots SET locked_line_mid = NULL WHERE id = ?",
+);
+
+/**
+ * Admin recovery path for a single bot: clears its lock so the next
+ * successful login — from any LINE account — becomes the new one, without
+ * exempting the owner's other bots. For a legitimately banned/replaced LINE
+ * account; see evaluateIdLock() for the lock this undoes.
+ */
+export function resetBotLockedLineMid(botId: number): void {
+	clearLockedLineMidStmt.run(botId);
 }
 
 const OWNER_TESTING_KEY = "allowOwnerTesting";

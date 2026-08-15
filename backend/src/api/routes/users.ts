@@ -10,6 +10,7 @@ import {
 	MAX_BOT_QUOTA,
 	setUserActive,
 	setUserBotQuota,
+	setUserExemptIdLock,
 	UserValidationError,
 } from "../../auth/users.ts";
 import { overQuotaBots } from "../../bot/bots.ts";
@@ -52,7 +53,8 @@ usersRoute.post("/", async (c) => {
 const patchUserBodySchema = z.object({
 	active: z.boolean().optional(),
 	botQuota: z.number().int().min(1).max(MAX_BOT_QUOTA).optional(),
-}).refine((data) => data.active !== undefined || data.botQuota !== undefined, {
+	exemptIdLock: z.boolean().optional(),
+}).refine((data) => data.active !== undefined || data.botQuota !== undefined || data.exemptIdLock !== undefined, {
 	message: "at least one field is required",
 });
 
@@ -97,6 +99,10 @@ usersRoute.patch("/:id", async (c) => {
 				botQuota: result.data.botQuota,
 				stoppedBotIds: stopped.map((bot) => bot.id),
 			});
+		}
+		if (result.data.exemptIdLock !== undefined) {
+			setUserExemptIdLock(id, result.data.exemptIdLock);
+			logUserAction(requestUser(c)!, "user.set_exempt_id_lock", { targetUserId: id, exemptIdLock: result.data.exemptIdLock });
 		}
 	} catch (error) {
 		if (error instanceof UserValidationError) return c.json({ error: error.message }, 400);

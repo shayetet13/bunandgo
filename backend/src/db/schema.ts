@@ -8,6 +8,9 @@ CREATE TABLE IF NOT EXISTS users (
 	-- How many bots this user may create for themselves. Only an admin can
 	-- raise it (see auth/users.ts setUserBotQuota); admins are uncapped.
 	bot_quota INTEGER NOT NULL DEFAULT 1,
+	-- Lets an admin mark a "test" account exempt from the one-LINE-account-
+	-- per-bot lock below — see bot/bots.ts isIdLockExempt().
+	exempt_id_lock INTEGER NOT NULL DEFAULT 0,
 	created_at INTEGER NOT NULL
 );
 
@@ -23,6 +26,10 @@ CREATE TABLE IF NOT EXISTS bots (
 	device TEXT NOT NULL DEFAULT 'DESKTOPWIN',
 	status TEXT NOT NULL DEFAULT 'offline',
 	owner_user_id INTEGER,
+	-- The LINE account (profile.mid) that first logged into this bot slot.
+	-- NULL until the first successful login; every login after that must
+	-- match, unless the owner is exempt — see bot/bots.ts evaluateIdLock().
+	locked_line_mid TEXT,
 	created_at INTEGER NOT NULL
 );
 
@@ -237,6 +244,7 @@ export interface UserRow {
 	role: UserRole;
 	active: number;
 	bot_quota: number;
+	exempt_id_lock: number;
 	created_at: number;
 }
 
@@ -247,6 +255,7 @@ export interface BotRow {
 	device: string;
 	status: BotStatus;
 	owner_user_id: number | null;
+	locked_line_mid: string | null;
 	created_at: number;
 }
 

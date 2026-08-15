@@ -19,6 +19,8 @@ export interface Bot {
 	allowOwnerTesting: boolean;
 	/** Past the owner's quota — cannot be started until the quota is raised. */
 	overQuota: boolean;
+	/** The LINE account locked to this bot slot, or null before its first login. */
+	lockedLineMid: string | null;
 	createdAt: number;
 }
 
@@ -29,6 +31,8 @@ export interface ManagedUser {
 	active: boolean;
 	/** How many bots this user may create for themselves. Admins are uncapped. */
 	botQuota: number;
+	/** Excused from the one-LINE-account-per-bot lock — a test account that legitimately swaps LINE accounts. */
+	exemptIdLock: boolean;
 	createdAt: number;
 	botCount: number;
 }
@@ -370,9 +374,16 @@ export type WsEventType =
 	| "bot_error"
 	| "chats_updated"
 	| "bot_status"
-	| "start_declined";
+	| "start_declined"
+	| "id_lock_mismatch";
 
 export interface WsEvent<T = unknown> {
 	type: WsEventType;
 	data: T;
+}
+
+/** Payload of the "id_lock_mismatch" event — a different LINE account tried to log into an already-locked bot. */
+export interface IdLockMismatchEvent {
+	botId: number;
+	botName: string;
 }

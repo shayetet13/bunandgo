@@ -44,6 +44,10 @@ export const api = {
 		method: "PATCH",
 		body: JSON.stringify({ active }),
 	}),
+	setUserExemptIdLock: (userId: number, exemptIdLock: boolean) => request<ManagedUser>(`/api/users/${userId}`, {
+		method: "PATCH",
+		body: JSON.stringify({ exemptIdLock }),
+	}),
 	previewUserBotQuota: (userId: number, quota: number) =>
 		request<QuotaPreview>(`/api/users/${userId}/quota-preview?quota=${quota}`),
 	setUserBotQuota: (userId: number, botQuota: number) =>
@@ -64,6 +68,9 @@ export const api = {
 			method: "PATCH",
 			body: JSON.stringify(settings),
 		}),
+	// Admin-only recovery for a single bot's one-LINE-account lock — e.g. its
+	// LINE account was banned and a replacement needs to scan in.
+	resetBotIdLock: (botId: number) => request<{ ok: boolean }>(`/api/bots/${botId}/reset-id-lock`, { method: "POST" }),
 
 	startBot: (botId: number) =>
 		request<{ ok: boolean; confirmToken?: string; confirmUrl?: string; message?: string }>(

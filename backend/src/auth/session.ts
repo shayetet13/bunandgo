@@ -48,6 +48,7 @@ function publicUser(row: UserRow): AuthUser {
 		role: row.role,
 		active: row.active !== 0,
 		botQuota: row.bot_quota,
+		exemptIdLock: row.exempt_id_lock !== 0,
 	};
 }
 

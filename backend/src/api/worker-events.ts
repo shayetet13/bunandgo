@@ -20,6 +20,7 @@ export const FORWARDED_EVENTS = [
 	"chats_updated",
 	"bot_status",
 	"start_declined",
+	"id_lock_mismatch",
 ] as const;
 
 export type ForwardedEventName = typeof FORWARDED_EVENTS[number];

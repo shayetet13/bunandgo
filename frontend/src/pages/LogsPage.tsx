@@ -34,6 +34,7 @@ const ANOMALY_LABELS: Record<string, { label: string; hint: string }> = {
 	members_unreadable: { label: "อ่านสมาชิกห้องไม่ได้", hint: "ดึงรายชื่อ/สิทธิ์ในห้องไม่สำเร็จ อาจเป็นสัญญาณว่าถูกจำกัดสิทธิ์" },
 	listener_stopped: { label: "สตรีมรับข้อความหยุด", hint: "บอทหยุดได้ยินข้อความใหม่ กำลังเชื่อมต่อใหม่" },
 	square_access_denied: { label: "LINE ปฏิเสธสิทธิ์ห้อง", hint: "บัญชีนี้อ่าน OpenChat ห้องนั้นไม่ได้แล้ว ระบบหยุด poll ซ้ำเพื่อไม่ให้เกิด retry flood — ตรวจสมาชิกห้อง แล้วกดเริ่ม/สแกน QR ใหม่" },
+	id_lock_mismatch: { label: "บัญชี LINE ไม่ตรงกับที่ผูกไว้", hint: "มีคนพยายามสแกน QR บอทนี้ด้วยบัญชี LINE อื่นที่ไม่ใช่บัญชีแรกที่เคยเข้าสู่ระบบสำเร็จ ระบบปฏิเสธอัตโนมัติ" },
 };
 
 const SEVERITY_CHIP: Record<string, string> = {
@@ -48,6 +49,8 @@ const USER_ACTION_LABELS: Record<string, string> = {
 	"auth.login.throttled": "ล็อกอินถูกจำกัดชั่วคราว",
 	"bot.create": "สร้างบอท",
 	"system.worker.restart.requested": "สั่งรีสตาร์ท linebot-worker",
+	"user.set_exempt_id_lock": "ตั้งค่าบัญชีทดสอบ (ยกเว้นล็อกบัญชี LINE)",
+	"bot.reset_id_lock": "รีเซ็ตล็อกบัญชี LINE ของบอท",
 };
 
 function userActionLabel(action: string): string {

@@ -48,7 +48,9 @@ export type AnomalyKind =
 	/** A scheduled post's exact time arrived but it could not go out (bot offline, send failed). */
 	| "scheduled_post_missed"
 	/** A bot that was running when the process died could not be brought back on restart. */
-	| "resume_failed";
+	| "resume_failed"
+	/** A LINE account other than the one first locked to this bot tried to log in. */
+	| "id_lock_mismatch";
 
 export interface AnomalyInput {
 	botId: number | null;

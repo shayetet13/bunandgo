@@ -360,6 +360,22 @@ const migrations: Migration[] = [
 			db.exec("DELETE FROM auth_sessions");
 		},
 	},
+	{
+		id: "026_bots_locked_line_mid",
+		up: (db) => {
+			if (!hasColumn(db, "bots", "locked_line_mid")) {
+				db.exec("ALTER TABLE bots ADD COLUMN locked_line_mid TEXT");
+			}
+		},
+	},
+	{
+		id: "027_users_exempt_id_lock",
+		up: (db) => {
+			if (!hasColumn(db, "users", "exempt_id_lock")) {
+				db.exec("ALTER TABLE users ADD COLUMN exempt_id_lock INTEGER NOT NULL DEFAULT 0");
+			}
+		},
+	},
 ];
 
 export function runMigrations(db: Database): void {

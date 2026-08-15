@@ -2,6 +2,7 @@ import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api.ts";
 import { MAX_BOT_QUOTA, type ManagedUser, type QuotaPreview } from "../lib/types.ts";
 import { QuotaConfirmModal } from "../components/QuotaConfirmModal.tsx";
+import { ToggleSwitch } from "../components/ToggleSwitch.tsx";
 
 interface UsersPageProps {
 	onNotify: (message: string) => void;
@@ -55,6 +56,17 @@ export function UsersPage({ onNotify }: UsersPageProps) {
 	async function toggle(user: ManagedUser) {
 		try {
 			await api.setUserActive(user.id, !user.active);
+			await refresh();
+		} catch (error) {
+			onNotify(error instanceof Error ? error.message : String(error));
+		}
+	}
+
+	// Exempts a "test" account from the one-LINE-account-per-bot lock, so it
+	// can legitimately swap which LINE account is behind its bots.
+	async function toggleExemptIdLock(user: ManagedUser) {
+		try {
+			await api.setUserExemptIdLock(user.id, !user.exemptIdLock);
 			await refresh();
 		} catch (error) {
 			onNotify(error instanceof Error ? error.message : String(error));
@@ -189,6 +201,12 @@ export function UsersPage({ onNotify }: UsersPageProps) {
 										{user.botCount > user.botQuota && (
 											<span className="chip chip--idle">ปิดไว้ {user.botCount - user.botQuota} ตัว (เกินโควตา)</span>
 										)}
+									</label>
+								)}
+								{user.role !== "admin" && (
+									<label style={{ display: "flex", alignItems: "center", gap: "var(--space-xs)", marginTop: "var(--space-xs)" }}>
+										<span className="label" style={{ margin: 0 }}>บัญชีทดสอบ (ยกเว้นล็อกบัญชี LINE)</span>
+										<ToggleSwitch isSelected={user.exemptIdLock} onToggle={() => void toggleExemptIdLock(user)} />
 									</label>
 								)}
 							</div>
