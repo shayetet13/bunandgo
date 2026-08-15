@@ -86,13 +86,10 @@ mkdir ~/${APP_DIR}_new
 tar -xzf deploy.tar.gz -C ~/${APP_DIR}_new
 rm -f deploy.tar.gz
 
-echo "--- Preserving secrets and data ---"
-if [ -f ~/${APP_DIR}/backend/.env ]; then
-	cp ~/${APP_DIR}/backend/.env ~/${APP_DIR}_new/backend/.env
-fi
-if [ -d ~/${APP_DIR}/backend/data ]; then
-	cp -r ~/${APP_DIR}/backend/data ~/${APP_DIR}_new/backend/data
-fi
+echo "--- Keeping Server 1 stateless ---"
+# Server 1 is only the Nginx/frontend gateway. Backend secrets, LINE tokens
+# and SQLite data belong exclusively on Server 2 and must never be copied into
+# a gateway release or its rollback directory.
 
 echo "--- Swapping directories ---"
 rm -rf ~/${APP_DIR}_old
