@@ -14,6 +14,7 @@ interface BotFleetPageProps {
 	onStop: (botId: number) => void;
 	onDelete: (botId: number) => void;
 	onResetIdLock: (botId: number) => void;
+	onForceRelogin: (botId: number) => void;
 }
 
 export function BotFleetPage(props: BotFleetPageProps) {

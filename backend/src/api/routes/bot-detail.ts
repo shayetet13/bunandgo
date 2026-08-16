@@ -209,6 +209,33 @@ botDetailRoute.post("/reset-id-lock", requireAdmin, async (c) => {
 	return c.json({ ok: true });
 });
 
+// Admin-only: forces a bot to present a fresh LINE QR on its next start
+// *without* releasing its one-LINE-account lock. An ordinary "หยุด" (stop)
+// leaves the stored session token in place, so the next "start" resumes it
+// silently via resumeWithStoredToken — no QR ever shows, which reads as
+// "the old bot is still running" to whoever stopped it expecting to scan
+// something new. This route clears just the token, same as /reset-id-lock,
+// but deliberately skips resetBotLockedLineMid: the next login must still
+// come from the same locked_line_mid or it is rejected and alerted like any
+// other id_lock_mismatch. Use /reset-id-lock instead when the intent is to
+// actually hand the slot to a different LINE account.
+botDetailRoute.post("/force-relogin", requireAdmin, async (c) => {
+	const botId = botIdOf(c);
+	const bot = getBot(botId);
+	if (!bot) return c.json({ error: "bot not found" }, 404);
+	if (bot.status !== "offline") {
+		try {
+			stopBot(botId);
+		} catch (error) {
+			if (error instanceof WorkerScopeError) return c.json({ error: error.message }, 409);
+			throw error;
+		}
+	}
+	await clearStoredAuthToken(botId);
+	logUserAction(requestUser(c)!, "bot.force_relogin", { botId, botName: bot.name });
+	return c.json({ ok: true });
+});
+
 botDetailRoute.get("/chats", (c) => c.json(chatsStmt.all(botIdOf(c))));
 
 const chatEnabledBodySchema = z.object({ enabled: z.boolean() });

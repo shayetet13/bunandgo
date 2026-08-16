@@ -498,6 +498,17 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 		}
 	}
 
+	async function handleForceRelogin(botId: number) {
+		try {
+			await api.forceBotRelogin(botId);
+			// Lock stays in place — only the status changes here.
+			setBots((prev) => prev.map((b) => (b.id === botId ? { ...b, status: "offline" } : b)));
+			pushNotification("ออกจากระบบ session เดิมแล้ว — บัญชี LINE เดิมยังถูกล็อกอยู่ กดเริ่มเพื่อสแกน QR ใหม่ได้เลย (ต้องเป็นบัญชีเดิมเท่านั้น)");
+		} catch (err) {
+			pushNotification(err instanceof Error ? err.message : String(err));
+		}
+	}
+
 	async function handleToggleOwnerTesting(bot: Bot) {
 		try {
 			const updated = await api.updateBotSettings(bot.id, { allowOwnerTesting: !bot.allowOwnerTesting });
@@ -652,6 +663,7 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 								onStop={handleStop}
 								onDelete={handleDeleteBot}
 								onResetIdLock={handleResetIdLock}
+								onForceRelogin={handleForceRelogin}
 							/>
 						)}
 

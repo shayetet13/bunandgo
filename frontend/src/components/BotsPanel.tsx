@@ -28,6 +28,7 @@ interface BotsPanelProps {
 	onStop: (botId: number) => void;
 	onDelete: (botId: number) => void;
 	onResetIdLock: (botId: number) => void;
+	onForceRelogin: (botId: number) => void;
 }
 
 const STATUS_COLOR: Record<BotStatus, string> = {
@@ -52,11 +53,12 @@ const actionBtnStyle = {
 	cursor: "pointer",
 };
 
-export function BotsPanel({ bots, role, selectedBotId, onSelect, qrByBot, confirmByBot, onCreateBot, onStart, onStop, onDelete, onResetIdLock }: BotsPanelProps) {
+export function BotsPanel({ bots, role, selectedBotId, onSelect, qrByBot, confirmByBot, onCreateBot, onStart, onStop, onDelete, onResetIdLock, onForceRelogin }: BotsPanelProps) {
 	const [showForm, setShowForm] = useState(false);
 	const [name, setName] = useState("");
 	const [confirmDeleteId, setConfirmDeleteId] = useState<number>();
 	const [confirmResetIdLockId, setConfirmResetIdLockId] = useState<number>();
+	const [confirmForceReloginId, setConfirmForceReloginId] = useState<number>();
 	const ownerNames = useOwnerNames(role);
 	const groups = groupBotsByOwner(bots);
 
@@ -249,6 +251,33 @@ export function BotsPanel({ bots, role, selectedBotId, onSelect, qrByBot, confir
 												title="ปลดล็อกบัญชี LINE ของบอทนี้ — จะหยุดบอทและออกจากระบบ session เดิมด้วย ใช้เมื่อบัญชีเดิมโดนแบน/ต้องเปลี่ยนบัญชีใหม่"
 											>
 												รีเซ็ตล็อกบัญชี
+											</button>
+										)
+									)}
+
+									{role === "admin" && bot.lockedLineMid && (
+										confirmForceReloginId === bot.id ? (
+											<>
+												<button
+													onClick={() => {
+														onForceRelogin(bot.id);
+														setConfirmForceReloginId(undefined);
+													}}
+													style={{ ...actionBtnStyle, color: "var(--signal-warn)", borderColor: "var(--signal-warn-dim)", fontWeight: 700 }}
+												>
+													ยืนยันบังคับสแกนใหม่?
+												</button>
+												<button onClick={() => setConfirmForceReloginId(undefined)} style={actionBtnStyle}>
+													ยกเลิก
+												</button>
+											</>
+										) : (
+											<button
+												onClick={() => setConfirmForceReloginId(bot.id)}
+												style={actionBtnStyle}
+												title="หยุดบอทและออกจากระบบ session เดิม แต่ยังล็อกบัญชี LINE เดิมไว้ — สแกนครั้งถัดไปต้องเป็นบัญชีเดิมเท่านั้น มิฉะนั้นจะถูกปฏิเสธและแจ้งเตือน (ต่างจากรีเซ็ตล็อกที่ปลดล็อกให้บัญชีอื่นเข้าได้)"
+											>
+												บังคับสแกนใหม่
 											</button>
 										)
 									)}

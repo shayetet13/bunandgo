@@ -71,6 +71,10 @@ export const api = {
 	// Admin-only recovery for a single bot's one-LINE-account lock — e.g. its
 	// LINE account was banned and a replacement needs to scan in.
 	resetBotIdLock: (botId: number) => request<{ ok: boolean }>(`/api/bots/${botId}/reset-id-lock`, { method: "POST" }),
+	// Admin-only: forces a fresh QR on next start without releasing the lock —
+	// unlike resetBotIdLock, only the same already-locked LINE account can
+	// successfully log back in.
+	forceBotRelogin: (botId: number) => request<{ ok: boolean }>(`/api/bots/${botId}/force-relogin`, { method: "POST" }),
 
 	startBot: (botId: number) =>
 		request<{ ok: boolean; confirmToken?: string; confirmUrl?: string; message?: string }>(
