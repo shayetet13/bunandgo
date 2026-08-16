@@ -7,6 +7,7 @@ import { clearSqliteStorageCache, SqliteStorage } from "../db/sqlite-storage.ts"
 import { latencyTracker, sumLatencyBreakdown } from "../metrics/latency.ts";
 import { getCompiledRules, matchRule, preloadRules } from "./rules.ts";
 import { claimIncomingMessage, claimReply, claimRoomAnswer, clearBotClaims } from "./reply-guard.ts";
+import { recordPriorityWin, shouldYieldToPriorityBot } from "./priority-answerer.ts";
 import { clearThrottle, tryAcquireSend } from "./rate-limiter.ts";
 import { clearChatAccess } from "./chat-access.ts";
 import { squareSelfMidKey } from "./square-self-mid-key.ts";
@@ -2023,6 +2024,14 @@ async function handleIncoming(
 	const client = runtime?.client;
 	const guardBotId = prewarmGuardBotId ?? botId;
 	let replyPromise: Promise<void> | undefined;
+	// A non-priority bot stands down here, before ever touching claimReply,
+	// when the priority-designated bot (priority-answerer.ts — checked
+	// room-wide, not just this bot's own owner) is online, still under its
+	// daily per-room quota, and would also have matched this same message —
+	// letting that bot's own detection win the room instead. Skipped for
+	// prewarm, which never contends for anything.
+	const yieldToPriority =
+		prewarmGuardBotId === undefined && rule !== undefined && shouldYieldToPriorityBot(botId, targetMid, text, surface);
 	// Ordered deliberately: the per-bot claim is checked first because it is
 	// the cheaper of the two and rejects the ordinary push/poll duplicate,
 	// and the shared one is only consumed by a bot that would genuinely have
@@ -2031,9 +2040,11 @@ async function handleIncoming(
 	if (
 		rule &&
 		client &&
+		!yieldToPriority &&
 		claimReply(guardBotId, targetMid, rule.id, messageId) &&
 		(prewarmGuardBotId !== undefined || claimRoomAnswer(replyOwnerKey(botId, runtime?.ownerUserId), botId, targetMid, messageId))
 	) {
+		if (prewarmGuardBotId === undefined) recordPriorityWin(botId, targetMid);
 		const timedMessage = message as unknown as Record<symbol, number | string | undefined>;
 		const stampedReceivedAt = timedMessage[INTERNAL_RECEIVED_AT];
 		const stampedDecryptMs = timedMessage[DECRYPT_MS];
