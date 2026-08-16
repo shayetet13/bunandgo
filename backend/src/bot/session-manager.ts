@@ -2032,6 +2032,15 @@ async function handleIncoming(
 	// prewarm, which never contends for anything.
 	const yieldToPriority =
 		prewarmGuardBotId === undefined && rule !== undefined && shouldYieldToPriorityBot(botId, targetMid, text, surface);
+	// Logged here, not inside priority-answerer.ts, so that module stays
+	// I/O-free (see its doc comment) — this is the only place that knows
+	// both the decision and the botId/room to attribute it to. Off the hot
+	// path in practice: a yield only fires while the priority bot's daily
+	// quota (2 by default) is still open, so this is at most a couple of
+	// log lines per room per day, not per message.
+	if (yieldToPriority) {
+		logBotEvent(botId, "priority_yield", "ถอยให้บอทที่ตั้ง priority ตอบแทนในห้องนี้ — โควตาวันนี้ของบอทนั้นยังไม่หมด");
+	}
 	// Ordered deliberately: the per-bot claim is checked first because it is
 	// the cheaper of the two and rejects the ordinary push/poll duplicate,
 	// and the shared one is only consumed by a bot that would genuinely have
@@ -2044,7 +2053,12 @@ async function handleIncoming(
 		claimReply(guardBotId, targetMid, rule.id, messageId) &&
 		(prewarmGuardBotId !== undefined || claimRoomAnswer(replyOwnerKey(botId, runtime?.ownerUserId), botId, targetMid, messageId))
 	) {
-		if (prewarmGuardBotId === undefined) recordPriorityWin(botId, targetMid);
+		if (prewarmGuardBotId === undefined) {
+			const priorityWinCount = recordPriorityWin(botId, targetMid);
+			if (priorityWinCount !== undefined) {
+				logBotEvent(botId, "priority_answer", `ตอบด้วยสิทธิ์ priority ในห้องนี้ (ครั้งที่ ${priorityWinCount} ของวันนี้)`);
+			}
+		}
 		const timedMessage = message as unknown as Record<symbol, number | string | undefined>;
 		const stampedReceivedAt = timedMessage[INTERNAL_RECEIVED_AT];
 		const stampedDecryptMs = timedMessage[DECRYPT_MS];

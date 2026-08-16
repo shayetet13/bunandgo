@@ -100,16 +100,21 @@ function winsKey(botId: number, chatMid: string, now: number): string {
 }
 
 /**
- * Records a priority bot's answer toward its daily quota for `chatMid`.
- * No-op for a non-priority bot, so callers can call this unconditionally
- * on every successful claim without checking `isPriorityBot` themselves.
- * Off the hot path (paid only by an actual send, like primary-bot.ts's
- * own `getBot` lookups), so the direct `isPriorityBot` DB check is fine.
+ * Records a priority bot's answer toward its daily quota for `chatMid`,
+ * returning the new count so the caller can log it (see session-manager.ts
+ * — this module stays I/O-free, matching evaluateIdLock-style separation).
+ * `undefined` for a non-priority bot, so callers can call this
+ * unconditionally on every successful claim without checking
+ * `isPriorityBot` themselves. Off the hot path (paid only by an actual
+ * send, like primary-bot.ts's own `getBot` lookups), so the direct
+ * `isPriorityBot` DB check is fine.
  */
-export function recordPriorityWin(botId: number, chatMid: string, now = Date.now()): void {
-	if (!isPriorityBot(botId)) return;
+export function recordPriorityWin(botId: number, chatMid: string, now = Date.now()): number | undefined {
+	if (!isPriorityBot(botId)) return undefined;
 	const k = winsKey(botId, chatMid, now);
-	wins.set(k, (wins.get(k) ?? 0) + 1);
+	const count = (wins.get(k) ?? 0) + 1;
+	wins.set(k, count);
+	return count;
 }
 
 function hasQuotaLeft(botId: number, chatMid: string, now: number): boolean {

@@ -209,6 +209,19 @@ describe("shouldYieldToPriorityBot", () => {
 		claimBotStmt.run(ownerId, notBig.id);
 		joinRoom(notBig.id, room, 1);
 
-		expect(() => recordPriorityWin(notBig.id, room)).not.toThrow();
+		expect(recordPriorityWin(notBig.id, room)).toBeUndefined();
+	});
+
+	test("recordPriorityWin returns the running count so callers can log it", () => {
+		clearPriorityWinsForTests();
+		const room = uniqueMid();
+		const ownerId = owner();
+		const big = createBot("big");
+		claimBotStmt.run(ownerId, big.id);
+		joinRoom(big.id, room, 1);
+
+		expect(recordPriorityWin(big.id, room)).toBe(1);
+		expect(recordPriorityWin(big.id, room)).toBe(2);
+		expect(recordPriorityWin(big.id, room)).toBe(3);
 	});
 });
