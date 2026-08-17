@@ -66,11 +66,12 @@ export function Topbar({ title, subtitle, bots, health, notifications, onSelectB
 	// not a bug: both chips fall back to "unknown" until the API catches up.
 	const server1 = health?.servers?.find((server) => server.id === "server1");
 	const server2 = health?.servers?.find((server) => server.id === "server2");
-	const connectorTone: ServerTone = [server1, server2].some((server) => summarizeServer(server).tone === "bad")
+	const server3 = health?.servers?.find((server) => server.id === "server3");
+	const connectorTone: ServerTone = [server1, server2, server3].some((server) => summarizeServer(server).tone === "bad")
 		? "bad"
-		: [server1, server2].some((server) => summarizeServer(server).tone === "warn")
+		: [server1, server2, server3].some((server) => summarizeServer(server).tone === "warn")
 			? "warn"
-			: server1 && server2
+			: server1 && server2 && server3
 				? "go"
 				: "idle";
 	const connectorColor = SERVER_STATUS_COLORS[connectorTone];
@@ -198,10 +199,12 @@ export function Topbar({ title, subtitle, bots, health, notifications, onSelectB
 					)}
 				</div>
 
-				<div style={{ display: "flex", alignItems: "center", gap: "0.35rem", flexWrap: "wrap", justifyContent: "center" }} aria-label="สถานะการเชื่อมต่อระหว่าง Server 1 และ Server 2">
+				<div style={{ display: "flex", alignItems: "center", gap: "0.35rem", flexWrap: "wrap", justifyContent: "center" }} aria-label="สถานะการเชื่อมต่อ Server 1, Server 2 และ Server 3">
 					<ServerChip server={server1} />
 					<span title="การเชื่อมต่อส่วนตัวระหว่างสองเซิร์ฟเวอร์" style={{ color: connectorColor, fontSize: "1.1rem", fontWeight: 900, lineHeight: 1 }}>⟷</span>
 					<ServerChip server={server2} />
+					<span title="Encrypted lane tunnel" style={{ color: connectorColor, fontSize: "1.1rem", fontWeight: 900, lineHeight: 1 }}>⟷</span>
+					<ServerChip server={server3} />
 				</div>
 
 				<button

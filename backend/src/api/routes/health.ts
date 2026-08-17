@@ -8,6 +8,7 @@ import { botEvents, getRuntimeDiagnostics } from "../../bot/session-manager.ts";
 import { isControlPlane } from "../../bot/worker-topology.ts";
 import { workerEventRelayDiagnostics } from "../worker-events.ts";
 import { requireAdmin } from "../../auth/request-user.ts";
+import { remoteLaneDiagnostics } from "../../dispatch/remote-lanes.ts";
 
 export const healthRoute = new Hono();
 healthRoute.use("*", requireAdmin);
@@ -25,13 +26,42 @@ interface ServerLoad {
 }
 
 interface ServerStatus {
-	id: "server1" | "server2";
+	id: "server1" | "server2" | "server3";
 	label: string;
 	role: string;
+	kind?: "host" | "lane-node";
 	reachable: boolean;
 	serviceHealthy: boolean;
 	load?: ServerLoad;
 	detail?: string;
+}
+
+function server3Status(): ServerStatus {
+	const remote = remoteLaneDiagnostics();
+	const snapshotFresh = remote.snapshot !== undefined && Date.now() - remote.snapshot.receivedAt <= 5_000;
+	const hasReadyLane = remote.snapshot?.lanes.some((lane) => lane.state === "ready") === true;
+	if (!remote.configured) {
+		return {
+			id: "server3",
+			label: "Server 3",
+			role: "Remote lane node",
+			kind: "lane-node",
+			reachable: false,
+			serviceHealthy: false,
+			detail: "Server 3 ยังไม่ได้เปิดใช้งาน",
+		};
+	}
+	return {
+		id: "server3",
+		label: "Server 3",
+		role: "Remote lane node",
+		kind: "lane-node",
+		reachable: snapshotFresh,
+		serviceHealthy: snapshotFresh && hasReadyLane,
+		detail: snapshotFresh && hasReadyLane
+			? "Lane node และ encrypted tunnel ปกติ"
+			: "ไม่สามารถติดต่อ lane node ผ่าน encrypted tunnel",
+	};
 }
 
 async function checkSenderHealthy(): Promise<boolean> {
@@ -109,7 +139,7 @@ healthRoute.get("/", async (c) => {
 		botsOnline: bots.filter((b) => b.status === "online").length,
 		botsTotal: bots.length,
 		systemLoad: getSystemLoadSnapshot(),
-		servers: [server1, localServerStatus(senderHealthy, dbHealthy)],
+		servers: [server1, localServerStatus(senderHealthy, dbHealthy), server3Status()],
 		// Surfaced so a reply riding the fetch fallback instead of an owned
 		// lane is visible here rather than only as unexplained jitter on the
 		// latency chart.

@@ -12,6 +12,7 @@ export function summarizeServer(server?: ServerStatus): ServerSummary {
 	if (!server) return { label: "กำลังตรวจ...", detail: "ยังไม่ได้รับสถานะของเครื่อง", tone: "idle" };
 	if (!server.reachable) return { label: "ติดต่อไม่ได้", detail: server.detail ?? "ไม่สามารถเชื่อมต่อเครื่องนี้ผ่านเครือข่ายส่วนตัว", tone: "bad" };
 	if (!server.serviceHealthy) return { label: "บริการมีปัญหา", detail: server.detail ?? "บริการหลักของเครื่องนี้ไม่ตอบสนอง", tone: "bad" };
+	if (server.kind === "lane-node") return { label: "พร้อมใช้งาน", detail: server.detail ?? "Lane node พร้อมรับงาน", tone: "go" };
 	if (!server.load) return { label: "กำลังวัดโหลด...", detail: "เครื่องตอบสนอง แต่ยังไม่มีตัวเลขโหลด", tone: "idle" };
 
 	const capacity = Math.max(0, Math.round(server.load.capacityPercent));

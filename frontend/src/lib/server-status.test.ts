@@ -26,4 +26,11 @@ describe("summarizeServer", () => {
 	test("marks an exceeded load red", () => {
 		expect(summarizeServer(server({ load: { cpuPercent: 90, memoryPercent: 60, capacityPercent: 113, exceeded: true, sampledAt: 1 } }))).toMatchObject({ tone: "bad" });
 	});
+
+	test("shows a healthy lane node as ready without exposing lane internals", () => {
+		expect(summarizeServer(server({ id: "server3", kind: "lane-node", load: undefined }))).toMatchObject({
+			label: "พร้อมใช้งาน",
+			tone: "go",
+		});
+	});
 });

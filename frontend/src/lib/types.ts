@@ -148,9 +148,10 @@ export interface LaneStat {
 }
 
 export interface ServerStatus {
-	id: "server1" | "server2";
+	id: "server1" | "server2" | "server3";
 	label: string;
 	role: string;
+	kind?: "host" | "lane-node";
 	/** Whether the dashboard backend can reach this machine right now. */
 	reachable: boolean;
 	/** Health of the service this machine is responsible for. */
