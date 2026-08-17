@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseRemoteLaneConfig, selectDistributedRoute } from "./remote-lanes.ts";
+import { mustKeepLoginLocal, parseRemoteLaneConfig, selectDistributedRoute } from "./remote-lanes.ts";
 
 describe("remote lane config", () => {
 	test("accepts only the distributed lane allowlist", () => {
@@ -16,6 +16,12 @@ UNRELATED_SECRET=do-not-load
 });
 
 describe("distributed lane route selection", () => {
+	test("keeps LINE login and malformed targets on the originating worker", () => {
+		expect(mustKeepLoginLocal("https://legy.line-apps.com/acct/lgn/sq/v1")).toBe(true);
+		expect(mustKeepLoginLocal("not a url")).toBe(true);
+		expect(mustKeepLoginLocal("https://legy.line-apps.com/SQ1" as RequestInfo)).toBe(false);
+	});
+
 	test("keeps local when remote has no fresh application measurement", () => {
 		expect(selectDistributedRoute({ localScoreMs: 20 })).toBe("local");
 	});

@@ -95,6 +95,19 @@ function requestRole(info: RequestInfo | URL, init?: RequestInit): LaneRole {
 	return headers.get(H2_LANE_ROLE_HEADER)?.toLowerCase() === "poll" ? "poll" : "send";
 }
 
+/** Login exchanges carry an account's QR/session credentials and stay on the
+ * originating worker. They are deliberately never eligible for a remote lane
+ * node, even when remote sends are enabled for ordinary message traffic. */
+export function mustKeepLoginLocal(info: RequestInfo | URL): boolean {
+	try {
+		const rawUrl = info instanceof Request ? info.url : String(info);
+		return new URL(rawUrl).pathname.startsWith("/acct/lgn/");
+	} catch {
+		// A malformed/relative URL cannot be safely relayed either.
+		return true;
+	}
+}
+
 function freshHotScore(lanes: readonly LaneStat[], now: number): number | undefined {
 	const scores = lanes
 		.filter((lane) =>
@@ -239,6 +252,7 @@ export async function distributedLaneFetch(
 	info: RequestInfo | URL,
 	init?: RequestInit,
 ): Promise<Response | undefined> {
+	if (mustKeepLoginLocal(info)) return laneFetch(info, init);
 	if (!configured()) return laneFetch(info, init);
 	startRemoteLaneMonitor();
 	const role = requestRole(info, init);
