@@ -49,7 +49,7 @@ if ! systemctl restart linebot-lane-node.service; then
 	exit 1
 fi
 sleep 2
-if ! curl -fsS --max-time 3 http://10.78.0.2:4891/healthz >/dev/null; then
+if ! curl -fsS --max-time 3 http://127.0.0.1:4891/healthz >/dev/null; then
 	[ -z "$previous" ] || ln -sfn "$previous" /opt/linebot-lane/current
 	[ -z "$previous" ] || systemctl restart linebot-lane-node.service
 	exit 1

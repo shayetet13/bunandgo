@@ -1,7 +1,7 @@
 [Unit]
 Description=LINE Bot transport-only distributed lane node
-Wants=network-online.target wg-quick@wg-lane.service
-After=network-online.target wg-quick@wg-lane.service
+Wants=network-online.target
+After=network-online.target
 
 [Service]
 Type=simple

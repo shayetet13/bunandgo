@@ -1,5 +1,19 @@
 import { describe, expect, test } from "bun:test";
-import { selectDistributedRoute } from "./remote-lanes.ts";
+import { parseRemoteLaneConfig, selectDistributedRoute } from "./remote-lanes.ts";
+
+describe("remote lane config", () => {
+	test("accepts only the distributed lane allowlist", () => {
+		expect(parseRemoteLaneConfig(`
+# probe-only rollout
+REMOTE_LANE_URL=http://127.0.0.1:4891
+REMOTE_LANE_SEND_ENABLED=0
+UNRELATED_SECRET=do-not-load
+`)).toEqual({
+		REMOTE_LANE_URL: "http://127.0.0.1:4891",
+		REMOTE_LANE_SEND_ENABLED: "0",
+	});
+	});
+});
 
 describe("distributed lane route selection", () => {
 	test("keeps local when remote has no fresh application measurement", () => {

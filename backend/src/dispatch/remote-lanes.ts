@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { decodeDispatchResponse, encodeDispatchRequest } from "./binary-protocol.ts";
 import { attachRawDispatchBody } from "./raw-response.ts";
 import {
@@ -27,15 +28,56 @@ export interface DistributedRouteInput {
 	marginMs?: number;
 }
 
-const REMOTE_URL = process.env.REMOTE_LANE_URL?.trim();
-const REMOTE_TOKEN = process.env.REMOTE_LANE_TOKEN?.trim();
-const REMOTE_SEND_ENABLED = process.env.REMOTE_LANE_SEND_ENABLED === "1";
-const REMOTE_POLL_CANARY_ENABLED = process.env.REMOTE_LANE_POLL_CANARY === "1";
-const MONITOR_INTERVAL_MS = Math.max(100, Number(process.env.REMOTE_LANE_MONITOR_INTERVAL_MS ?? 250));
-const SNAPSHOT_MAX_AGE_MS = Math.max(500, Number(process.env.REMOTE_LANE_SNAPSHOT_MAX_AGE_MS ?? 1_500));
-const POLL_CANARY_INTERVAL_MS = Math.max(250, Number(process.env.REMOTE_LANE_POLL_CANARY_INTERVAL_MS ?? 2_000));
-const SWITCH_MARGIN_MS = Math.max(0, Number(process.env.REMOTE_LANE_SWITCH_MARGIN_MS ?? 0.5));
-const IN_FLIGHT_PENALTY_MS = Math.max(0, Number(process.env.LINE_H2_IN_FLIGHT_PENALTY_MS ?? 4));
+const REMOTE_CONFIG_FILE = process.env.REMOTE_LANE_CONFIG_FILE?.trim() ||
+	"/opt/linebot/shared/remote-lane.env";
+const REMOTE_CONFIG_KEYS = new Set([
+	"REMOTE_LANE_URL",
+	"REMOTE_LANE_TOKEN",
+	"REMOTE_LANE_SEND_ENABLED",
+	"REMOTE_LANE_POLL_CANARY",
+	"REMOTE_LANE_MONITOR_INTERVAL_MS",
+	"REMOTE_LANE_SNAPSHOT_MAX_AGE_MS",
+	"REMOTE_LANE_POLL_CANARY_INTERVAL_MS",
+	"REMOTE_LANE_SWITCH_MARGIN_MS",
+	"LINE_H2_IN_FLIGHT_PENALTY_MS",
+]);
+
+export function parseRemoteLaneConfig(content: string): Record<string, string> {
+	const values: Record<string, string> = {};
+	for (const rawLine of content.split(/\r?\n/u)) {
+		const line = rawLine.trim();
+		if (!line || line.startsWith("#")) continue;
+		const separator = line.indexOf("=");
+		if (separator <= 0) continue;
+		const key = line.slice(0, separator).trim();
+		if (!REMOTE_CONFIG_KEYS.has(key)) continue;
+		values[key] = line.slice(separator + 1).trim();
+	}
+	return values;
+}
+
+function readRemoteLaneConfig(): Record<string, string> {
+	try {
+		return parseRemoteLaneConfig(readFileSync(REMOTE_CONFIG_FILE, "utf8"));
+	} catch {
+		return {};
+	}
+}
+
+const fileConfig = readRemoteLaneConfig();
+function setting(name: string): string | undefined {
+	return process.env[name]?.trim() || fileConfig[name]?.trim();
+}
+
+const REMOTE_URL = setting("REMOTE_LANE_URL");
+const REMOTE_TOKEN = setting("REMOTE_LANE_TOKEN");
+const REMOTE_SEND_ENABLED = setting("REMOTE_LANE_SEND_ENABLED") === "1";
+const REMOTE_POLL_CANARY_ENABLED = setting("REMOTE_LANE_POLL_CANARY") === "1";
+const MONITOR_INTERVAL_MS = Math.max(100, Number(setting("REMOTE_LANE_MONITOR_INTERVAL_MS") ?? 250));
+const SNAPSHOT_MAX_AGE_MS = Math.max(500, Number(setting("REMOTE_LANE_SNAPSHOT_MAX_AGE_MS") ?? 1_500));
+const POLL_CANARY_INTERVAL_MS = Math.max(250, Number(setting("REMOTE_LANE_POLL_CANARY_INTERVAL_MS") ?? 2_000));
+const SWITCH_MARGIN_MS = Math.max(0, Number(setting("REMOTE_LANE_SWITCH_MARGIN_MS") ?? 0.5));
+const IN_FLIGHT_PENALTY_MS = Math.max(0, Number(setting("LINE_H2_IN_FLIGHT_PENALTY_MS") ?? 4));
 
 let monitorStarted = false;
 let monitorTimer: ReturnType<typeof setInterval> | undefined;
