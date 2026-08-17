@@ -91,11 +91,18 @@ for new_file in \
 	backend/src/api/worker-events.test.ts \
 	backend/src/api/worker-proxy.ts \
 	backend/src/api/worker-proxy.test.ts \
+	backend/src/api/control-auth.ts \
 	backend/src/api/routes/system.ts \
 	backend/src/api/routes/system.test.ts \
 	backend/src/bot/start-confirmation.test.ts \
 	backend/src/bot/worker-topology.ts \
-	backend/src/bot/worker-topology.test.ts
+	backend/src/bot/worker-topology.test.ts \
+	backend/src/security/intrusion-monitor.ts \
+	backend/src/security/security-events.ts \
+	frontend/src/lib/rule-input.ts \
+	frontend/src/lib/rule-input.test.ts \
+	frontend/src/lib/race-commentary.ts \
+	frontend/src/lib/race-commentary.test.ts
 do
 	[ ! -f "$new_file" ] || GIT_INDEX_FILE="$TEMP_INDEX" git add -- "$new_file"
 done

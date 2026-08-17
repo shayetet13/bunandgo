@@ -1,9 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
-const { createRule, deleteRule, getCompiledRules, matchRule, preloadRules, updateRule } =
-	await import("./rules.ts");
-const { createBot, isOwnerTestingEnabled, listBots, updateOwnerTesting } =
-	await import("./bots.ts");
+const { createRule, deleteRule, getCompiledRules, matchRule, preloadRules, updateRule } = await import("./rules.ts");
+const { createBot, isOwnerTestingEnabled, listBots, updateOwnerTesting } = await import("./bots.ts");
 const { db } = await import("../db/sqlite.ts");
 
 const BOT = 1;
@@ -115,9 +113,7 @@ describe("matchRule", () => {
 	});
 
 	test("rejects a regex that does not compile", () => {
-		expect(() =>
-			createRule(BOT, { ...baseInput, matchType: "regex", matchValue: "([unclosed" })
-		).toThrow("regex is invalid");
+		expect(() => createRule(BOT, { ...baseInput, matchType: "regex", matchValue: "([unclosed" })).toThrow("regex ไม่ถูกต้อง");
 		expect(getCompiledRules(BOT)).toHaveLength(0);
 	});
 
@@ -136,6 +132,17 @@ describe("matchRule", () => {
 		const rules = getCompiledRules(BOT);
 
 		expect(matchRule(rules, "จอง 15")).toBeDefined();
+	});
+
+	test("rejects empty containsAny keys and explains the correct format", () => {
+		for (const matchValue of [",14", "14,,15", "14,"]) {
+			expect(() => createRule(BOT, { ...baseInput, matchType: "containsAny", matchValue })).toThrow("14,15,16,test,car");
+		}
+		expect(getCompiledRules(BOT)).toHaveLength(0);
+	});
+
+	test("rejects a full-width comma with an English-comma example", () => {
+		expect(() => createRule(BOT, { ...baseInput, matchType: "containsAny", matchValue: "14，15" })).toThrow("จุลภาคอังกฤษ");
 	});
 
 	test("skips a disabled rule", () => {

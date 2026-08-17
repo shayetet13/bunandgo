@@ -269,6 +269,19 @@ export interface LatencySampleRow {
 	ok: number;
 	source: "test" | "auto";
 	text_preview: string | null;
+	inbound_ms: number | null;
+	line_created_time: number | null;
+	line_ms: number | null;
+	code_ms: number | null;
+	decrypt_ms: number | null;
+	match_ms: number | null;
+	limiter_ms: number | null;
+	routing_ms: number | null;
+	protocol_prep_ms: number | null;
+	relay_encode_ms: number | null;
+	go_prep_ms: number | null;
+	relay_and_parse_ms: number | null;
+	upstream_calls: number | null;
 }
 
 export interface RuleRow {

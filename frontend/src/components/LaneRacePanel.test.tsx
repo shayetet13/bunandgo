@@ -10,6 +10,10 @@ describe("lane routing state", () => {
 		expect(laneRoutingState({ routingEligible: false, applicationRttMs: 27.2 })).toBe("COOL");
 	});
 
+	test("shows a sub-23ms fallback route as WARM", () => {
+		expect(laneRoutingState({ routingEligible: false, applicationRttMs: 22 })).toBe("WARM");
+	});
+
 	test("shows WAIT before any application measurement exists", () => {
 		expect(laneRoutingState({ routingEligible: false })).toBe("WAIT");
 	});

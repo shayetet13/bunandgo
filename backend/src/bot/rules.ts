@@ -25,9 +25,7 @@ function fromRow(row: RuleRow): Rule {
 	};
 }
 
-const listStmt = db.prepare<RuleRow, [number]>(
-	"SELECT * FROM rules WHERE bot_id = ? ORDER BY priority DESC, id ASC",
-);
+const listStmt = db.prepare<RuleRow, [number]>("SELECT * FROM rules WHERE bot_id = ? ORDER BY priority DESC, id ASC");
 const insertStmt = db.prepare<RuleRow, [number, RuleSurface, string, string, string, number, number, number]>(
 	"INSERT INTO rules (bot_id, surface, match_type, match_value, reply_text, enabled, priority, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
 );
@@ -65,6 +63,22 @@ function potentiallyUnsafeRegex(source: string): boolean {
 	return /\((?:[^()\\]|\\.)*[*+{](?:[^()\\]|\\.)*\)\s*(?:[*+]|\{)/.test(source);
 }
 
+const CONTAINS_ANY_EXAMPLE = "14,15,16,test,car";
+
+function assertContainsAnyKeyFormat(value: string): void {
+	if (value.includes("，")) {
+		throw new RuleValidationError(
+			`รูปแบบคีย์ไม่ถูกต้อง — กรุณาใช้เครื่องหมายจุลภาคอังกฤษ (,) คั่นแต่ละคีย์ ตัวอย่าง: ${CONTAINS_ANY_EXAMPLE}`,
+		);
+	}
+	const keywords = value.split(",");
+	if (keywords.some((keyword) => !keyword.trim())) {
+		throw new RuleValidationError(
+			`รูปแบบคีย์ไม่ถูกต้อง — ห้ามมีคีย์ว่าง เครื่องหมายจุลภาคซ้อน หรือต่อท้ายด้วยจุลภาค ตัวอย่างที่ถูกต้อง: ${CONTAINS_ANY_EXAMPLE}`,
+		);
+	}
+}
+
 export class RuleValidationError extends Error {
 	constructor(message: string) {
 		super(message);
@@ -74,22 +88,22 @@ export class RuleValidationError extends Error {
 
 function assertRuleInput(input: RuleInput): void {
 	if (!input || !["talk", "square", "all"].includes(input.surface)) {
-		throw new RuleValidationError("surface must be talk, square, or all");
+		throw new RuleValidationError("ประเภทห้องไม่ถูกต้อง — กรุณาเลือก กลุ่มแชท, OpenChat หรือทุกประเภท");
 	}
 	if (!["equals", "startsWith", "regex", "containsAny"].includes(input.matchType)) {
-		throw new RuleValidationError("unsupported matchType");
+		throw new RuleValidationError("ประเภทเงื่อนไขไม่ถูกต้อง");
 	}
 	if (typeof input.matchValue !== "string" || !input.matchValue.trim()) {
-		throw new RuleValidationError("matchValue is required");
+		throw new RuleValidationError("กรุณากรอกคีย์ที่ใช้จับข้อความ เช่น 14,15,16,test,car");
 	}
 	if (input.matchValue.length > MAX_MATCH_TEXT_LENGTH) {
-		throw new RuleValidationError(`matchValue must not exceed ${MAX_MATCH_TEXT_LENGTH} characters`);
+		throw new RuleValidationError(`คีย์ต้องยาวไม่เกิน ${MAX_MATCH_TEXT_LENGTH} ตัวอักษร`);
 	}
 	if (typeof input.replyText !== "string" || !input.replyText.trim()) {
-		throw new RuleValidationError("replyText is required");
+		throw new RuleValidationError("กรุณากรอกข้อความที่ต้องการให้บอทตอบกลับ");
 	}
 	if (input.replyText.length > MAX_REPLY_TEXT_LENGTH) {
-		throw new RuleValidationError(`replyText must not exceed ${MAX_REPLY_TEXT_LENGTH} characters`);
+		throw new RuleValidationError(`ข้อความตอบกลับต้องยาวไม่เกิน ${MAX_REPLY_TEXT_LENGTH} ตัวอักษร`);
 	}
 	if (typeof input.enabled !== "boolean") {
 		throw new RuleValidationError("enabled must be boolean");
@@ -97,14 +111,15 @@ function assertRuleInput(input: RuleInput): void {
 	if (!Number.isInteger(input.priority)) {
 		throw new RuleValidationError("priority must be an integer");
 	}
+	if (input.matchType === "containsAny") assertContainsAnyKeyFormat(input.matchValue);
 	if (input.matchType === "regex") {
 		if (potentiallyUnsafeRegex(input.matchValue)) {
-			throw new RuleValidationError("regex is too long or unsafe");
+			throw new RuleValidationError("regex ยาวเกินไปหรือไม่ปลอดภัย — ตัวอย่างที่ถูกต้อง: ^(จอง|ยกเลิก)\\s*\\d+$");
 		}
 		try {
 			new RegExp(input.matchValue);
 		} catch {
-			throw new RuleValidationError("regex is invalid");
+			throw new RuleValidationError("regex ไม่ถูกต้อง — ตรวจวงเล็บและอักขระพิเศษ ตัวอย่าง: ^(จอง|ยกเลิก)\\s*\\d+$");
 		}
 	}
 }
@@ -121,9 +136,7 @@ function compile(rule: Rule): CompiledRule {
 		case "regex": {
 			let pattern: RegExp | undefined;
 			try {
-				pattern = potentiallyUnsafeRegex(rule.matchValue)
-					? undefined
-					: new RegExp(rule.matchValue);
+				pattern = potentiallyUnsafeRegex(rule.matchValue) ? undefined : new RegExp(rule.matchValue);
 			} catch {
 				pattern = undefined;
 			}
@@ -131,7 +144,10 @@ function compile(rule: Rule): CompiledRule {
 			break;
 		}
 		case "containsAny": {
-			const keywords = rule.matchValue.split(",").map((k) => k.trim()).filter(Boolean);
+			const keywords = rule.matchValue
+				.split(",")
+				.map((k) => k.trim())
+				.filter(Boolean);
 			test = (text) => keywords.some((k) => text.includes(k));
 			break;
 		}
@@ -216,11 +232,7 @@ export function deleteRule(botId: number, id: number): boolean {
  * asc). The bot exists to answer fast, not to be clever — keep matching
  * O(rules) and trivial rather than adding NLP/fuzzy scoring.
  */
-export function matchRule(
-	rules: CompiledRule[],
-	text: string,
-	surface?: Surface,
-): CompiledRule | undefined {
+export function matchRule(rules: CompiledRule[], text: string, surface?: Surface): CompiledRule | undefined {
 	if (text.length > MAX_MATCH_TEXT_LENGTH) text = text.slice(0, MAX_MATCH_TEXT_LENGTH);
 	for (const rule of rules) {
 		if (!rule.enabled) continue;

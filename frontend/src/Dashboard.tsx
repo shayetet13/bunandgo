@@ -36,7 +36,7 @@ const LogsPage = lazy(async () => ({ default: (await import("./pages/LogsPage.ts
 
 const EMPTY_SNAPSHOT: LatencySnapshot = { p50: 0, p95: 0, p99: 0, okRate: 100, count: 0, windowSize: 500 };
 const EMPTY_FAST_SNAPSHOT: FastPathSnapshot = { p50: 0, p95: 0, p99: 0, max: 0, count: 0 };
-const EMPTY_LANE_RACE: LaneRaceSnapshot = { retentionDays: 0, lanes: [], daily: [], events: [] };
+const EMPTY_LANE_RACE: LaneRaceSnapshot = { retentionDays: 0, lanes: [], daily: [], events: [], latency: [] };
 const FEED_CAP = 200;
 const DISPATCH_SAMPLE_CAP = 500;
 const RATE_WINDOW_MS = 5 * 60_000;
@@ -293,6 +293,11 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 			const event = data as IdLockMismatchEvent;
 			clearConfirm(event.botId);
 			setIdLockAlert(event);
+		},
+		security_alert: (data) => {
+			const event = data as { kind?: string; severity?: string; path?: string; ip?: string; count?: number };
+			const severity = event.severity === "critical" ? "วิกฤต" : event.severity === "high" ? "สูง" : "ปานกลาง";
+			pushNotification(`🚨 ตรวจพบความพยายามเข้าถึงผิดปกติ (${severity}) · ${event.path ?? "-"} · IP ${event.ip ?? "-"} · ครั้งที่ ${event.count ?? 1}`);
 		},
 		ready: (data) => {
 			const { botId } = data as { botId: number };

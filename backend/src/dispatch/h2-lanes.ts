@@ -92,9 +92,18 @@ const LANE_RECYCLE_MIN_GAP_MS = recycleInterval(
 );
 
 /** A recent real LINE request, not edge-only H2 PING, gates hot routing. */
-const APPLICATION_LANE_CEILING_MS = Math.max(
+const APPLICATION_HOT_CEILING_MS = Math.max(
 	0,
-	Number(process.env.LINE_H2_APPLICATION_LANE_CEILING_MS ?? 23),
+	Number(
+		process.env.LINE_H2_APPLICATION_HOT_CEILING_MS ??
+		process.env.LINE_H2_APPLICATION_LANE_CEILING_MS ??
+		20,
+	),
+);
+/** Known routes at or above this RTT are removed from foreground sends. */
+const APPLICATION_DISCARD_CEILING_MS = Math.max(
+	APPLICATION_HOT_CEILING_MS,
+	Number(process.env.LINE_H2_APPLICATION_DISCARD_CEILING_MS ?? 23),
 );
 const APPLICATION_SAMPLE_MAX_AGE_MS = Math.max(
 	1_000,
@@ -103,6 +112,14 @@ const APPLICATION_SAMPLE_MAX_AGE_MS = Math.max(
 const DEGRADED_REPAIR_MIN_GAP_MS = Math.max(
 	60_000,
 	Number(process.env.LINE_H2_DEGRADED_REPAIR_GAP_MS ?? 60_000),
+);
+const DEGRADED_REPAIR_MIN_SAMPLES = Math.max(
+	1,
+	Math.floor(Number(process.env.LINE_H2_DEGRADED_REPAIR_MIN_SAMPLES ?? 3)),
+);
+const POLL_LANE_CALIBRATION_SAMPLES = Math.max(
+	1,
+	Math.floor(Number(process.env.LINE_H2_POLL_CALIBRATION_SAMPLES ?? 3)),
 );
 
 const CONNECT_TIMEOUT_MS = 10_000;
@@ -134,7 +151,9 @@ interface Lane {
 	pollRttMs?: number;
 	lastSendOkAt: number;
 	lastPollOkAt: number;
+	pollApplicationSamples: number;
 	consecutiveFailures: number;
+	consecutiveSlowApplicationSamples: number;
 	/** Wall-clock time this physical HTTP/2 session connected. */
 	openedAt: number;
 	reconnectTimer?: ReturnType<typeof setTimeout>;
@@ -190,12 +209,13 @@ let pingTimer: ReturnType<typeof setInterval> | undefined;
 
 // Fast polling supplies enough real traffic to rank application paths, but
 // pinning forever to yesterday's winner would never discover a recovered
-// standby. One exploration every five seconds keeps the hot choice current;
-// with eight poll lanes each standby gets a real sample roughly every 40s.
+// standby. The interval is configurable so a wider pool still refreshes every
+// route inside the application-sample freshness window.
 const POLL_LANE_EXPLORE_INTERVAL_MS = Math.max(
 	1_000,
 	Number(process.env.LINE_H2_POLL_EXPLORE_INTERVAL_MS ?? 5_000),
 );
+const LOG_POLL_LANE_EXPLORATION = process.env.LINE_H2_LOG_POLL_EXPLORE === "1";
 
 function isUsable(lane: Lane): boolean {
 	const session = lane.session;
@@ -262,7 +282,10 @@ function pickPollingLane(lanes: Lane[]): Lane | undefined {
 		// one available. Silent when explore happens to land on the best lane
 		// anyway, so this stays rare instead of firing every 5s regardless.
 		const bestRtt = Math.min(...candidates.map((lane) => lane.pollRttMs!));
-		if (next.pollRttMs !== undefined && next.pollRttMs - bestRtt > RTT_SWITCH_MARGIN_MS) {
+		if (
+			LOG_POLL_LANE_EXPLORATION && next.pollRttMs !== undefined &&
+			next.pollRttMs - bestRtt > RTT_SWITCH_MARGIN_MS
+		) {
 			console.log(
 				`[h2-lanes] poll explore: lane ${next.id} rtt=${next.pollRttMs.toFixed(1)}ms ` +
 					`vs best available rtt=${bestRtt.toFixed(1)}ms (origin=${origin})`,
@@ -319,6 +342,8 @@ interface LaneChoiceMetrics {
 	pollRttMs?: number;
 	lastSendOkAt?: number;
 	lastPollOkAt?: number;
+	pollApplicationSamples?: number;
+	consecutiveSlowApplicationSamples?: number;
 	lastOkAt: number;
 	inFlight: number;
 }
@@ -361,7 +386,7 @@ function applicationSampleAt(lane: LaneChoiceMetrics): number {
 function hasFreshEligibleApplicationSample(
 	lane: LaneChoiceMetrics,
 	now: number,
-	ceilingMs: number = APPLICATION_LANE_CEILING_MS,
+	ceilingMs: number = APPLICATION_HOT_CEILING_MS,
 	maxAgeMs: number = APPLICATION_SAMPLE_MAX_AGE_MS,
 ): boolean {
 	const rtt = measuredApplicationRtt(lane);
@@ -370,21 +395,46 @@ function hasFreshEligibleApplicationSample(
 }
 
 /**
- * Every idle lane with a fresh application RTT below 23ms may carry a send,
- * regardless of its configured partition. The reserved send lanes remain the
- * availability fallback when no route currently proves it meets the ceiling.
+ * Fresh sub-hot routes win first, then fresh routes below the hard discard
+ * threshold. A known route at/above the discard threshold is never selected;
+ * returning no candidate deliberately hands the request to the caller's
+ * existing global-fetch fallback rather than delaying or dropping it.
  */
 export function sendCandidatesWithCrossover<T extends LaneChoiceMetrics & { id: number }>(
 	usable: T[],
 	reserved: number = SEND_RESERVED_LANES,
 	now: number = Date.now(),
+	hotCeilingMs: number = APPLICATION_HOT_CEILING_MS,
+	discardCeilingMs: number = APPLICATION_DISCARD_CEILING_MS,
+	maxAgeMs: number = APPLICATION_SAMPLE_MAX_AGE_MS,
 ): T[] {
-	const eligible = usable.filter((lane) => hasFreshEligibleApplicationSample(lane, now));
-	if (eligible.length > 0) {
-		const idle = eligible.filter((lane) => lane.inFlight === 0);
-		return idle.length > 0 ? idle : eligible;
+	const hot = usable.filter((lane) =>
+		hasFreshEligibleApplicationSample(lane, now, hotCeilingMs, maxAgeMs)
+	);
+	const warm = usable.filter((lane) => {
+		const rtt = measuredApplicationRtt(lane);
+		return rtt !== undefined && rtt >= hotCeilingMs &&
+			hasFreshEligibleApplicationSample(lane, now, discardCeilingMs, maxAgeMs);
+	});
+	const idleHot = hot.filter((lane) => lane.inFlight === 0);
+	if (idleHot.length > 0) return idleHot;
+	const idleWarm = warm.filter((lane) => lane.inFlight === 0);
+	if (idleWarm.length > 0) return idleWarm;
+	if (hot.length > 0) return hot;
+	if (warm.length > 0) return warm;
+
+	// Preserve an unmeasured/stale-but-not-known-slow reserved route so a new
+	// session can calibrate. Routes already measured >= discard stay excluded
+	// even after the sample ages out.
+	const safeFallback = laneCandidates(usable, "send", reserved).filter((lane) => {
+		const rtt = measuredApplicationRtt(lane);
+		return rtt === undefined || rtt < discardCeilingMs;
+	});
+	if (safeFallback.length > 0) {
+		const idle = safeFallback.filter((lane) => lane.inFlight === 0);
+		return idle.length > 0 ? idle : safeFallback;
 	}
-	return laneCandidates(usable, "send", reserved);
+	return [];
 }
 
 /** Applies the exact 0.50ms handoff rule to real application measurements. */
@@ -438,18 +488,37 @@ export function selectPollingLaneCandidate<T extends LaneChoiceMetrics & { id: n
 	candidates: T[],
 	cursor: number,
 	explore: boolean,
-	ceilingMs: number = APPLICATION_LANE_CEILING_MS,
+	hotCeilingMs: number = APPLICATION_HOT_CEILING_MS,
+	discardCeilingMs: number = APPLICATION_DISCARD_CEILING_MS,
+	calibrationSamples: number = POLL_LANE_CALIBRATION_SAMPLES,
+	discardConfirmationSamples: number = DEGRADED_REPAIR_MIN_SAMPLES,
 ): T | undefined {
 	if (candidates.length === 0) return undefined;
-	const unmeasured = candidates.filter((lane) => lane.pollRttMs === undefined);
-	if (unmeasured.length > 0) return unmeasured.find((lane) => lane.id > cursor) ?? unmeasured[0];
-	// Never spend a foreground poll on a route already known to exceed the
-	// ceiling while any measured sub-ceiling route is ready. Recovery of a
-	// slow connection happens from the background ping timer instead.
-	const eligible = candidates.filter((lane) => lane.pollRttMs! < ceilingMs);
-	const selectable = eligible.length > 0 ? eligible : candidates;
+	// A connection's first application response is commonly a cold outlier.
+	// Give every physical route a tiny fixed calibration window before normal
+	// ranking; these are the same polls the room already issues, not probes.
+	const calibrating = candidates.filter((lane) =>
+		lane.pollRttMs === undefined ||
+		(lane.pollApplicationSamples !== undefined && lane.pollApplicationSamples < calibrationSamples)
+	);
+	if (calibrating.length > 0) {
+		return calibrating.find((lane) => lane.id > cursor) ?? calibrating[0];
+	}
+	// Prefer HOT routes and retain sub-discard routes as a warm fallback. Routes
+	// at or above the discard threshold stay repair-only.
+	const hot = candidates.filter((lane) => lane.pollRttMs! < hotCeilingMs);
+	const warm = candidates.filter((lane) => lane.pollRttMs! < discardCeilingMs);
+	const selectable = hot.length > 0 ? hot : warm.length > 0 ? warm : candidates;
 	if (explore) {
-		return [...selectable].sort((left, right) =>
+		// A route that crossed the discard ceiling once remains send-ineligible, but polling
+		// gives it enough spaced confirmations to distinguish a transient spike
+		// from a path that really needs reconnecting.
+		const suspects = candidates.filter((lane) =>
+			lane.pollRttMs! >= discardCeilingMs &&
+			(lane.consecutiveSlowApplicationSamples ?? discardConfirmationSamples) < discardConfirmationSamples
+		);
+		const explorePool = warm.length > 0 ? [...warm, ...suspects] : selectable;
+		return [...explorePool].sort((left, right) =>
 			left.lastPollOkAt - right.lastPollOkAt || left.id - right.id
 		)[0];
 	}
@@ -474,8 +543,15 @@ function recordLaneRtt(lane: Lane, sampleMs: number): void {
 function recordApplicationRtt(lane: Lane, role: LaneRole, sampleMs: number): void {
 	if (!Number.isFinite(sampleMs) || sampleMs < 0) return;
 	const now = Date.now();
+	lane.consecutiveSlowApplicationSamples = sampleMs >= APPLICATION_DISCARD_CEILING_MS
+		? lane.consecutiveSlowApplicationSamples + 1
+		: 0;
 	if (role === "poll") {
-		lane.pollRttMs = lane.pollRttMs === undefined ? sampleMs : lane.pollRttMs * 0.65 + sampleMs * 0.35;
+		// Follow recovery quickly: cold first responses must not poison a lane
+		// for minutes. Three samples at this weight reduce a one-off outlier to
+		// 12.25% while repeated slow responses remain unmistakably slow.
+		lane.pollRttMs = lane.pollRttMs === undefined ? sampleMs : lane.pollRttMs * 0.35 + sampleMs * 0.65;
+		lane.pollApplicationSamples++;
 		lane.lastPollOkAt = now;
 		return;
 	}
@@ -514,7 +590,8 @@ interface RecyclableLane {
  */
 export function selectDegradedLaneForRepair<T extends RecyclableLane & LaneChoiceMetrics>(
 	lanes: T[],
-	ceilingMs: number = APPLICATION_LANE_CEILING_MS,
+	ceilingMs: number = APPLICATION_DISCARD_CEILING_MS,
+	minimumSlowSamples: number = 1,
 ): T | undefined {
 	const ready = lanes.filter((lane) => lane.state === "ready");
 	const measured = ready.filter((lane) => measuredApplicationRtt(lane) !== undefined);
@@ -529,7 +606,8 @@ export function selectDegradedLaneForRepair<T extends RecyclableLane & LaneChoic
 	return measured
 		.filter((lane) => {
 			const rtt = measuredApplicationRtt(lane);
-			return lane.id !== fastest.id && lane.inFlight === 0 && rtt !== undefined && rtt >= ceilingMs;
+			return lane.id !== fastest.id && lane.inFlight === 0 && rtt !== undefined && rtt >= ceilingMs &&
+				(lane.consecutiveSlowApplicationSamples ?? 0) >= minimumSlowSamples;
 		})
 		.sort((left, right) =>
 			(measuredApplicationRtt(right)! - measuredApplicationRtt(left)!) ||
@@ -542,14 +620,19 @@ function repairDegradedLane(lanes: Lane[], now: number): boolean {
 	if (lanes.length === 0) return false;
 	const origin = lanes[0]!.origin;
 	if (now - (lastDegradedRepairAt.get(origin) ?? now) < DEGRADED_REPAIR_MIN_GAP_MS) return false;
-	const candidate = selectDegradedLaneForRepair(lanes.filter(isUsable));
+	const candidate = selectDegradedLaneForRepair(
+		lanes.filter(isUsable),
+		APPLICATION_DISCARD_CEILING_MS,
+		DEGRADED_REPAIR_MIN_SAMPLES,
+	);
 	if (!candidate) return false;
 
 	lastDegradedRepairAt.set(origin, now);
 	console.log(
 		`[h2-lanes] background repair: lane ${candidate.id} ` +
 			`application=${measuredApplicationRtt(candidate)!.toFixed(1)}ms ` +
-			`ceiling=${APPLICATION_LANE_CEILING_MS.toFixed(1)}ms (origin=${origin})`,
+			`discard=${APPLICATION_DISCARD_CEILING_MS.toFixed(1)}ms ` +
+			`slowSamples=${candidate.consecutiveSlowApplicationSamples} (origin=${origin})`,
 	);
 	retireLane(candidate, "draining");
 	return true;
@@ -643,6 +726,8 @@ function openLane(lane: Lane): Promise<void> {
 	lane.pollRttMs = undefined;
 	lane.lastSendOkAt = 0;
 	lane.lastPollOkAt = 0;
+	lane.pollApplicationSamples = 0;
+	lane.consecutiveSlowApplicationSamples = 0;
 	lane.openedAt = 0;
 
 	return new Promise<void>((resolve, reject) => {
@@ -770,7 +855,9 @@ export async function ensureLanes(origin: string): Promise<void> {
 			pollRttMs: undefined,
 			lastSendOkAt: 0,
 			lastPollOkAt: 0,
+			pollApplicationSamples: 0,
 			consecutiveFailures: 0,
+			consecutiveSlowApplicationSamples: 0,
 			openedAt: 0,
 			disposed: false,
 		}));

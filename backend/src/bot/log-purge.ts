@@ -2,7 +2,7 @@ import { db } from "../db/sqlite.ts";
 
 /**
  * Clears high-volume operational logs once a day at 23:00 Asia/Bangkok,
- * while retaining the lower-volume security audit trail for investigation.
+ * while retaining security audit plus lane/latency history for investigation.
  *
  * The app_meta timestamp survives a restart, so repeated scheduler checks (or
  * a redeploy during the 23:00 hour) cannot clear the tables more than once.
@@ -34,7 +34,7 @@ const setMetaStmt = db.prepare<null, [string, string]>(
 );
 const purgeBotEventsStmt = db.prepare("DELETE FROM bot_events");
 const purgeExpiredUserActionsStmt = db.prepare("DELETE FROM user_actions WHERE ts < ?");
-const purgeLatencyStmt = db.prepare("DELETE FROM latency_samples");
+const purgeExpiredLatencyStmt = db.prepare("DELETE FROM latency_samples WHERE ts < ?");
 const purgeMessagesInStmt = db.prepare("DELETE FROM messages_in");
 const purgeAnomaliesStmt = db.prepare("DELETE FROM anomalies");
 const purgeExpiredLaneRaceStmt = db.prepare("DELETE FROM lane_race_events WHERE ts < ?");
@@ -61,7 +61,7 @@ export function runLogPurge(nowMs: number = Date.now()): void {
 	db.transaction(() => {
 		purgeBotEventsStmt.run();
 		purgeExpiredUserActionsStmt.run(nowMs - AUDIT_RETENTION_MS);
-		purgeLatencyStmt.run();
+		purgeExpiredLatencyStmt.run(nowMs - LANE_RACE_RETENTION_MS);
 		purgeMessagesInStmt.run();
 		purgeAnomaliesStmt.run();
 		purgeExpiredLaneRaceStmt.run(nowMs - LANE_RACE_RETENTION_MS);
@@ -74,7 +74,7 @@ export function startLogPurgeScheduler(): void {
 		const now = new Date();
 		if (!shouldRunLogPurge(now, getLastPurgeAt())) return;
 		runLogPurge(now.getTime());
-		console.log(`[log-purge] cleared operational logs; retained audit=${AUDIT_RETENTION_DAYS}d lane-race=${LANE_RACE_RETENTION_DAYS}d (daily 23:00 Asia/Bangkok)`);
+		console.log(`[log-purge] cleared operational logs; retained audit=${AUDIT_RETENTION_DAYS}d lane/latency=${LANE_RACE_RETENTION_DAYS}d (daily 23:00 Asia/Bangkok)`);
 	}, CHECK_INTERVAL_MS);
 	// A pending purge check must never be what keeps the process alive.
 	timer.unref?.();

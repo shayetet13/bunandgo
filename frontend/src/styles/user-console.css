@@ -29,14 +29,9 @@
 	--uc-ink-3: var(--text-dim);
 
 	min-height: 100dvh;
-	padding:
-		max(0.9rem, env(safe-area-inset-top))
-		max(0.9rem, env(safe-area-inset-right))
-		max(2rem, env(safe-area-inset-bottom))
+	padding: max(0.9rem, env(safe-area-inset-top)) max(0.9rem, env(safe-area-inset-right)) max(2rem, env(safe-area-inset-bottom))
 		max(0.9rem, env(safe-area-inset-left));
-	background:
-		radial-gradient(ellipse 900px 420px at 78% -12%, rgba(57, 255, 136, 0.055), transparent 62%),
-		var(--bg-void);
+	background: radial-gradient(ellipse 900px 420px at 78% -12%, rgba(57, 255, 136, 0.055), transparent 62%), var(--bg-void);
 	color: var(--uc-ink);
 	font-family: var(--font-sans);
 	font-size: 1rem;
@@ -119,7 +114,9 @@
 	font-size: 0.95rem;
 	font-weight: 600;
 	cursor: pointer;
-	transition: border-color var(--duration-fast) ease, color var(--duration-fast) ease;
+	transition:
+		border-color var(--duration-fast) ease,
+		color var(--duration-fast) ease;
 }
 
 .uc-logout:hover {
@@ -289,6 +286,103 @@
 	color: var(--uc-ink-2);
 }
 
+/* ── Full-troll race announcer — presentation only, never on the send path ─ */
+
+.uc-race {
+	position: relative;
+	overflow: hidden;
+	padding: 1rem;
+	border: 1px solid var(--uc-line);
+	border-radius: var(--uc-radius-lg);
+	background: var(--uc-surface);
+	animation: uc-race-arrive 360ms ease-out;
+}
+
+.uc-race-head,
+.uc-race-stats {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+}
+
+.uc-race-mode,
+.uc-race-achievement {
+	display: inline-flex;
+	width: fit-content;
+	padding: 0.25rem 0.55rem;
+	border: 1px solid rgba(57, 255, 136, 0.25);
+	border-radius: 999px;
+	background: rgba(57, 255, 136, 0.09);
+	color: var(--uc-accent);
+	font-size: 0.72rem;
+	font-weight: 750;
+}
+
+.uc-race-title {
+	display: block;
+	margin-top: 0.85rem;
+	font-size: 1.08rem;
+}
+
+.uc-race-roast {
+	margin: 0.45rem 0 0.8rem;
+	color: var(--uc-ink-2);
+	font-size: 0.9rem;
+	line-height: 1.55;
+}
+
+.uc-race-stats {
+	margin-top: 0.85rem;
+	padding-top: 0.75rem;
+	border-top: 1px solid var(--uc-line);
+	color: var(--uc-ink-2);
+	font-size: 0.82rem;
+}
+
+.uc-race-stats strong {
+	color: var(--uc-ink);
+	font: 750 1rem/1 var(--font-mono);
+}
+
+.uc-race-form {
+	display: flex;
+	align-items: center;
+	gap: 0.35rem;
+	min-height: 0.65rem;
+	margin-top: 0.7rem;
+	color: var(--uc-ink-3);
+	font-size: 0.75rem;
+}
+
+.uc-race-form i {
+	width: 0.58rem;
+	height: 0.58rem;
+	border-radius: 999px;
+	background: var(--uc-ink-3);
+}
+
+.uc-race-form i[data-tone="blitz"],
+.uc-race-form i[data-tone="fast"] {
+	background: var(--uc-accent);
+	box-shadow: 0 0 7px rgba(57, 255, 136, 0.45);
+}
+
+.uc-race-form i[data-tone="late"] {
+	background: var(--signal-warn);
+}
+
+.uc-race-form i[data-tone="failed"] {
+	background: var(--signal-bad);
+}
+
+@keyframes uc-race-arrive {
+	from {
+		opacity: 0;
+		transform: translateY(-5px) scale(0.99);
+	}
+}
+
 /* ── Bot list ───────────────────────────────────────────────────────────── */
 
 .uc-bot-list {
@@ -311,7 +405,9 @@
 	font-size: 1rem;
 	text-align: left;
 	cursor: pointer;
-	transition: border-color var(--duration-fast) ease, background var(--duration-fast) ease;
+	transition:
+		border-color var(--duration-fast) ease,
+		background var(--duration-fast) ease;
 }
 
 .uc-bot:hover {
@@ -344,7 +440,9 @@
 }
 
 @keyframes uc-pulse {
-	50% { opacity: 0.35; }
+	50% {
+		opacity: 0.35;
+	}
 }
 
 .uc-bot-name {
@@ -403,8 +501,11 @@
 	font-weight: 700;
 	white-space: nowrap;
 	cursor: pointer;
-	transition: transform var(--duration-fast) ease, background var(--duration-fast) ease,
-		border-color var(--duration-fast) ease, color var(--duration-fast) ease;
+	transition:
+		transform var(--duration-fast) ease,
+		background var(--duration-fast) ease,
+		border-color var(--duration-fast) ease,
+		color var(--duration-fast) ease;
 }
 
 .uc-btn:active {
@@ -471,7 +572,9 @@
 	color: var(--uc-ink-3);
 	font-size: 0.9rem;
 	cursor: pointer;
-	transition: color var(--duration-fast) ease, border-color var(--duration-fast) ease;
+	transition:
+		color var(--duration-fast) ease,
+		border-color var(--duration-fast) ease;
 }
 
 .uc-icon-btn:hover {
@@ -516,7 +619,9 @@
 	font-weight: 600;
 	white-space: nowrap;
 	cursor: pointer;
-	transition: background var(--duration-fast) ease, color var(--duration-fast) ease;
+	transition:
+		background var(--duration-fast) ease,
+		color var(--duration-fast) ease;
 }
 
 .uc-tab:hover {
@@ -550,7 +655,10 @@
 }
 
 @keyframes uc-rise {
-	from { opacity: 0; transform: translateY(6px); }
+	from {
+		opacity: 0;
+		transform: translateY(6px);
+	}
 }
 
 /* ── Forms ──────────────────────────────────────────────────────────────── */
@@ -642,6 +750,16 @@
 	border-radius: 10px;
 	background: rgba(255, 69, 87, 0.1);
 	color: #ff9aa4;
+	font-size: 0.9rem;
+}
+
+.uc-form-success {
+	margin: 0;
+	padding: 0.55rem 0.75rem;
+	border: 1px solid rgba(45, 212, 130, 0.35);
+	border-radius: 10px;
+	background: rgba(45, 212, 130, 0.08);
+	color: #75e7ae;
 	font-size: 0.9rem;
 }
 
@@ -941,6 +1059,10 @@
 	.uc-form--split > .uc-field--wide,
 	.uc-form--split > .uc-btn,
 	.uc-form--split > .uc-form-error {
+		grid-column: 1 / -1;
+	}
+
+	.uc-form--split > .uc-form-success {
 		grid-column: 1 / -1;
 	}
 }

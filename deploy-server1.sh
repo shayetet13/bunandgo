@@ -57,17 +57,26 @@ fi
 echo "--- All services ready ---"
 SERVICE_RESTART
 
-log_info "==> Step 2: Deploy Latest Commit to Server 1"
+log_info "==> Step 2: Deploy Tested Working Tree to Server 1"
 
-if [[ -n "$(git status --porcelain)" ]]; then
-	log_warn "Uncommitted changes present — only HEAD gets deployed"
-	read -r -p "Continue? [y/N] " confirm2
-	[[ "$confirm2" == "y" || "$confirm2" == "Y" ]] || { log_error "Aborted"; exit 1; }
-fi
-
-log_info "Packaging source from HEAD..."
+log_info "Packaging tracked edits and reviewed new frontend source without changing the real Git index..."
 cd "$(dirname "$0")"
-git archive --format=tar.gz -o deploy.tar.gz HEAD
+TEMP_INDEX=$(mktemp)
+trap 'rm -f -- "$TEMP_INDEX" deploy.tar.gz' EXIT
+cp "$(git rev-parse --git-path index)" "$TEMP_INDEX"
+GIT_INDEX_FILE="$TEMP_INDEX" git add -u
+for new_file in \
+	frontend/src/lib/rule-input.ts \
+	frontend/src/lib/rule-input.test.ts \
+	frontend/src/lib/race-commentary.ts \
+	frontend/src/lib/race-commentary.test.ts
+do
+	[ ! -f "$new_file" ] || GIT_INDEX_FILE="$TEMP_INDEX" git add -- "$new_file"
+done
+DEPLOY_TREE=$(GIT_INDEX_FILE="$TEMP_INDEX" git write-tree)
+git archive --format=tar.gz -o deploy.tar.gz "$DEPLOY_TREE"
+rm -f "$TEMP_INDEX"
+TEMP_INDEX=""
 
 log_info "Uploading to Server 1..."
 scp -i "$SSH_KEY" deploy.tar.gz "$VPS_HOST:~/"

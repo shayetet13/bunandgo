@@ -158,7 +158,7 @@ export function OverviewPage({
 
 			<NetworkSpeedPanel lanes={health?.lanes ?? []} />
 
-			<LaneRacePanel race={laneRace} />
+			<LaneRacePanel race={laneRace} bots={bots} />
 
 			<div className="overview-bottom-grid" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 300px", gap: "var(--space-lg)", alignItems: "start" }}>
 				<section className="panel" style={{ padding: "var(--space-md)" }}>

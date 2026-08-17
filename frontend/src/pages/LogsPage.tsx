@@ -54,6 +54,24 @@ const USER_ACTION_LABELS: Record<string, string> = {
 };
 
 function userActionLabel(action: string): string {
+	if (action.startsWith("security.")) {
+		const kind = action.slice("security.".length);
+		const labels: Record<string, string> = {
+			login_failed: "ความปลอดภัย · ล็อกอินไม่สำเร็จ",
+			login_throttled: "ความปลอดภัย · ล็อกอินถี่เกินไป",
+			invalid_session: "ความปลอดภัย · session ไม่ถูกต้อง",
+			forbidden_access: "ความปลอดภัย · พยายามเข้าถึงสิทธิ์ห้ามใช้",
+			cross_site_write: "ความปลอดภัย · cross-site write",
+			untrusted_websocket: "ความปลอดภัย · WebSocket ไม่ได้รับอนุญาต",
+			invalid_worker_token: "ความปลอดภัย · worker token ไม่ถูกต้อง",
+			shard_bypass: "ความปลอดภัย · พยายามข้าม shard",
+			scanner_probe: "ความปลอดภัย · สแกนหาไฟล์ลับ",
+			data_scrape: "ความปลอดภัย · ดึงข้อมูลถี่ผิดปกติ",
+			oversized_request: "ความปลอดภัย · request ใหญ่เกินกำหนด",
+			suspicious_method: "ความปลอดภัย · HTTP method ผิดปกติ",
+		};
+		return labels[kind] ?? `ความปลอดภัย · ${kind}`;
+	}
 	return USER_ACTION_LABELS[action] ?? action;
 }
 
@@ -64,7 +82,11 @@ function userActionDetail(detail: string | null): string | null {
 		if (typeof value.botName === "string") {
 			return `ชื่อบอท: ${value.botName}${typeof value.botId === "number" ? ` (ID ${value.botId})` : ""}`;
 		}
-		if (typeof value.ip === "string") return `IP: ${value.ip}`;
+		const parts: string[] = [];
+		if (typeof value.ip === "string") parts.push(`IP: ${value.ip}`);
+		if (typeof value.method === "string" && typeof value.path === "string") parts.push(`${value.method} ${value.path}`);
+		if (typeof value.count === "number") parts.push(`ครั้งที่ ${value.count}`);
+		if (parts.length > 0) return parts.join(" · ");
 	} catch {
 		// Older audit records can contain arbitrary text; display it as-is.
 	}
@@ -227,7 +249,7 @@ export function LogsPage({ bots, onNotify }: LogsPageProps) {
 				<button className="ghost-button" onClick={() => void load()} disabled={loading}>{loading ? "กำลังโหลด…" : "ดูข้อมูล"}</button>
 
 				<p className="hint" style={{ margin: 0, width: "100%" }}>
-					ประวัติการทำงานล้างทุกวัน 23:00 น. (เวลาไทย) ส่วนบันทึกผู้ใช้/ความปลอดภัยเก็บย้อนหลัง 90 วัน
+					เหตุการณ์บอท/ข้อความเข้าล้างทุกวัน 23:00 น. · Latency และ Lane เก็บ 30 วัน · บันทึกผู้ใช้/ความปลอดภัยเก็บ 90 วัน
 				</p>
 			</section>
 

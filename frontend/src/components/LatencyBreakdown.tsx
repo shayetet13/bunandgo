@@ -23,6 +23,7 @@ export function LatencyBreakdown({ sample }: { sample?: LatencySample }) {
 		["Go เตรียม upstream request", b.goPrepMs],
 		["เข้ารหัส relay frame", b.relayEncodeMs],
 		["Limiter", b.limiterMs],
+		["Routing / Guards", b.routingMs ?? 0],
 		["จับคู่ Rule", b.matchMs],
 		["ถอดรหัสข้อความเข้า", b.decryptMs],
 	] as const;

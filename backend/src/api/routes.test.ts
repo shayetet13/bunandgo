@@ -143,6 +143,31 @@ describe("API routes", () => {
 		expect((await request("/api/metrics/fast-path?limit=99999")).status).toBe(200);
 	});
 
+	test("includes persisted latency breakdowns in the admin lane history", async () => {
+		cookie = adminCookie;
+		const ts = Date.now();
+		db.run(`INSERT INTO latency_samples (
+			bot_id, ts, surface, target_mid, latency_ms, ok, source, text_preview,
+			inbound_ms, line_created_time, line_ms, code_ms, decrypt_ms, match_ms,
+			limiter_ms, routing_ms, protocol_prep_ms, relay_encode_ms, go_prep_ms,
+			relay_and_parse_ms, upstream_calls
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
+			botId, ts, "square", null, 18.5, 1, "auto", "answer", 4.2, ts,
+			14, 4.5, 0.1, 0.1, 0.1, 0.2, 2.5, 0.1, 0.2, 1.2, 1,
+		]);
+		try {
+			const response = await request("/api/metrics/lane-race");
+			expect(response.status).toBe(200);
+			const body = await response.json() as {
+				latency: Array<{ botId: number; latencyMs: number; breakdown?: { lineMs: number; routingMs: number } }>;
+			};
+			const sample = body.latency.find((entry) => entry.botId === botId && entry.latencyMs === 18.5);
+			expect(sample?.breakdown).toMatchObject({ lineMs: 14, routingMs: 0.2 });
+		} finally {
+			db.run("DELETE FROM latency_samples WHERE bot_id = ? AND ts = ?", [botId, ts]);
+		}
+	});
+
 	test("deletes a bot and returns 404 afterward", async () => {
 		expect((await request(`/api/bots/${botId}`, { method: "DELETE" })).status).toBe(200);
 		expect((await request(`/api/bots/${botId}/rules`)).status).toBe(404);

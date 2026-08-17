@@ -22,6 +22,8 @@ import { systemRoute } from "./routes/system.ts";
 import { confirmRoute } from "./routes/confirm.ts";
 import { securityHeaders } from "./security-headers.ts";
 import { rejectCrossSiteWrite, rejectUntrustedWebSocketOrigin } from "./request-security.ts";
+import { monitorPublicRequest, reportSecurityIncident } from "../security/intrusion-monitor.ts";
+import { securityEvents } from "../security/security-events.ts";
 import {
 	routeBotOwner,
 	routeConfirmationOwner,
@@ -40,6 +42,7 @@ import {
 const { upgradeWebSocket, websocket } = createBunWebSocket<ServerWebSocket>();
 
 const app = new Hono();
+app.use("*", monitorPublicRequest);
 app.use(
 	"*",
 	cors({
@@ -63,6 +66,24 @@ app.use("/api/*", requireControlPlaneForwardOnShard);
 app.use("/ws", requireControlPlaneForwardOnShard);
 
 app.route("/api/auth", authRoute);
+// Only Nginx can internally redirect to this path; public /internal requests
+// are intercepted at the edge. It converts otherwise silent probes into a
+// bounded audit event and out-of-band alert while keeping the public response
+// indistinguishable from a normal rejection.
+app.all("/internal/security-probe", (c) => {
+	const reason = c.req.header("x-linebot-security-reason") ?? "scanner";
+	const kind = reason === "oversized" ? "oversized_request" : reason === "method" ? "suspicious_method" : "scanner_probe";
+	reportSecurityIncident(c, {
+		kind,
+		severity: reason === "oversized" ? "high" : "critical",
+		path: c.req.header("x-linebot-original-path"),
+		detail: `edge:${reason}`,
+	});
+	return c.json(
+		{ error: reason === "oversized" ? "request too large" : reason === "method" ? "method not allowed" : "not found" },
+		reason === "oversized" ? 413 : reason === "method" ? 405 : 404,
+	);
+});
 // Loopback-only in deployment and authenticated independently with the
 // shared control token. It must be mounted before browser auth middleware.
 app.route("/internal/worker-events", workerEventsRoute);
@@ -70,6 +91,7 @@ app.route("/internal/worker-events", workerEventsRoute);
 async function requireAuth(c: Context, next: Next) {
 	const token = getCookie(c, SESSION_COOKIE);
 	if (!getSessionUser(token)) {
+		reportSecurityIncident(c, { kind: "invalid_session", severity: "medium" });
 		return c.json({ error: "unauthorized" }, 401);
 	}
 	await next();
@@ -144,6 +166,11 @@ app.get(
 					};
 					botEvents.on(type, listener);
 					unsubscribers.push(() => botEvents.off(type, listener));
+				}
+				if (user.role === "admin") {
+					const securityListener = (data: unknown) => ws.send(JSON.stringify({ type: "security_alert", data }));
+					securityEvents.on("security_alert", securityListener);
+					unsubscribers.push(() => securityEvents.off("security_alert", securityListener));
 				}
 			},
 			onClose() {

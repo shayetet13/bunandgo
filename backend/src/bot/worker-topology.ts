@@ -16,6 +16,14 @@ interface RuntimeWorkerTuning {
 	h2Lanes?: number;
 	sendReservedLanes?: number;
 	fastPollSlots?: number;
+	pollExploreIntervalMs?: number;
+	pollCalibrationSamples?: number;
+	applicationHotCeilingMs?: number;
+	applicationDiscardCeilingMs?: number;
+	applicationSampleMaxAgeMs?: number;
+	laneMaxAgeMs?: number;
+	laneRecycleGapMs?: number;
+	degradedRepairMinSamples?: number;
 }
 
 interface RuntimeTopologyPrimary extends RuntimeWorkerTuning {
@@ -50,6 +58,13 @@ function nonNegativeInteger(value: unknown, label: string): number {
 	return value;
 }
 
+function positiveNumber(value: unknown, label: string): number {
+	if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+		throw new Error(`${label} must be a positive number`);
+	}
+	return value;
+}
+
 function validateWorkerTuning(worker: RuntimeWorkerTuning, label: string): void {
 	const interval = worker.fastPollIntervalMs === undefined
 		? undefined
@@ -63,6 +78,30 @@ function validateWorkerTuning(worker: RuntimeWorkerTuning, label: string): void 
 		? undefined
 		: positiveInteger(worker.sendReservedLanes, `${label} sendReservedLanes`);
 	const slots = worker.fastPollSlots === undefined ? undefined : positiveInteger(worker.fastPollSlots, `${label} fastPollSlots`);
+	const exploreInterval = worker.pollExploreIntervalMs === undefined
+		? undefined
+		: positiveInteger(worker.pollExploreIntervalMs, `${label} pollExploreIntervalMs`);
+	if (worker.pollCalibrationSamples !== undefined) {
+		positiveInteger(worker.pollCalibrationSamples, `${label} pollCalibrationSamples`);
+	}
+	const hotCeiling = worker.applicationHotCeilingMs === undefined
+		? undefined
+		: positiveNumber(worker.applicationHotCeilingMs, `${label} applicationHotCeilingMs`);
+	const discardCeiling = worker.applicationDiscardCeilingMs === undefined
+		? undefined
+		: positiveNumber(worker.applicationDiscardCeilingMs, `${label} applicationDiscardCeilingMs`);
+	const sampleMaxAge = worker.applicationSampleMaxAgeMs === undefined
+		? undefined
+		: positiveInteger(worker.applicationSampleMaxAgeMs, `${label} applicationSampleMaxAgeMs`);
+	const laneMaxAge = worker.laneMaxAgeMs === undefined
+		? undefined
+		: positiveInteger(worker.laneMaxAgeMs, `${label} laneMaxAgeMs`);
+	const recycleGap = worker.laneRecycleGapMs === undefined
+		? undefined
+		: positiveInteger(worker.laneRecycleGapMs, `${label} laneRecycleGapMs`);
+	if (worker.degradedRepairMinSamples !== undefined) {
+		positiveInteger(worker.degradedRepairMinSamples, `${label} degradedRepairMinSamples`);
+	}
 	if (h2Lanes !== undefined && reserved !== undefined && reserved >= h2Lanes) {
 		throw new Error(`${label} sendReservedLanes must leave at least one poll lane`);
 	}
@@ -71,6 +110,21 @@ function validateWorkerTuning(worker: RuntimeWorkerTuning, label: string): void 
 	}
 	if (interval === 0 && (h2Lanes === undefined || reserved === undefined || slots === undefined)) {
 		throw new Error(`${label} zero-delay requires h2Lanes, sendReservedLanes, and fastPollSlots`);
+	}
+	if (hotCeiling !== undefined && discardCeiling !== undefined && hotCeiling > discardCeiling) {
+		throw new Error(`${label} applicationHotCeilingMs cannot exceed applicationDiscardCeilingMs`);
+	}
+	if (
+		h2Lanes !== undefined && reserved !== undefined && exploreInterval !== undefined && sampleMaxAge !== undefined &&
+		(h2Lanes - reserved) * exploreInterval >= sampleMaxAge
+	) {
+		throw new Error(`${label} poll exploration must sweep every poll lane before application samples expire`);
+	}
+	if (
+		h2Lanes !== undefined && laneMaxAge !== undefined && recycleGap !== undefined &&
+		h2Lanes * recycleGap > laneMaxAge
+	) {
+		throw new Error(`${label} lane recycling cannot cover the pool before laneMaxAgeMs`);
 	}
 }
 
@@ -160,6 +214,14 @@ export function applyRuntimeTopologyFile(raw?: string): boolean {
 		if (worker.h2Lanes !== undefined) process.env.LINE_H2_LANES = String(worker.h2Lanes);
 		if (worker.sendReservedLanes !== undefined) process.env.LINE_H2_SEND_RESERVED_LANES = String(worker.sendReservedLanes);
 		if (worker.fastPollSlots !== undefined) process.env.SQUARE_FAST_POLL_SLOTS = String(worker.fastPollSlots);
+		if (worker.pollExploreIntervalMs !== undefined) process.env.LINE_H2_POLL_EXPLORE_INTERVAL_MS = String(worker.pollExploreIntervalMs);
+		if (worker.pollCalibrationSamples !== undefined) process.env.LINE_H2_POLL_CALIBRATION_SAMPLES = String(worker.pollCalibrationSamples);
+		if (worker.applicationHotCeilingMs !== undefined) process.env.LINE_H2_APPLICATION_HOT_CEILING_MS = String(worker.applicationHotCeilingMs);
+		if (worker.applicationDiscardCeilingMs !== undefined) process.env.LINE_H2_APPLICATION_DISCARD_CEILING_MS = String(worker.applicationDiscardCeilingMs);
+		if (worker.applicationSampleMaxAgeMs !== undefined) process.env.LINE_H2_APPLICATION_SAMPLE_MAX_AGE_MS = String(worker.applicationSampleMaxAgeMs);
+		if (worker.laneMaxAgeMs !== undefined) process.env.LINE_H2_LANE_MAX_AGE_MS = String(worker.laneMaxAgeMs);
+		if (worker.laneRecycleGapMs !== undefined) process.env.LINE_H2_LANE_RECYCLE_GAP_MS = String(worker.laneRecycleGapMs);
+		if (worker.degradedRepairMinSamples !== undefined) process.env.LINE_H2_DEGRADED_REPAIR_MIN_SAMPLES = String(worker.degradedRepairMinSamples);
 	};
 	if (port === topology.primary.port) {
 		process.env.WORKER_ID = topology.primary.workerId;

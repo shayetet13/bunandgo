@@ -6,14 +6,44 @@
  * by the people in the LINE rooms rather than by us. This pushes the same
  * transition to a channel that reaches a phone.
  *
- * Deliberately on Telegram rather than LINE: the failure being reported is
+ * Deliberately out-of-band rather than LINE: the failure being reported is
  * usually LINE itself refusing the account, so an alert that travels over
- * LINE would be silenced by exactly the outage it exists to announce.
+ * LINE would be silenced by exactly the outage it exists to announce. The
+ * configured Telegram chats and generic webhooks are all attempted.
  */
 
-const TELEGRAM_TOKEN = process.env.ALERT_TELEGRAM_BOT_TOKEN;
-const TELEGRAM_CHAT_ID = process.env.ALERT_TELEGRAM_CHAT_ID;
-const GENERIC_WEBHOOK_URL = process.env.ALERT_WEBHOOK_URL;
+/**
+ * Alert destinations are read when an alert is emitted rather than once at
+ * module load. This keeps tests deterministic and also lets a long-running
+ * process pick up an environment update after a supervised restart without
+ * having to rebuild any monitoring state.
+ */
+function splitConfiguredList(value: string | undefined): string[] {
+	return (value ?? "")
+		.split(/[\s,]+/)
+		.map((item) => item.trim())
+		.filter(Boolean);
+}
+
+function telegramDestinations(): { token: string; chatIds: string[] } | undefined {
+	const token = process.env.ALERT_TELEGRAM_BOT_TOKEN?.trim();
+	if (!token) return undefined;
+	const chatIds = splitConfiguredList(process.env.ALERT_TELEGRAM_CHAT_IDS ?? process.env.ALERT_TELEGRAM_CHAT_ID);
+	return chatIds.length > 0 ? { token, chatIds } : undefined;
+}
+
+function webhookDestinations(): string[] {
+	const configured = splitConfiguredList(`${process.env.ALERT_WEBHOOK_URLS ?? ""} ${process.env.ALERT_WEBHOOK_URL ?? ""}`);
+	return [...new Set(configured)].filter((url) => {
+		try {
+			const parsed = new URL(url);
+			return parsed.protocol === "https:" || parsed.protocol === "http:";
+		} catch {
+			console.error(`[alerts] ignoring invalid webhook URL: ${url.slice(0, 120)}`);
+			return false;
+		}
+	});
+}
 
 /** How long the same bot+kind pair stays suppressed after firing. */
 const DEDUPE_WINDOW_MS = 10 * 60 * 1000;
@@ -25,12 +55,14 @@ export type AlertKind =
 	| "login_required"
 	| "reply_blocked"
 	| "system_overload"
-	| "system_recovered";
+	| "system_recovered"
+	| "security_intrusion";
 
 const lastSentAt = new Map<string, number>();
 
 export function alertsConfigured(): boolean {
-	return Boolean((TELEGRAM_TOKEN && TELEGRAM_CHAT_ID) || GENERIC_WEBHOOK_URL);
+	const telegram = telegramDestinations();
+	return Boolean((telegram && telegram.chatIds.length > 0) || webhookDestinations().length > 0);
 }
 
 /**
@@ -47,6 +79,13 @@ export function shouldSendAlert(
 ): boolean {
 	const previous = seen.get(key);
 	if (previous !== undefined && nowMs - previous < DEDUPE_WINDOW_MS) return false;
+	// Security alerts may contain an attacker-controlled IP/path fingerprint.
+	// Bound the shared map so rotating those values cannot turn monitoring into
+	// a process-memory denial of service.
+	if (!seen.has(key) && seen.size >= 10_000) {
+		const oldest = seen.keys().next().value;
+		if (oldest !== undefined) seen.delete(oldest);
+	}
 	seen.set(key, nowMs);
 	return true;
 }
@@ -71,6 +110,8 @@ function format(kind: AlertKind, botName: string, detail?: string): string {
 			return `🔥 ระบบบอทใช้ทรัพยากรเกินขีดจำกัด${suffix}`;
 		case "system_recovered":
 			return `✅ โหลดระบบบอทกลับสู่ระดับปกติแล้ว${suffix}`;
+		case "security_intrusion":
+			return `🚨 ตรวจพบความพยายามเข้าถึงระบบผิดปกติ${suffix}`;
 	}
 }
 
@@ -96,9 +137,15 @@ async function post(url: string, body: unknown): Promise<void> {
  * a monitoring path that can itself take the process down is worse than no
  * monitoring at all.
  */
-export function sendAlert(kind: AlertKind, botId: number, botName: string, detail?: string): void {
+export function sendAlert(
+	kind: AlertKind,
+	botId: number,
+	botName: string,
+	detail?: string,
+	dedupeKey?: string,
+): void {
 	if (!alertsConfigured()) return;
-	const key = `${botId}:${kind}`;
+	const key = dedupeKey ?? `${botId}:${kind}`;
 	if (!shouldSendAlert(key, Date.now())) return;
 	// Coming back up makes the matching failure newsworthy again, and vice versa.
 	const opposite = kind === "recovered"
@@ -114,23 +161,31 @@ export function sendAlert(kind: AlertKind, botId: number, botName: string, detai
 
 	const text = format(kind, botName, detail);
 	void (async () => {
-		try {
-			if (TELEGRAM_TOKEN && TELEGRAM_CHAT_ID) {
-				await post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
-					chat_id: TELEGRAM_CHAT_ID,
+		const telegram = telegramDestinations();
+		const webhooks = webhookDestinations();
+		const deliveries: Promise<void>[] = [];
+		if (telegram) {
+			for (const chatId of telegram.chatIds) {
+				deliveries.push(post(`https://api.telegram.org/bot${telegram.token}/sendMessage`, {
+					chat_id: chatId,
 					text,
 					disable_notification: kind === "recovered" || kind === "system_recovered",
-				});
-				return;
+				}));
 			}
-			if (GENERIC_WEBHOOK_URL) {
-				// Discord reads `content`; most other webhook receivers read
-				// `text`. Sending both costs nothing and avoids a per-provider
-				// switch for what is one short string.
-				await post(GENERIC_WEBHOOK_URL, { content: text, text });
+		}
+		for (const webhook of webhooks) {
+			// Discord reads `content`; most other webhook receivers read
+			// `text`. Sending both costs nothing and avoids a per-provider
+			// switch for what is one short string. Every configured endpoint is
+			// attempted independently, so one failed channel cannot suppress the
+			// others.
+			deliveries.push(post(webhook, { content: text, text, kind, botId, botName }));
+		}
+		const results = await Promise.allSettled(deliveries);
+		for (const result of results) {
+			if (result.status === "rejected") {
+				console.error(`[alerts] could not deliver "${text}":`, result.reason instanceof Error ? result.reason.message : result.reason);
 			}
-		} catch (error) {
-			console.error(`[alerts] could not deliver "${text}":`, error instanceof Error ? error.message : error);
 		}
 	})();
 }

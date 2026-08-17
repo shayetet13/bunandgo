@@ -1,12 +1,29 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api.ts";
-import type { Bot, BotStatus, ChatRow, IdLockMismatchEvent, LatencySample, LatencySnapshot, LoginPhase, Rule, ScheduledPost } from "../lib/types.ts";
+import type {
+	Bot,
+	BotStatus,
+	ChatRow,
+	IdLockMismatchEvent,
+	LatencySample,
+	LatencySnapshot,
+	LoginPhase,
+	Rule,
+	ScheduledPost,
+} from "../lib/types.ts";
 import { useLiveSocket } from "../lib/useWebSocket.ts";
 import { reconcileFetchedBots } from "../lib/bot-status-sync.ts";
 import { previewReplyText } from "../lib/text-preview.ts";
 import { bangkokInputToEpochMs, formatBangkokDateTime } from "../lib/bangkok-time.ts";
 import { parseSecondsAndMs, secondsSuffix } from "../lib/seconds-input.ts";
-import { isScheduledPostRunAtValid, isScheduledPostToggleable, SCHEDULED_POST_STATUS_LABEL, scheduledPostStatusOf } from "../lib/scheduled-post-status.ts";
+import {
+	isScheduledPostRunAtValid,
+	isScheduledPostToggleable,
+	SCHEDULED_POST_STATUS_LABEL,
+	scheduledPostStatusOf,
+} from "../lib/scheduled-post-status.ts";
+import { RULE_MATCH_GUIDES, ruleMatchFeedback, validateRuleMatchValue } from "../lib/rule-input.ts";
+import { buildRaceCommentary } from "../lib/race-commentary.ts";
 import type { QrState } from "./BotsPanel.tsx";
 import { QrPanel } from "./QrPanel.tsx";
 import { StartConfirmPanel } from "./StartConfirmPanel.tsx";
@@ -36,13 +53,6 @@ const MATCH_TYPE_LABEL: Record<Rule["matchType"], string> = {
 	startsWith: "ขึ้นต้นด้วย",
 	containsAny: "มีคำนี้ในข้อความ",
 	regex: "regex (ขั้นสูง)",
-};
-
-const MATCH_VALUE_PLACEHOLDER: Record<Rule["matchType"], string> = {
-	equals: "ข้อความที่ต้องตรงทั้งหมด",
-	startsWith: "ข้อความที่ต้องขึ้นต้นด้วย",
-	containsAny: "คำ เช่น 14,15,16",
-	regex: "regex pattern",
 };
 
 /**
@@ -101,6 +111,9 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 	const [ruleMatchType, setRuleMatchType] = useState<Rule["matchType"]>("containsAny");
 	const [ruleMatchValue, setRuleMatchValue] = useState("");
 	const [ruleReplyText, setRuleReplyText] = useState("");
+	const [ruleError, setRuleError] = useState<string>();
+	const ruleFeedback = ruleMatchFeedback(ruleMatchType, ruleMatchValue);
+	const displayedRuleError = ruleFeedback?.valid === false ? ruleFeedback.message : ruleError;
 
 	const [scheduledPosts, setScheduledPosts] = useState<ScheduledPost[]>([]);
 	const [showSpForm, setShowSpForm] = useState(false);
@@ -194,7 +207,8 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 	// The quota and the price live on the server so raising either does not
 	// need a frontend deploy.
 	useEffect(() => {
-		void api.me()
+		void api
+			.me()
 			.then((me) => {
 				if (me.botQuota !== null) setBotQuota(me.botQuota);
 				setBotPrice(me.botPricePerMonthThb);
@@ -264,12 +278,14 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 		send_result: (data) => {
 			const sample = (data as LatencySnapshot).last;
 			if (!sample) return;
-			setLogs((previous) => [sample, ...previous.filter((item) => item.ts !== sample.ts || item.botId !== sample.botId)].slice(0, MAX_LOGS));
+			setLogs((previous) =>
+				[sample, ...previous.filter((item) => item.ts !== sample.ts || item.botId !== sample.botId)].slice(0, MAX_LOGS),
+			);
 		},
 		bot_status: (data) => {
 			const event = data as { botId: number; status: BotStatus; phase?: LoginPhase };
 			statusEventAtRef.current.set(event.botId, Date.now());
-			setBots((previous) => previous.map((bot) => bot.id === event.botId ? { ...bot, status: event.status } : bot));
+			setBots((previous) => previous.map((bot) => (bot.id === event.botId ? { ...bot, status: event.status } : bot)));
 			if (event.status === "connecting" && event.phase) patchLoginPhase(event.botId, event.phase);
 			if (event.status !== "connecting") {
 				setQrByBot((prev) => {
@@ -287,7 +303,7 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 		start_declined: (data) => {
 			const { botId } = data as { botId: number };
 			clearConfirm(botId);
-			setErrorMessage("ยกเลิกการยืนยันแล้ว — บอทยังไม่เริ่มเชื่อมต่อ กด \"เริ่ม\" ใหม่ได้เมื่อพร้อม");
+			setErrorMessage('ยกเลิกการยืนยันแล้ว — บอทยังไม่เริ่มเชื่อมต่อ กด "เริ่ม" ใหม่ได้เมื่อพร้อม');
 		},
 		id_lock_mismatch: (data) => {
 			const event = data as IdLockMismatchEvent;
@@ -310,17 +326,23 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 	useEffect(() => {
 		if (!wsConnected) return;
 		const fetchedAt = Date.now();
-		api.listBots().then((freshBots) => {
-			applyFetchedBots(freshBots, fetchedAt);
-			for (const bot of freshBots) {
-				if (bot.status !== "connecting") continue;
-				api.getCurrentQr(bot.id).then((qr) => {
-					if (qr.phase) patchLoginPhase(bot.id, qr.phase);
-					if (!qr.url && !qr.pincode) return;
-					setQrByBot((prev) => ({ ...prev, [bot.id]: { url: qr.url, pincode: qr.pincode, phase: qr.phase } }));
-				}).catch(() => {});
-			}
-		}).catch(() => {});
+		api
+			.listBots()
+			.then((freshBots) => {
+				applyFetchedBots(freshBots, fetchedAt);
+				for (const bot of freshBots) {
+					if (bot.status !== "connecting") continue;
+					api
+						.getCurrentQr(bot.id)
+						.then((qr) => {
+							if (qr.phase) patchLoginPhase(bot.id, qr.phase);
+							if (!qr.url && !qr.pincode) return;
+							setQrByBot((prev) => ({ ...prev, [bot.id]: { url: qr.url, pincode: qr.pincode, phase: qr.phase } }));
+						})
+						.catch(() => {});
+				}
+			})
+			.catch(() => {});
 	}, [wsConnected, applyFetchedBots]);
 
 	const enabledMids = useMemo(() => chats.filter((chat) => !!chat.enabled).map((chat) => chat.mid), [chats]);
@@ -334,13 +356,17 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 	}, [logs, selectedBotId, enabledMids]);
 	const botNames = useMemo(() => new Map(bots.map((bot) => [bot.id, bot.name])), [bots]);
 	const latest = visibleLogs[0];
+	const race = useMemo(() => buildRaceCommentary(visibleLogs), [visibleLogs]);
 	const selectedBot = bots.find((bot) => bot.id === selectedBotId);
 	const pendingConfirm = selectedBotId !== undefined ? confirmByBot[selectedBotId] : undefined;
 	const canCreateBot = bots.length < botQuota;
 
 	const normalizedGroupQuery = groupQuery.trim().toLowerCase();
-	const visibleChats = chats.filter((chat) =>
-		!normalizedGroupQuery || (chat.name ?? "").toLowerCase().includes(normalizedGroupQuery) || chat.mid.toLowerCase().includes(normalizedGroupQuery)
+	const visibleChats = chats.filter(
+		(chat) =>
+			!normalizedGroupQuery ||
+			(chat.name ?? "").toLowerCase().includes(normalizedGroupQuery) ||
+			chat.mid.toLowerCase().includes(normalizedGroupQuery),
 	);
 
 	async function logout() {
@@ -390,7 +416,7 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 		const nextEnabled = !chat.enabled;
 		try {
 			await api.setChatEnabled(chat.bot_id, chat.mid, nextEnabled);
-			setChats((prev) => prev.map((c) => c.mid === chat.mid ? { ...c, enabled: nextEnabled ? 1 : 0 } : c));
+			setChats((prev) => prev.map((c) => (c.mid === chat.mid ? { ...c, enabled: nextEnabled ? 1 : 0 } : c)));
 		} catch (err) {
 			pushError(err);
 		}
@@ -400,7 +426,7 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 		const nextAdminOnly = !chat.admin_only;
 		try {
 			await api.setChatAdminOnly(chat.bot_id, chat.mid, nextAdminOnly);
-			setChats((prev) => prev.map((c) => c.mid === chat.mid ? { ...c, admin_only: nextAdminOnly ? 1 : 0 } : c));
+			setChats((prev) => prev.map((c) => (c.mid === chat.mid ? { ...c, admin_only: nextAdminOnly ? 1 : 0 } : c)));
 		} catch (err) {
 			pushError(err);
 		}
@@ -408,7 +434,17 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 
 	async function submitCreateRule(e: FormEvent) {
 		e.preventDefault();
-		if (selectedBotId === undefined || !ruleMatchValue.trim() || !ruleReplyText.trim()) return;
+		if (selectedBotId === undefined) return;
+		const keyError = validateRuleMatchValue(ruleMatchType, ruleMatchValue);
+		if (keyError) {
+			setRuleError(keyError);
+			return;
+		}
+		if (!ruleReplyText.trim()) {
+			setRuleError("กรุณากรอกข้อความที่ต้องการให้บอทตอบกลับ");
+			return;
+		}
+		setRuleError(undefined);
 		try {
 			await api.createRule(selectedBotId, {
 				surface: "all",
@@ -422,7 +458,7 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 			setRuleReplyText("");
 			await refreshRules(selectedBotId);
 		} catch (err) {
-			pushError(err);
+			setRuleError(errorText(err));
 		}
 	}
 
@@ -521,13 +557,17 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 						</span>
 						<span className="uc-username">{username}</span>
 					</div>
-					<button className="uc-logout" onClick={() => void logout()}>ออกจากระบบ</button>
+					<button className="uc-logout" onClick={() => void logout()}>
+						ออกจากระบบ
+					</button>
 				</header>
 
 				{errorMessage && (
 					<div className="uc-error" role="alert">
 						<span>{errorMessage}</span>
-						<button onClick={() => setErrorMessage(undefined)} aria-label="ปิดข้อความแจ้งเตือน">✕</button>
+						<button onClick={() => setErrorMessage(undefined)} aria-label="ปิดข้อความแจ้งเตือน">
+							✕
+						</button>
 					</div>
 				)}
 
@@ -539,17 +579,36 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 								{latest ? Math.round(latest.latencyMs) : "—"}
 								{latest && <span className="uc-speed-unit">ms</span>}
 							</div>
-							<span className="uc-speed-badge" data-tone={speedTone}>{speedLabel}</span>
+							<span className="uc-speed-badge" data-tone={speedTone}>
+								{speedLabel}
+							</span>
+						</section>
+
+						<section className="uc-race" data-tone={race.tone} key={race.latest?.ts ?? "idle"} aria-live="polite">
+							<div className="uc-race-head">
+								<span className="uc-eyebrow">ผู้บรรยายสนาม</span>
+								<span className="uc-race-mode">กวนเต็มระบบ</span>
+							</div>
+							<strong className="uc-race-title">{race.headline}</strong>
+							<p className="uc-race-roast">{race.roast}</p>
+							{race.achievement && <span className="uc-race-achievement">{race.achievement}</span>}
+							<div className="uc-race-stats">
+								<span>{race.streakLabel}</span>
+								<strong>{race.total > 0 ? `${race.hitRate}%` : "—"}</strong>
+							</div>
+							<div className="uc-race-form" aria-label={`ผลงาน ${race.total} รอบล่าสุด`}>
+								{race.recent.map((tone, index) => (
+									<i key={`${race.latest?.ts}-${index}`} data-tone={tone} title={`รอบที่ ${index + 1}: ${tone}`} />
+								))}
+								{race.total === 0 && <span>รอบล่าสุดยังว่างอยู่</span>}
+							</div>
 						</section>
 
 						<section className="uc-card">
 							<div className="uc-card-head">
 								<span className="uc-card-title">บอทของฉัน</span>
 								{canCreateBot && (
-									<button
-										className="uc-btn uc-btn--sm uc-btn--ghost"
-										onClick={() => setShowCreateBotForm((s) => !s)}
-									>
+									<button className="uc-btn uc-btn--sm uc-btn--ghost" onClick={() => setShowCreateBotForm((s) => !s)}>
 										{showCreateBotForm ? "ยกเลิก" : "+ เพิ่มบอท"}
 									</button>
 								)}
@@ -558,7 +617,9 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 								{canCreateBot && showCreateBotForm && (
 									<form className="uc-form" onSubmit={submitCreateBot}>
 										<div className="uc-field">
-											<label className="uc-field-label" htmlFor="uc-new-bot">ชื่อบอท</label>
+											<label className="uc-field-label" htmlFor="uc-new-bot">
+												ชื่อบอท
+											</label>
 											<input
 												autoFocus
 												id="uc-new-bot"
@@ -568,16 +629,14 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 												onChange={(e) => setNewBotName(e.target.value)}
 											/>
 										</div>
-										<button type="submit" className="uc-btn uc-btn--primary uc-btn--block">สร้าง &amp; เข้าสู่ระบบ</button>
+										<button type="submit" className="uc-btn uc-btn--primary uc-btn--block">
+											สร้าง &amp; เข้าสู่ระบบ
+										</button>
 									</form>
 								)}
 
 								<div className="uc-bot-list">
-									<button
-										className="uc-bot"
-										aria-pressed={selectedBotId === undefined}
-										onClick={() => setSelectedBotId(undefined)}
-									>
+									<button className="uc-bot" aria-pressed={selectedBotId === undefined} onClick={() => setSelectedBotId(undefined)}>
 										<i className="uc-bot-dot" aria-hidden="true" />
 										<span className="uc-bot-name">ทั้งหมด</span>
 										<span className="uc-bot-state">{bots.length} บอท</span>
@@ -593,32 +652,36 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 											<span className="uc-bot-name">{bot.name}</span>
 											{/* Otherwise pressing "เริ่ม" on a locked bot just fails with
 											    an error and no explanation of what to do about it. */}
-											<span className="uc-bot-state">
-												{bot.overQuota ? "🔒 เกินโควตา" : statusLabel(bot.status)}
-											</span>
+											<span className="uc-bot-state">{bot.overQuota ? "🔒 เกินโควตา" : statusLabel(bot.status)}</span>
 										</button>
 									))}
 								</div>
 
 								{!canCreateBot && (
 									<div className="uc-note">
-										<strong>ใช้บอทครบโควตาแล้ว ({bots.length}/{botQuota} ตัว)</strong>
+										<strong>
+											ใช้บอทครบโควตาแล้ว ({bots.length}/{botQuota} ตัว)
+										</strong>
 										<p style={{ margin: "0.35rem 0 0" }}>
 											ติดต่อผู้ดูแลระบบเพื่อปลดล็อกเพิ่ม — ค่าบริการ {botPrice} บาท/เดือน ต่อบอท 1 ตัว
 										</p>
 										<p style={{ margin: "0.35rem 0 0" }}>
-											ยิ่งมีบอทหลายตัวยิ่งมีโอกาสชนะสูงขึ้น: แต่ละตัวมีจังหวะการตรวจข้อความของตัวเอง
-											ตัวที่เห็นคิวก่อนจะเป็นคนตอบ และบอทของคุณจะไม่ตอบซ้ำกันเองในห้องเดียวกัน
+											ยิ่งมีบอทหลายตัวยิ่งมีโอกาสชนะสูงขึ้น: แต่ละตัวมีจังหวะการตรวจข้อความของตัวเอง ตัวที่เห็นคิวก่อนจะเป็นคนตอบ
+											และบอทของคุณจะไม่ตอบซ้ำกันเองในห้องเดียวกัน
 										</p>
 									</div>
 								)}
 								{canCreateBot && bots.length > 0 && (
-									<p className="uc-note">ใช้ไป {bots.length}/{botQuota} ตัว — เพิ่มได้อีก {botQuota - bots.length} ตัว</p>
+									<p className="uc-note">
+										ใช้ไป {bots.length}/{botQuota} ตัว — เพิ่มได้อีก {botQuota - bots.length} ตัว
+									</p>
 								)}
 
 								{selectedBot && (
 									<div className="uc-run-bar">
-										<span className="uc-run-label">{selectedBot.name} · {statusLabel(selectedBot.status)}</span>
+										<span className="uc-run-label">
+											{selectedBot.name} · {statusLabel(selectedBot.status)}
+										</span>
 										{selectedBot.overQuota ? (
 											// Shown instead of a start button rather than a start
 											// button that fails: the fix is a payment, not a retry.
@@ -627,7 +690,9 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 											</span>
 										) : selectedBot.status === "offline" ? (
 											pendingConfirm ? (
-												<button className="uc-btn uc-btn--sm uc-btn--ghost" disabled>รอการยืนยัน…</button>
+												<button className="uc-btn uc-btn--sm uc-btn--ghost" disabled>
+													รอการยืนยัน…
+												</button>
 											) : (
 												<button className="uc-btn uc-btn--sm uc-btn--primary" onClick={() => void handleStart(selectedBot.id)}>
 													เริ่ม
@@ -691,12 +756,12 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 										<section className="uc-card">
 											<div className="uc-card-head">
 												<span className="uc-card-title">ห้องที่เปิดให้บอทตอบ</span>
-												<span className="uc-eyebrow">{enabledMids.length}/{chats.length}</span>
+												<span className="uc-eyebrow">
+													{enabledMids.length}/{chats.length}
+												</span>
 											</div>
 											<div className="uc-card-body">
-												<p className="uc-note">
-													บอทจะตอบเฉพาะห้องที่เปิดสวิตช์ไว้เท่านั้น — แชทส่วนตัวจะไม่มีการตอบกลับเสมอ
-												</p>
+												<p className="uc-note">บอทจะตอบเฉพาะห้องที่เปิดสวิตช์ไว้เท่านั้น — แชทส่วนตัวจะไม่มีการตอบกลับเสมอ</p>
 												<div className="uc-search">
 													<span aria-hidden="true">⌕</span>
 													<input
@@ -750,40 +815,74 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 												{showRuleForm && (
 													<form className="uc-form uc-form--split" onSubmit={submitCreateRule}>
 														<div className="uc-field">
-															<label className="uc-field-label" htmlFor="uc-rule-type">เงื่อนไข</label>
+															<label className="uc-field-label" htmlFor="uc-rule-type">
+																เงื่อนไข
+															</label>
 															<select
 																id="uc-rule-type"
 																className="uc-select"
 																value={ruleMatchType}
-																onChange={(e) => setRuleMatchType(e.target.value as Rule["matchType"])}
+																onChange={(e) => {
+																	setRuleMatchType(e.target.value as Rule["matchType"]);
+																	setRuleError(undefined);
+																}}
 															>
 																{(Object.keys(MATCH_TYPE_LABEL) as Rule["matchType"][]).map((type) => (
-																	<option key={type} value={type}>{MATCH_TYPE_LABEL[type]}</option>
+																	<option key={type} value={type}>
+																		{MATCH_TYPE_LABEL[type]}
+																	</option>
 																))}
 															</select>
 														</div>
 														<div className="uc-field">
-															<label className="uc-field-label" htmlFor="uc-rule-value">คำที่ให้จับ</label>
+															<label className="uc-field-label" htmlFor="uc-rule-value">
+																คำที่ให้จับ
+															</label>
 															<input
 																id="uc-rule-value"
 																className="uc-input"
-																placeholder={MATCH_VALUE_PLACEHOLDER[ruleMatchType]}
+																placeholder={RULE_MATCH_GUIDES[ruleMatchType].placeholder}
 																value={ruleMatchValue}
-																onChange={(e) => setRuleMatchValue(e.target.value)}
+																onChange={(e) => {
+																	setRuleMatchValue(e.target.value);
+																	setRuleError(undefined);
+																}}
+																aria-invalid={displayedRuleError ? true : undefined}
+																aria-describedby="uc-rule-key-help uc-rule-error"
 															/>
+															<p className="uc-note" id="uc-rule-key-help">
+																{RULE_MATCH_GUIDES[ruleMatchType].help}
+															</p>
 														</div>
 														<div className="uc-field uc-field--wide">
-															<label className="uc-field-label" htmlFor="uc-rule-reply">ข้อความตอบกลับ</label>
+															<label className="uc-field-label" htmlFor="uc-rule-reply">
+																ข้อความตอบกลับ
+															</label>
 															<textarea
 																id="uc-rule-reply"
 																className="uc-textarea"
 																placeholder="พิมพ์ข้อความที่บอทจะตอบ"
 																value={ruleReplyText}
-																onChange={(e) => setRuleReplyText(e.target.value)}
+																onChange={(e) => {
+																	setRuleReplyText(e.target.value);
+																	setRuleError(undefined);
+																}}
 																rows={3}
 															/>
 														</div>
-														<button type="submit" className="uc-btn uc-btn--primary uc-btn--block">เพิ่มคีย์เวิร์ด</button>
+														{displayedRuleError && (
+															<p className="uc-form-error" id="uc-rule-error" role="alert">
+																{displayedRuleError}
+															</p>
+														)}
+														{!displayedRuleError && ruleFeedback?.valid && (
+															<p className="uc-form-success" role="status">
+																{ruleFeedback.message}
+															</p>
+														)}
+														<button type="submit" className="uc-btn uc-btn--primary uc-btn--block">
+															เพิ่มคีย์เวิร์ด
+														</button>
 													</form>
 												)}
 
@@ -806,7 +905,13 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 																</div>
 																<div className="uc-row-actions">
 																	<ToggleSwitch isSelected={rule.enabled} onToggle={() => void handleToggleRule(rule)} />
-																	<button className="uc-icon-btn" onClick={() => void handleDeleteRule(rule)} aria-label={`ลบคีย์เวิร์ด ${rule.matchValue}`}>✕</button>
+																	<button
+																		className="uc-icon-btn"
+																		onClick={() => void handleDeleteRule(rule)}
+																		aria-label={`ลบคีย์เวิร์ด ${rule.matchValue}`}
+																	>
+																		✕
+																	</button>
 																</div>
 															</div>
 														))}
@@ -828,16 +933,26 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 											</div>
 											<div className="uc-card-body">
 												<p className="uc-note">
-													ไม่ต้องใช้คีย์เวิร์ด — ตั้งวันเวลา (เวลาไทย ละเอียดถึงมิลลิวินาที) ไว้ล่วงหน้า พอถึงเวลาบอทจะโพสข้อความที่เตรียมไว้ทันที
+													ไม่ต้องใช้คีย์เวิร์ด — ตั้งวันเวลา (เวลาไทย ละเอียดถึงมิลลิวินาที) ไว้ล่วงหน้า
+													พอถึงเวลาบอทจะโพสข้อความที่เตรียมไว้ทันที
 												</p>
 
 												{showSpForm && (
 													<form className="uc-form uc-form--split" onSubmit={submitCreateScheduledPost}>
 														{spError && <p className="uc-form-error">{spError}</p>}
 														<div className="uc-field uc-field--wide">
-															<label className="uc-field-label" htmlFor="uc-sp-room">ห้องแชท</label>
-															<select id="uc-sp-room" className="uc-select" value={spTargetMid} onChange={(e) => setSpTargetMid(e.target.value)}>
-																<option value="" disabled>— เลือกห้องแชท —</option>
+															<label className="uc-field-label" htmlFor="uc-sp-room">
+																ห้องแชท
+															</label>
+															<select
+																id="uc-sp-room"
+																className="uc-select"
+																value={spTargetMid}
+																onChange={(e) => setSpTargetMid(e.target.value)}
+															>
+																<option value="" disabled>
+																	— เลือกห้องแชท —
+																</option>
 																{chats.map((chat) => (
 																	<option key={chat.mid} value={chat.mid}>
 																		{chat.surface === "square" ? "OP" : "กลุ่ม"} · {chat.name ?? chat.mid}
@@ -846,7 +961,9 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 															</select>
 														</div>
 														<div className="uc-field">
-															<label className="uc-field-label" htmlFor="uc-sp-datetime">วันและเวลา</label>
+															<label className="uc-field-label" htmlFor="uc-sp-datetime">
+																วันและเวลา
+															</label>
 															<input
 																type="datetime-local"
 																id="uc-sp-datetime"
@@ -872,10 +989,13 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 														</div>
 														<p className="uc-note uc-field--wide" id="uc-sp-sec-help">
 															ปฏิทินเลือกได้ละเอียดสุดแค่<strong>นาที</strong> ถ้าอยากให้เป๊ะกว่านั้นใส่วินาทีเพิ่มในช่องขวา —{" "}
-															<code className="uc-code">5.250</code> คือ 5 วินาที 250 มิลลิวินาที, <code className="uc-code">5</code> คือ 5 วินาทีตรง
+															<code className="uc-code">5.250</code> คือ 5 วินาที 250 มิลลิวินาที, <code className="uc-code">5</code> คือ 5
+															วินาทีตรง
 														</p>
 														<div className="uc-field uc-field--wide">
-															<label className="uc-field-label" htmlFor="uc-sp-text">ข้อความที่จะโพส</label>
+															<label className="uc-field-label" htmlFor="uc-sp-text">
+																ข้อความที่จะโพส
+															</label>
 															<textarea
 																id="uc-sp-text"
 																className="uc-textarea"
@@ -885,7 +1005,9 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 																rows={3}
 															/>
 														</div>
-														<button type="submit" className="uc-btn uc-btn--primary uc-btn--block">ตั้งเวลาโพส</button>
+														<button type="submit" className="uc-btn uc-btn--primary uc-btn--block">
+															ตั้งเวลาโพส
+														</button>
 													</form>
 												)}
 
@@ -920,7 +1042,13 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 																		{isScheduledPostToggleable(status) && (
 																			<ToggleSwitch isSelected={post.enabled} onToggle={() => void handleToggleScheduledPost(post)} />
 																		)}
-																		<button className="uc-icon-btn" onClick={() => void handleDeleteScheduledPost(post)} aria-label="ลบรายการโพสตามเวลา">✕</button>
+																		<button
+																			className="uc-icon-btn"
+																			onClick={() => void handleDeleteScheduledPost(post)}
+																			aria-label="ลบรายการโพสตามเวลา"
+																		>
+																			✕
+																		</button>
 																	</div>
 																</div>
 															);
@@ -947,9 +1075,7 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 						</div>
 					</div>
 					<div className="uc-log-body">
-						{!loading && visibleLogs.length === 0 && (
-							<p className="uc-empty">พร้อมรับข้อมูล — ข้อความที่บอทส่งจะแสดงที่นี่อัตโนมัติ</p>
-						)}
+						{!loading && visibleLogs.length === 0 && <p className="uc-empty">พร้อมรับข้อมูล — ข้อความที่บอทส่งจะแสดงที่นี่อัตโนมัติ</p>}
 						{visibleLogs.map((log) => (
 							<div className="uc-log-line" data-ok={log.ok} key={`${log.botId}-${log.ts}`}>
 								<span className="uc-log-ts">{timeLabel(log.ts)}</span>

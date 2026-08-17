@@ -29,7 +29,7 @@ describe("shouldRunLogPurge", () => {
 });
 
 describe("runLogPurge", () => {
-	test("clears operational logs, retains recent audit entries, and records the run", () => {
+	test("clears daily logs but retains recent audit, lane, and latency history", () => {
 		const now = Date.now();
 		const recent = now - 60_000;
 		const expiredAudit = now - 91 * DAY_MS;
@@ -38,6 +38,7 @@ describe("runLogPurge", () => {
 		db.run("INSERT INTO user_actions (user_id, username, ts, action, detail) VALUES (?, ?, ?, ?, ?)", [1, "u", recent, "login", null]);
 		db.run("INSERT INTO user_actions (user_id, username, ts, action, detail) VALUES (?, ?, ?, ?, ?)", [1, "old", expiredAudit, "login", null]);
 		db.run("INSERT INTO latency_samples (bot_id, ts, surface, target_mid, latency_ms, ok, source, text_preview) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [1, recent, "talk", null, 10, 1, "auto", null]);
+		db.run("INSERT INTO latency_samples (bot_id, ts, surface, target_mid, latency_ms, ok, source, text_preview) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [1, now - 31 * DAY_MS, "talk", null, 99, 1, "auto", null]);
 		db.run("INSERT INTO messages_in (bot_id, ts, surface, target_mid, text) VALUES (?, ?, ?, ?, ?)", [1, recent, "talk", "m1", "hello"]);
 		db.run("INSERT INTO anomalies (bot_id, ts, kind, severity, detail) VALUES (?, ?, ?, ?, ?)", [1, recent, "send_dropped", "critical", "blocked"]);
 		db.run("INSERT INTO lane_race_events (ts, worker_id, origin, lane_id, role, result, rtt_ms) VALUES (?, ?, ?, ?, ?, ?, ?)", [recent, "test", "https://line.test", 1, "poll", "star", 12]);
@@ -45,11 +46,12 @@ describe("runLogPurge", () => {
 
 		runLogPurge(now);
 
-		for (const table of ["bot_events", "latency_samples", "messages_in", "anomalies"]) {
+		for (const table of ["bot_events", "messages_in", "anomalies"]) {
 			const row = db.query<{ count: number }, []>(`SELECT COUNT(*) AS count FROM ${table}`).get();
 			expect(row?.count).toBe(0);
 		}
 		expect(db.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM user_actions").get()?.count).toBe(1);
+		expect(db.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM latency_samples").get()?.count).toBe(1);
 		expect(db.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM lane_race_events").get()?.count).toBe(1);
 		expect(getLastPurgeAt()).toBe(now);
 	});

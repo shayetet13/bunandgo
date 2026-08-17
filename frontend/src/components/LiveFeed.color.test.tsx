@@ -41,6 +41,7 @@ describe("latency phase sum", () => {
 			decryptMs: 0.01,
 			matchMs: 0.01,
 			limiterMs: 0.01,
+			routingMs: 0.20,
 			protocolPrepMs: 0.41,
 			relayEncodeMs: 0.01,
 			goPrepMs: 0.001,
@@ -48,7 +49,7 @@ describe("latency phase sum", () => {
 			upstreamCalls: 1,
 		});
 
-		expect(result.codeMs).toBeCloseTo(0.631, 9);
-		expect(result.totalMs).toBeCloseTo(21.331, 9);
+		expect(result.codeMs).toBeCloseTo(0.831, 9);
+		expect(result.totalMs).toBeCloseTo(21.531, 9);
 	});
 });

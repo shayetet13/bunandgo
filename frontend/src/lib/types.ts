@@ -57,6 +57,7 @@ export interface LatencySample {
 	ok: boolean;
 	source: "test" | "auto";
 	textPreview: string | null;
+	lineCreatedTime?: number;
 	breakdown?: LatencyBreakdown;
 }
 
@@ -71,6 +72,7 @@ export interface LatencyBreakdown {
 	decryptMs: number;
 	matchMs: number;
 	limiterMs: number;
+	routingMs?: number;
 	protocolPrepMs: number;
 	relayEncodeMs: number;
 	goPrepMs: number;
@@ -338,6 +340,7 @@ export interface LaneRaceSnapshot {
 	lanes: LaneRaceLane[];
 	daily: LaneRaceDaily[];
 	events: LaneRaceEvent[];
+	latency: LatencySample[];
 }
 
 export interface MessageIn {
@@ -375,7 +378,8 @@ export type WsEventType =
 	| "chats_updated"
 	| "bot_status"
 	| "start_declined"
-	| "id_lock_mismatch";
+	| "id_lock_mismatch"
+	| "security_alert";
 
 export interface WsEvent<T = unknown> {
 	type: WsEventType;

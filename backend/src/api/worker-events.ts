@@ -7,6 +7,7 @@ import { readWorkerTopology } from "../bot/worker-topology.ts";
 import { CONTROL_TOKEN_HEADER, hasValidControlToken } from "./worker-proxy.ts";
 import type { LatencySample } from "../metrics/latency.ts";
 import type { FastPathSample } from "../metrics/fast-path.ts";
+import { reportSecurityIncident } from "../security/intrusion-monitor.ts";
 
 export const FORWARDED_EVENTS = [
 	"qr",
@@ -98,6 +99,7 @@ export function relayedFastPathSamples(limit: number): FastPathSample[] {
 workerEventsRoute.post("/", async (c) => {
 	const topology = readWorkerTopology();
 	if (topology.ownerRoutes.size === 0 || !hasValidControlToken(c)) {
+		reportSecurityIncident(c, { kind: "invalid_worker_token", severity: "critical" });
 		return c.json({ error: "forbidden" }, 403);
 	}
 	const envelope = await c.req.json().catch(() => undefined) as Partial<RelayEnvelope> | undefined;

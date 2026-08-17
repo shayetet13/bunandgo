@@ -15,6 +15,14 @@ const ENV_KEYS = [
 	"SQUARE_FAST_POLL_SLOTS",
 	"LINE_H2_LANES",
 	"LINE_H2_SEND_RESERVED_LANES",
+	"LINE_H2_POLL_EXPLORE_INTERVAL_MS",
+	"LINE_H2_POLL_CALIBRATION_SAMPLES",
+	"LINE_H2_APPLICATION_HOT_CEILING_MS",
+	"LINE_H2_APPLICATION_DISCARD_CEILING_MS",
+	"LINE_H2_APPLICATION_SAMPLE_MAX_AGE_MS",
+	"LINE_H2_LANE_MAX_AGE_MS",
+	"LINE_H2_LANE_RECYCLE_GAP_MS",
+	"LINE_H2_DEGRADED_REPAIR_MIN_SAMPLES",
 ] as const;
 const original = new Map<string, string | undefined>();
 
@@ -167,6 +175,52 @@ describe("worker topology", () => {
 		setTopologyEnv({ PORT: "8792" });
 		expect(applyRuntimeTopologyFile(runtimeFile)).toBe(true);
 		expect(process.env.SQUARE_FAST_POLL_SLOTS).toBe("4");
+	});
+
+	test("runtime topology applies hot and warm lane thresholds", () => {
+		const tuning = {
+			fastPollIntervalMs: 0,
+			h2Lanes: 16,
+			sendReservedLanes: 4,
+			fastPollSlots: 8,
+			pollExploreIntervalMs: 2_000,
+			pollCalibrationSamples: 3,
+			applicationHotCeilingMs: 20,
+			applicationDiscardCeilingMs: 23,
+			applicationSampleMaxAgeMs: 30_000,
+			laneMaxAgeMs: 20 * 60_000,
+			laneRecycleGapMs: 60_000,
+			degradedRepairMinSamples: 3,
+		};
+		const runtimeFile = JSON.stringify({
+			version: 1,
+			primary: { workerId: "primary", port: 8791, ...tuning },
+			shards: [{ workerId: "shard-b", port: 8792, ownerIds: [4], ...tuning }],
+			controlPlaneToken: "t".repeat(32),
+		});
+		setTopologyEnv({ PORT: "8791" });
+		expect(applyRuntimeTopologyFile(runtimeFile)).toBe(true);
+		expect(process.env.LINE_H2_LANES).toBe("16");
+		expect(process.env.LINE_H2_APPLICATION_HOT_CEILING_MS).toBe("20");
+		expect(process.env.LINE_H2_APPLICATION_DISCARD_CEILING_MS).toBe("23");
+		expect(process.env.LINE_H2_POLL_EXPLORE_INTERVAL_MS).toBe("2000");
+		expect(process.env.LINE_H2_POLL_CALIBRATION_SAMPLES).toBe("3");
+		expect(process.env.LINE_H2_DEGRADED_REPAIR_MIN_SAMPLES).toBe("3");
+	});
+
+	test("runtime topology rejects a hot ceiling above the discard ceiling", () => {
+		setTopologyEnv({ PORT: "8791" });
+		const runtimeFile = JSON.stringify({
+			version: 1,
+			primary: {
+				workerId: "primary", port: 8791,
+				applicationHotCeilingMs: 21,
+				applicationDiscardCeilingMs: 20,
+			},
+			shards: [{ workerId: "shard-b", port: 8792, ownerIds: [4] }],
+			controlPlaneToken: "t".repeat(32),
+		});
+		expect(() => applyRuntimeTopologyFile(runtimeFile)).toThrow("cannot exceed");
 	});
 
 	test("runtime topology fails closed on duplicate owners, ports, and ambiguous sub-50ms polling", () => {

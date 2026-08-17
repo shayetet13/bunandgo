@@ -71,6 +71,35 @@ function allRecentFastPath(limit: number): FastPathSample[] {
 	return samples.sort((a, b) => a.ts - b.ts).slice(-limit);
 }
 
+function latencyRowToSample(row: LatencySampleRow): LatencySample {
+	const hasBreakdown = row.line_ms !== null;
+	return {
+		botId: row.bot_id!,
+		ts: row.ts,
+		surface: row.surface,
+		targetMid: row.target_mid,
+		latencyMs: row.latency_ms,
+		ok: row.ok !== 0,
+		source: row.source,
+		textPreview: row.text_preview,
+		lineCreatedTime: row.line_created_time ?? undefined,
+		breakdown: hasBreakdown ? {
+			lineMs: row.line_ms ?? 0,
+			codeMs: row.code_ms ?? 0,
+			inboundMs: row.inbound_ms ?? undefined,
+			decryptMs: row.decrypt_ms ?? 0,
+			matchMs: row.match_ms ?? 0,
+			limiterMs: row.limiter_ms ?? 0,
+			routingMs: row.routing_ms ?? 0,
+			protocolPrepMs: row.protocol_prep_ms ?? 0,
+			relayEncodeMs: row.relay_encode_ms ?? 0,
+			goPrepMs: row.go_prep_ms ?? 0,
+			relayAndParseMs: row.relay_and_parse_ms ?? 0,
+			upstreamCalls: row.upstream_calls ?? 0,
+		} : undefined,
+	};
+}
+
 metricsRoute.get("/snapshot", (c) => {
 	const ids = visibleBotIds(c);
 	const recent = allRecentLatency(500);
@@ -105,6 +134,10 @@ interface LaneRaceResponseLane {
 	poll: LaneRaceScore;
 }
 
+const recentLaneLatencyStmt = db.prepare<LatencySampleRow, [number]>(
+	"SELECT * FROM latency_samples WHERE bot_id IS NOT NULL ORDER BY id DESC LIMIT ?",
+);
+
 /**
  * Observability only: sends are scored asynchronously after their response
  * has resolved. Persistence is write-behind, and this historical read runs
@@ -137,6 +170,9 @@ metricsRoute.get("/lane-race", (c) => {
 		lanes,
 		daily: laneRaceDailyHistory(),
 		events: laneRaceSnapshot().events,
+		// Uses the already-persisted write-behind latency rows. This query runs
+		// only on the admin panel's 15-second refresh and touches no reply path.
+		latency: recentLaneLatencyStmt.all(160).reverse().map(latencyRowToSample),
 	});
 });
 
@@ -173,16 +209,7 @@ metricsRoute.get("/history", (c) => {
 		).all(PROCESS_STARTED_AT, ...(ids ?? []), limit);
 		rows.reverse();
 	}
-	return c.json(rows.map((row) => ({
-		botId: row.bot_id,
-		ts: row.ts,
-		surface: row.surface,
-		targetMid: row.target_mid,
-		latencyMs: row.latency_ms,
-		ok: row.ok !== 0,
-		source: row.source,
-		textPreview: row.text_preview,
-	})));
+	return c.json(rows.filter((row) => row.bot_id !== null).map(latencyRowToSample));
 });
 
 interface BucketCount {
