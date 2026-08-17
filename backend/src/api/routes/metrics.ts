@@ -12,6 +12,7 @@ import { laneStats } from "../../dispatch/h2-lanes.ts";
 import { LANE_RACE_RETENTION_DAYS, laneRaceDailyHistory, laneRaceScore, laneRaceSnapshot, type LaneRaceScore } from "../../dispatch/lane-race.ts";
 import { isControlPlane } from "../../bot/worker-topology.ts";
 import { relayedFastPathSamples, relayedLatencySamples } from "../worker-events.ts";
+import { remoteLaneDiagnostics } from "../../dispatch/remote-lanes.ts";
 
 export const metricsRoute = new Hono();
 const PROCESS_STARTED_AT = Date.now();
@@ -121,6 +122,7 @@ metricsRoute.get("/fast-path", (c) => {
 });
 
 interface LaneRaceResponseLane {
+	nodeId: string;
 	origin: string;
 	laneId: number;
 	state: string;
@@ -145,8 +147,10 @@ const recentLaneLatencyStmt = db.prepare<LatencySampleRow, [number]>(
  */
 metricsRoute.get("/lane-race", (c) => {
 	if (requestUser(c)!.role !== "admin") return c.json({ error: "forbidden" }, 403);
+	const localNodeId = process.env.WORKER_ID?.trim() || "local";
 	const lanes: LaneRaceResponseLane[] = laneStats().map((lane) => {
 		return {
+			nodeId: localNodeId,
 			origin: lane.origin,
 			laneId: lane.id,
 			state: lane.state,
@@ -160,6 +164,26 @@ metricsRoute.get("/lane-race", (c) => {
 			poll: laneRaceScore(lane.origin, lane.id, "poll"),
 		};
 	});
+	const remote = remoteLaneDiagnostics();
+	if (remote.snapshot) {
+		const emptyScore = (): LaneRaceScore => ({ samples: 0, stars: 0, bananas: 0, bigStars: 0 });
+		for (const lane of remote.snapshot.lanes) {
+			lanes.push({
+				nodeId: remote.snapshot.nodeId,
+				origin: lane.origin,
+				laneId: lane.id,
+				state: lane.state,
+				inFlight: lane.inFlight,
+				sendRttMs: lane.sendRttMs,
+				pollRttMs: lane.pollRttMs,
+				applicationRttMs: lane.applicationRttMs,
+				applicationSampleAt: lane.applicationSampleAt,
+				routingEligible: lane.routingEligible,
+				send: emptyScore(),
+				poll: emptyScore(),
+			});
+		}
+	}
 	lanes.sort((a, b) =>
 		Number(b.routingEligible) - Number(a.routingEligible) ||
 		(a.applicationRttMs ?? Number.POSITIVE_INFINITY) - (b.applicationRttMs ?? Number.POSITIVE_INFINITY) ||
@@ -168,6 +192,13 @@ metricsRoute.get("/lane-race", (c) => {
 	return c.json({
 		retentionDays: LANE_RACE_RETENTION_DAYS,
 		lanes,
+		laneNodes: {
+			remoteConfigured: remote.configured,
+			remoteSendEnabled: remote.sendEnabled,
+			remotePollCanaryEnabled: remote.pollCanaryEnabled,
+			remoteRpcRttMs: remote.snapshot?.rpcRttMs,
+			remoteLastSeenAt: remote.snapshot?.receivedAt,
+		},
 		daily: laneRaceDailyHistory(),
 		events: laneRaceSnapshot().events,
 		// Uses the already-persisted write-behind latency rows. This query runs

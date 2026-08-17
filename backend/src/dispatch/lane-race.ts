@@ -5,6 +5,7 @@
  */
 import { db } from "../db/sqlite.ts";
 import { enqueueLaneRace } from "../db/write-behind.ts";
+import { registerLaneRaceObserver } from "./lane-observer.ts";
 
 export type LaneRaceResult = "star" | "banana";
 export type LaneRaceRole = "send" | "poll";
@@ -223,3 +224,8 @@ export function recordLaneRace(
 		});
 	}
 }
+
+registerLaneRaceObserver((sample) => {
+	if (sample.role === "poll" && !shouldScorePollLane(sample.origin, sample.laneId)) return;
+	recordLaneRace(sample.role, sample.origin, sample.laneId, sample.rttMs, sample.benchmarkMs);
+});

@@ -1,7 +1,7 @@
 import { connect as connectHttp2, constants, type ClientHttp2Session, type ClientHttp2Stream, type OutgoingHttpHeaders } from "node:http2";
 import { gunzipSync, inflateSync, brotliDecompressSync } from "node:zlib";
 import { attachRawDispatchBody } from "./raw-response.ts";
-import { recordLaneRace, shouldScorePollLane } from "./lane-race.ts";
+import { observeLaneRace } from "./lane-observer.ts";
 
 /**
  * A small pool of HTTP/2 connections ("lanes") to a LINE host that this
@@ -1047,14 +1047,19 @@ function sendOnLane(
 				lane.lastOkAt = Date.now();
 				const elapsedMs = performance.now() - startedAt;
 				recordApplicationRtt(lane, role, elapsedMs);
-				const shouldScore = role === "send" || (role === "poll" && shouldScorePollLane(lane.origin, lane.id));
-				if (shouldScore && role !== undefined) {
+				if (role !== undefined) {
 					setImmediate(() => {
 						const metric = role === "send" ? "sendRttMs" : "pollRttMs";
 						const known = lanesForOrigin(lane.origin)
 							.map((candidate) => candidate[metric])
 							.filter((rtt): rtt is number => rtt !== undefined);
-						recordLaneRace(role, lane.origin, lane.id, elapsedMs, known.length > 0 ? Math.min(...known) : undefined);
+						observeLaneRace({
+							role,
+							origin: lane.origin,
+							laneId: lane.id,
+							rttMs: elapsedMs,
+							benchmarkMs: known.length > 0 ? Math.min(...known) : undefined,
+						});
 					});
 				}
 				const response = new Response(decoded as BodyInit, { status, headers: responseHeaders });

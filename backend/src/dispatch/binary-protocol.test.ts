@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { decodeDispatchResponse, encodeDispatchRequest } from "./binary-protocol.ts";
+import {
+	decodeDispatchRequest,
+	decodeDispatchResponse,
+	encodeDispatchRequest,
+	encodeDispatchResponse,
+} from "./binary-protocol.ts";
 
 function pushU16(out: number[], value: number): void {
 	out.push((value >>> 8) & 0xff, value & 0xff);
@@ -22,16 +27,18 @@ function pushString(out: number[], value: string, length: "u16" | "u32"): void {
 
 describe("binary dispatch protocol", () => {
 	test("encodes a compact single-allocation request frame", () => {
-		const wire = encodeDispatchRequest({
+		const request = {
 			method: "POST",
 			url: "https://line.test/CA5",
 			headers: { "x-line-access": "token" },
 			body: new Uint8Array([1, 2, 3]),
-		});
+		};
+		const wire = encodeDispatchRequest(request);
 
 		expect(new TextDecoder().decode(wire.subarray(0, 4))).toBe("LDB1");
 		expect(wire.length).toBeGreaterThan(40);
 		expect([...wire.slice(-3)]).toEqual([1, 2, 3]);
+		expect(decodeDispatchRequest(wire)).toEqual(request);
 	});
 
 	test("decodes Go's response frame including timing and repeated headers", () => {
@@ -55,5 +62,16 @@ describe("binary dispatch protocol", () => {
 			upstreamMs: 32.5,
 			goPrepMs: 0.25,
 		});
+	});
+
+	test("encodes a response frame that the shared decoder can read", () => {
+		const response = {
+			status: 202,
+			headers: { "content-type": ["application/x-thrift"], "set-cookie": ["a=1", "b=2"] },
+			body: new Uint8Array([4, 5, 6]),
+			upstreamMs: 18.75,
+			goPrepMs: 0.125,
+		};
+		expect(decodeDispatchResponse(encodeDispatchResponse(response))).toEqual(response);
 	});
 });

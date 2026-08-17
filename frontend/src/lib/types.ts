@@ -303,6 +303,7 @@ export interface LaneRaceScore {
 }
 
 export interface LaneRaceLane {
+	nodeId?: string;
 	origin: string;
 	laneId: number;
 	state: string;
@@ -341,6 +342,13 @@ export interface LaneRaceSnapshot {
 	daily: LaneRaceDaily[];
 	events: LaneRaceEvent[];
 	latency: LatencySample[];
+	laneNodes?: {
+		remoteConfigured: boolean;
+		remoteSendEnabled: boolean;
+		remotePollCanaryEnabled: boolean;
+		remoteRpcRttMs?: number;
+		remoteLastSeenAt?: number;
+	};
 }
 
 export interface MessageIn {

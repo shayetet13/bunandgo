@@ -6,6 +6,8 @@
 	"scripts": {
 		"dev": "bun run --watch src/index.ts",
 		"start": "bun run src/index.ts",
+		"lane-node": "bun run --no-env-file src/lane-node.ts",
+		"build:lane-node": "bun build src/lane-node.ts --target=bun --minify --outfile dist/lane-node.js",
 		"typecheck": "tsc --noEmit",
 		"test": "bun test",
 		"lint": "eslint src",
