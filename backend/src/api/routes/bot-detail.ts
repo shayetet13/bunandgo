@@ -180,9 +180,11 @@ botDetailRoute.patch("/settings", async (c) => {
 
 // Admin-only recovery for a single bot's one-LINE-account lock (see
 // bot/bots.ts evaluateIdLock) — e.g. its LINE account was banned and a
-// replacement needs to scan in. Deliberately narrower than the owner-or-
-// admin check the rest of this router uses: letting the owner self-serve
-// this would let whoever controls that login also clear its own lock.
+// replacement needs to scan in, or its display name legitimately changed
+// and the owner needs the new one accepted. Deliberately narrower than the
+// owner-or-admin check the rest of this router uses: letting the owner
+// self-serve this would let whoever controls that login also clear its own
+// lock.
 //
 // Clearing locked_line_mid alone is not enough: as long as the bot's
 // stored LINE session token is still valid, its next "start" resumes that
@@ -190,7 +192,10 @@ botDetailRoute.patch("/settings", async (c) => {
 // ever presenting a fresh QR, and immediately re-locks right back to it.
 // The stored token must go too — which means logging that session off
 // first if it is still running, so nothing is using the account this
-// action is meant to release.
+// action is meant to release. resetBotLockedLineMid() clears the locked
+// display name alongside the account, so the very next login re-baselines
+// both — the one button covers both "different account" and "same account,
+// renamed" recoveries.
 botDetailRoute.post("/reset-id-lock", requireAdmin, async (c) => {
 	const botId = botIdOf(c);
 	const bot = getBot(botId);
@@ -216,9 +221,11 @@ botDetailRoute.post("/reset-id-lock", requireAdmin, async (c) => {
 // "the old bot is still running" to whoever stopped it expecting to scan
 // something new. This route clears just the token, same as /reset-id-lock,
 // but deliberately skips resetBotLockedLineMid: the next login must still
-// come from the same locked_line_mid or it is rejected and alerted like any
-// other id_lock_mismatch. Use /reset-id-lock instead when the intent is to
-// actually hand the slot to a different LINE account.
+// come from the same locked_line_mid *and* the same locked display name, or
+// it is rejected and alerted like any other id_lock_mismatch/name_mismatch.
+// Use /reset-id-lock instead when the intent is to actually hand the slot
+// to a different LINE account, or to accept a display name that
+// legitimately changed.
 botDetailRoute.post("/force-relogin", requireAdmin, async (c) => {
 	const botId = botIdOf(c);
 	const bot = getBot(botId);

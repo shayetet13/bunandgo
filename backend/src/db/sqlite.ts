@@ -21,4 +21,5 @@ const journalMode = db.query<{ journal_mode: string }, []>("PRAGMA journal_mode"
 if (journalMode?.toLowerCase() !== "wal") db.exec("PRAGMA journal_mode = WAL;");
 db.exec("PRAGMA synchronous = NORMAL;");
 db.exec(SCHEMA_SQL);
-runMigrations(db);
+/** Migration ids newly applied this boot — see runMigrations() for why. */
+export const newlyAppliedMigrationIds = runMigrations(db);

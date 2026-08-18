@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import type { Context, Next } from "hono";
 import { getBot } from "../bot/bots.ts";
 import { getStartConfirmation } from "../bot/start-confirmation.ts";
@@ -5,15 +6,9 @@ import { inWorkerScope } from "../bot/worker-scope.ts";
 import { readWorkerTopology, workerUrlForOwner } from "../bot/worker-topology.ts";
 import { getUser } from "../auth/users.ts";
 import { requestUser } from "../auth/request-user.ts";
-import {
-	CONTROL_TOKEN_HEADER,
-	FORWARDED_HEADER,
-	hasValidControlToken,
-	isTrustedWorkerForward,
-} from "./control-auth.ts";
-import { reportSecurityIncident } from "../security/intrusion-monitor.ts";
 
-export { CONTROL_TOKEN_HEADER, hasValidControlToken, isTrustedWorkerForward } from "./control-auth.ts";
+export const CONTROL_TOKEN_HEADER = "x-linebot-control-token";
+const FORWARDED_HEADER = "x-linebot-worker-forwarded";
 const HOP_BY_HOP_HEADERS = [
 	"connection",
 	"keep-alive",
@@ -24,6 +19,19 @@ const HOP_BY_HOP_HEADERS = [
 	"transfer-encoding",
 	"upgrade",
 ];
+
+function safeTokenEqual(left: string | undefined, right: string | undefined): boolean {
+	if (!left || !right) return false;
+	const a = Buffer.from(left);
+	const b = Buffer.from(right);
+	return a.length === b.length && timingSafeEqual(a, b);
+}
+
+export function isTrustedWorkerForward(c: Context): boolean {
+	const topology = readWorkerTopology();
+	return c.req.header(FORWARDED_HEADER) === "1"
+		&& safeTokenEqual(c.req.header(CONTROL_TOKEN_HEADER), topology.controlPlaneToken);
+}
 
 function proxyError(c: Context, ownerUserId: number | null, status: 421 | 503, detail: string) {
 	return c.json({
@@ -115,6 +123,10 @@ export async function routeCurrentUserOwner(c: Context, next: Next): Promise<Res
 	return await routeOwner(c, next, user.id);
 }
 
+export function hasValidControlToken(c: Context): boolean {
+	return safeTokenEqual(c.req.header(CONTROL_TOKEN_HEADER), readWorkerTopology().controlPlaneToken);
+}
+
 /**
  * Shard ports are runtime internals, never a second public API. Reject a
  * browser, accidental Nginx round-robin, or manual call that bypasses the
@@ -122,6 +134,5 @@ export async function routeCurrentUserOwner(c: Context, next: Next): Promise<Res
  */
 export async function requireControlPlaneForwardOnShard(c: Context, next: Next): Promise<Response | void> {
 	if (!readWorkerTopology().controlPlaneUrl || isTrustedWorkerForward(c)) return await next();
-	reportSecurityIncident(c, { kind: "shard_bypass", severity: "critical" });
 	return c.json({ error: "shard API accepts control-plane forwarded requests only" }, 421);
 }

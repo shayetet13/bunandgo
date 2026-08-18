@@ -3,7 +3,7 @@ import { decodeDispatchResponse, encodeDispatchRequest } from "./binary-protocol
 import { markRelayDispatch, markRelayResult } from "../metrics/fast-path.ts";
 import { attachRawDispatchBody } from "./raw-response.ts";
 import { attachHotLineFetch } from "./direct-request.ts";
-import { distributedLaneFetch } from "./remote-lanes.ts";
+import { laneFetch } from "./h2-lanes.ts";
 import { PREWARM_SQUARE_ACK, PREWARM_TALK_ACK } from "./prewarm-ack.ts";
 
 export interface DispatchConfig {
@@ -151,7 +151,7 @@ async function fetchLineDirect(
 		// including one LINE has just told us it is closing. Returns
 		// undefined when no lane is healthy, which keeps Bun's pool as the
 		// fallback rather than a failure.
-		const laneResponse = await distributedLaneFetch(info, init);
+		const laneResponse = await laneFetch(info, init);
 		if (laneResponse) {
 			markRelayResult(0, performance.now() - upstreamStart);
 			return laneResponse;

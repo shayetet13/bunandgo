@@ -1,7 +1,7 @@
 import { connect as connectHttp2, constants, type ClientHttp2Session, type ClientHttp2Stream, type OutgoingHttpHeaders } from "node:http2";
 import { gunzipSync, inflateSync, brotliDecompressSync } from "node:zlib";
 import { attachRawDispatchBody } from "./raw-response.ts";
-import { observeLaneRace } from "./lane-observer.ts";
+import { recordLaneRace, shouldScorePollLane } from "./lane-race.ts";
 
 /**
  * A small pool of HTTP/2 connections ("lanes") to a LINE host that this
@@ -504,13 +504,13 @@ export function selectPollingLaneCandidate<T extends LaneChoiceMetrics & { id: n
 	if (calibrating.length > 0) {
 		return calibrating.find((lane) => lane.id > cursor) ?? calibrating[0];
 	}
-	// Prefer HOT routes and retain sub-discard routes as a warm fallback. Routes
-	// at or above the discard threshold stay repair-only.
+	// Prefer HOT routes, retain 20-23ms routes only as fallback, and never
+	// explore a known discarded route while any sub-discard route is ready.
 	const hot = candidates.filter((lane) => lane.pollRttMs! < hotCeilingMs);
 	const warm = candidates.filter((lane) => lane.pollRttMs! < discardCeilingMs);
 	const selectable = hot.length > 0 ? hot : warm.length > 0 ? warm : candidates;
 	if (explore) {
-		// A route that crossed the discard ceiling once remains send-ineligible, but polling
+		// A route that crossed 23ms once remains send-ineligible, but polling
 		// gives it enough spaced confirmations to distinguish a transient spike
 		// from a path that really needs reconnecting.
 		const suspects = candidates.filter((lane) =>
@@ -1047,19 +1047,14 @@ function sendOnLane(
 				lane.lastOkAt = Date.now();
 				const elapsedMs = performance.now() - startedAt;
 				recordApplicationRtt(lane, role, elapsedMs);
-				if (role !== undefined) {
+				const shouldScore = role === "send" || (role === "poll" && shouldScorePollLane(lane.origin, lane.id));
+				if (shouldScore && role !== undefined) {
 					setImmediate(() => {
 						const metric = role === "send" ? "sendRttMs" : "pollRttMs";
 						const known = lanesForOrigin(lane.origin)
 							.map((candidate) => candidate[metric])
 							.filter((rtt): rtt is number => rtt !== undefined);
-						observeLaneRace({
-							role,
-							origin: lane.origin,
-							laneId: lane.id,
-							rttMs: elapsedMs,
-							benchmarkMs: known.length > 0 ? Math.min(...known) : undefined,
-						});
+						recordLaneRace(role, lane.origin, lane.id, elapsedMs, known.length > 0 ? Math.min(...known) : undefined);
 					});
 				}
 				const response = new Response(decoded as BodyInit, { status, headers: responseHeaders });

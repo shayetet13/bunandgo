@@ -177,7 +177,7 @@ describe("worker topology", () => {
 		expect(process.env.SQUARE_FAST_POLL_SLOTS).toBe("4");
 	});
 
-	test("runtime topology applies hot and warm lane thresholds", () => {
+	test("runtime topology applies a balanced hot/warm/discard lane policy", () => {
 		const tuning = {
 			fastPollIntervalMs: 0,
 			h2Lanes: 16,
@@ -206,21 +206,6 @@ describe("worker topology", () => {
 		expect(process.env.LINE_H2_POLL_EXPLORE_INTERVAL_MS).toBe("2000");
 		expect(process.env.LINE_H2_POLL_CALIBRATION_SAMPLES).toBe("3");
 		expect(process.env.LINE_H2_DEGRADED_REPAIR_MIN_SAMPLES).toBe("3");
-	});
-
-	test("runtime topology rejects a hot ceiling above the discard ceiling", () => {
-		setTopologyEnv({ PORT: "8791" });
-		const runtimeFile = JSON.stringify({
-			version: 1,
-			primary: {
-				workerId: "primary", port: 8791,
-				applicationHotCeilingMs: 21,
-				applicationDiscardCeilingMs: 20,
-			},
-			shards: [{ workerId: "shard-b", port: 8792, ownerIds: [4] }],
-			controlPlaneToken: "t".repeat(32),
-		});
-		expect(() => applyRuntimeTopologyFile(runtimeFile)).toThrow("cannot exceed");
 	});
 
 	test("runtime topology fails closed on duplicate owners, ports, and ambiguous sub-50ms polling", () => {

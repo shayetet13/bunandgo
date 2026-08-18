@@ -6,8 +6,9 @@ import { getCookie } from "hono/cookie";
 import { createBunWebSocket } from "hono/bun";
 import type { ServerWebSocket } from "bun";
 import { config } from "../config.ts";
-import { botEvents, resumePreviouslyRunningBots } from "../bot/session-manager.ts";
+import { botEvents, resumePreviouslyRunningBots, sweepLegacyIdLockNames } from "../bot/session-manager.ts";
 import { recordAnomaly } from "../bot/anomalies.ts";
+import { newlyAppliedMigrationIds } from "../db/sqlite.ts";
 import { getSessionUser, SESSION_COOKIE } from "../auth/session.ts";
 import { authRoute } from "./routes/auth.ts";
 import { canAccessBot, resequenceBotSlots } from "../bot/bots.ts";
@@ -205,7 +206,24 @@ resequenceBotSlots();
 // bot with a stagger between them, and the dashboard should be reachable (and
 // receiving the bot_status events this produces) throughout.
 if (process.env.NODE_ENV !== "test") {
-	void resumePreviouslyRunningBots().catch((err) => {
+	void (async () => {
+		// Runs once, only in the boot that just applied this migration — see
+		// runMigrations() in db/migrations.ts. Deliberately sequenced before
+		// the resume below: it clears stored tokens for bots locked before
+		// the display-name half of the id lock existed, and those bots must
+		// not get a chance to silently resume on the now-about-to-be-cleared
+		// token first.
+		if (newlyAppliedMigrationIds.includes("028_bots_locked_line_display_name")) {
+			try {
+				await sweepLegacyIdLockNames();
+			} catch (err) {
+				// Isolated from the resume path below: a broken sweep must not
+				// prevent bots it doesn't affect from resuming normally.
+				console.error("legacy id-lock name sweep failed:", err);
+			}
+		}
+		await resumePreviouslyRunningBots();
+	})().catch((err) => {
 		// resumePreviouslyRunningBots already isolates per-bot failures with
 		// its own try/catch, so reaching here means the whole mechanism broke
 		// (not just one bot's session) — every bot that was running before

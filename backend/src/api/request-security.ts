@@ -1,7 +1,6 @@
 import type { Context, Next } from "hono";
 import { config } from "../config.ts";
 import { isTrustedWorkerForward } from "./worker-proxy.ts";
-import { reportSecurityIncident } from "../security/intrusion-monitor.ts";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
@@ -30,7 +29,6 @@ export async function rejectCrossSiteWrite(c: Context, next: Next) {
 	// whichever owner happens to live on a shard.
 	if (isTrustedWorkerForward(c)) return await next();
 	if (c.req.header("sec-fetch-site") === "cross-site" || !trustedBrowserOrigin(c)) {
-		reportSecurityIncident(c, { kind: "cross_site_write", severity: "critical" });
 		return c.json({ error: "cross-site request rejected" }, 403);
 	}
 	await next();
@@ -38,9 +36,6 @@ export async function rejectCrossSiteWrite(c: Context, next: Next) {
 
 /** A hostile page must not be able to open an authenticated dashboard socket. */
 export async function rejectUntrustedWebSocketOrigin(c: Context, next: Next) {
-	if (!trustedBrowserOrigin(c)) {
-		reportSecurityIncident(c, { kind: "untrusted_websocket", severity: "critical" });
-		return c.json({ error: "untrusted websocket origin" }, 403);
-	}
+	if (!trustedBrowserOrigin(c)) return c.json({ error: "untrusted websocket origin" }, 403);
 	await next();
 }

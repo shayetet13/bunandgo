@@ -43,11 +43,6 @@ export function LaneRacePanel({ race, bots }: LaneRacePanelProps) {
 				<div className="chip chip--go">⭐ ครบ 10 = ดาวใหญ่</div>
 			</div>
 
-			{race.laneNodes?.remoteConfigured && (
-				<div className="hint" style={{ marginTop: "var(--space-sm)" }}>
-					Distributed pool · RPC {race.laneNodes.remoteRpcRttMs?.toFixed(2) ?? "—"} ms · {race.laneNodes.remoteSendEnabled ? "SEND ACTIVE" : race.laneNodes.remotePollCanaryEnabled ? "POLL CANARY" : "MONITOR ONLY"}
-				</div>
-			)}
 			<div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: "var(--space-md)" }}>
 				{race.lanes.length === 0 ? (
 					<div className="hint">รอผลการส่งข้อความครั้งแรกเพื่อเริ่มการแข่งขัน</div>
@@ -59,10 +54,10 @@ export function LaneRacePanel({ race, bots }: LaneRacePanelProps) {
 					const stateClass = state === "HOT" ? "chip--go" : state === "WARM" ? "chip--warn" : state === "COOL" ? "chip--bad" : "";
 					const rtt = lane.applicationRttMs ?? activeScore.avgRttMs;
 					return (
-						<div key={`${lane.nodeId ?? "local"}-${lane.origin}-${lane.laneId}`} style={{ display: "grid", gridTemplateColumns: "minmax(110px, 1fr) auto auto", gap: "var(--space-sm)", alignItems: "center", padding: "0.55rem 0.65rem", border: "1px solid var(--border-hair)", borderRadius: "var(--radius-sm)" }}>
+						<div key={`${lane.origin}-${lane.laneId}`} style={{ display: "grid", gridTemplateColumns: "minmax(110px, 1fr) auto auto", gap: "var(--space-sm)", alignItems: "center", padding: "0.55rem 0.65rem", border: "1px solid var(--border-hair)", borderRadius: "var(--radius-sm)" }}>
 							<div style={{ minWidth: 0 }}>
 								<div style={{ fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>#{index + 1} · Lane {lane.laneId} <span className={`chip ${stateClass}`} style={{ marginLeft: 4 }}>{state}</span></div>
-								<div className="hint" style={{ fontSize: "0.72rem" }}>{lane.nodeId ?? "local"} · {shortOrigin(lane.origin)} · {lane.state} · {rtt?.toFixed(1) ?? "—"} ms</div>
+								<div className="hint" style={{ fontSize: "0.72rem" }}>{shortOrigin(lane.origin)} · {lane.state} · {rtt?.toFixed(1) ?? "—"} ms</div>
 							</div>
 							<div title="คะแนนส่งข้อความ" style={{ fontSize: "var(--text-sm)", whiteSpace: "nowrap" }}><span className="hint">SEND </span><span style={{ color: "var(--signal-go)", fontWeight: 700 }}>⭐ {lane.send.stars}</span> <span style={{ color: "#d7b226", fontWeight: 700 }}>🍌 {lane.send.bananas}</span>{lane.send.bigStars > 0 ? ` · 🌟 ${lane.send.bigStars}` : ""}</div>
 							<div title="คะแนนรับ event" style={{ textAlign: "right", fontSize: "var(--text-sm)", whiteSpace: "nowrap" }}><span className="hint">POLL </span><span style={{ color: "var(--signal-go)", fontWeight: 700 }}>⭐ {lane.poll.stars}</span> <span style={{ color: "#d7b226", fontWeight: 700 }}>🍌 {lane.poll.bananas}</span>{lane.poll.bigStars > 0 ? ` · 🌟 ${lane.poll.bigStars}` : ` · ${winRate}%`}</div>

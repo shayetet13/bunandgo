@@ -2,8 +2,9 @@ import { getConnInfo } from "hono/bun";
 import type { Context, Next } from "hono";
 import { logUnauthenticatedUserAction } from "../auth/user-actions.ts";
 import { sendAlert } from "../bot/alerts.ts";
-import { isTrustedWorkerForward } from "../api/control-auth.ts";
+import { isTrustedWorkerForward } from "../api/worker-proxy.ts";
 import { securityEvents, type SecurityAlertEvent } from "./security-events.ts";
+import { formatGeoLine, lookupIpGeo } from "./ip-geo.ts";
 
 export type SecurityIncidentKind =
 	| "login_failed"
@@ -216,20 +217,21 @@ export function reportSecurityIncident(c: Context, incident: SecurityIncident): 
 	}
 	if (!decision.alert || !canSendSecurityAlert(now)) return;
 	const severity = incident.severity === "critical" ? "วิกฤต" : incident.severity === "high" ? "สูง" : "ปานกลาง";
-	sendAlert(
-		"security_intrusion",
-		0,
-		"security",
-		[
-			`ระดับ: ${severity}`,
-			`เหตุการณ์: ${INCIDENT_LABELS[incident.kind]}`,
-			`IP: ${ip}`,
-			`Request: ${method} ${path}`,
-			`จำนวน: ${decision.count} ครั้งในช่วง 10 นาที`,
-			`User-Agent: ${detail.userAgent}`,
-		].join("\n"),
-		`security:${key}`,
-	);
+	const lines = [
+		`ระดับ: ${severity}`,
+		`เหตุการณ์: ${INCIDENT_LABELS[incident.kind]}`,
+		`IP: ${ip}`,
+		`Request: ${method} ${path}`,
+		`จำนวน: ${decision.count} ครั้งในช่วง 10 นาที`,
+		`User-Agent: ${detail.userAgent}`,
+	];
+	// A geo lookup is a network call; the alert must still go out immediately
+	// if it stalls or fails; this function's contract (see the docstring
+	// above) is to never make the caller wait on the network.
+	void (async () => {
+		const geo = await lookupIpGeo(ip);
+		sendAlert("security_intrusion", 0, "security", [...lines, formatGeoLine(geo)].join("\n"), `security:${key}`);
+	})();
 }
 
 function takeRate(key: string, now: number): number {

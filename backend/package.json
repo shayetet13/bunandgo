@@ -6,14 +6,13 @@
 	"scripts": {
 		"dev": "bun run --watch src/index.ts",
 		"start": "bun run src/index.ts",
-		"lane-node": "bun run --no-env-file src/lane-node.ts",
-		"build:lane-node": "bun build src/lane-node.ts --target=bun --minify --outfile dist/lane-node.js",
 		"typecheck": "tsc --noEmit",
 		"test": "bun test",
 		"lint": "eslint src",
 		"format": "prettier --check ."
 	},
 	"dependencies": {
+		"@anthropic-ai/sdk": "^0.117.1",
 		"@noble/ciphers": "^2.2.0",
 		"crypto-js": "^4.2.0",
 		"curve25519-js": "^0.0.4",

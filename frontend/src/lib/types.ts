@@ -21,6 +21,8 @@ export interface Bot {
 	overQuota: boolean;
 	/** The LINE account locked to this bot slot, or null before its first login. */
 	lockedLineMid: string | null;
+	/** Display name locked alongside lockedLineMid at first login — null until reverified for a bot locked before this field existed. */
+	lockedLineDisplayName: string | null;
 	createdAt: number;
 }
 
@@ -148,10 +150,9 @@ export interface LaneStat {
 }
 
 export interface ServerStatus {
-	id: "server1" | "server2" | "server3";
+	id: "server1" | "server2";
 	label: string;
 	role: string;
-	kind?: "host" | "lane-node";
 	/** Whether the dashboard backend can reach this machine right now. */
 	reachable: boolean;
 	/** Health of the service this machine is responsible for. */
@@ -304,7 +305,6 @@ export interface LaneRaceScore {
 }
 
 export interface LaneRaceLane {
-	nodeId?: string;
 	origin: string;
 	laneId: number;
 	state: string;
@@ -343,13 +343,6 @@ export interface LaneRaceSnapshot {
 	daily: LaneRaceDaily[];
 	events: LaneRaceEvent[];
 	latency: LatencySample[];
-	laneNodes?: {
-		remoteConfigured: boolean;
-		remoteSendEnabled: boolean;
-		remotePollCanaryEnabled: boolean;
-		remoteRpcRttMs?: number;
-		remoteLastSeenAt?: number;
-	};
 }
 
 export interface MessageIn {
@@ -387,16 +380,25 @@ export type WsEventType =
 	| "chats_updated"
 	| "bot_status"
 	| "start_declined"
-	| "id_lock_mismatch"
-	| "security_alert";
+	| "id_lock_mismatch";
 
 export interface WsEvent<T = unknown> {
 	type: WsEventType;
 	data: T;
 }
 
-/** Payload of the "id_lock_mismatch" event — a different LINE account tried to log into an already-locked bot. */
+/**
+ * Payload of the "id_lock_mismatch" event — either a different LINE account
+ * tried to log into an already-locked bot ("account", the default), or the
+ * same account logged in under a different display name than the one
+ * locked at first login ("name").
+ */
 export interface IdLockMismatchEvent {
 	botId: number;
 	botName: string;
+	reason?: "account" | "name";
+	/** Only set when reason is "name". */
+	previousName?: string;
+	/** Only set when reason is "name". */
+	attemptedName?: string;
 }

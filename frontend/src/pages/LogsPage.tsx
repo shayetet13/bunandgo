@@ -35,6 +35,7 @@ const ANOMALY_LABELS: Record<string, { label: string; hint: string }> = {
 	listener_stopped: { label: "สตรีมรับข้อความหยุด", hint: "บอทหยุดได้ยินข้อความใหม่ กำลังเชื่อมต่อใหม่" },
 	square_access_denied: { label: "LINE ปฏิเสธสิทธิ์ห้อง", hint: "บัญชีนี้อ่าน OpenChat ห้องนั้นไม่ได้แล้ว ระบบหยุด poll ซ้ำเพื่อไม่ให้เกิด retry flood — ตรวจสมาชิกห้อง แล้วกดเริ่ม/สแกน QR ใหม่" },
 	id_lock_mismatch: { label: "บัญชี LINE ไม่ตรงกับที่ผูกไว้", hint: "มีคนพยายามสแกน QR บอทนี้ด้วยบัญชี LINE อื่นที่ไม่ใช่บัญชีแรกที่เคยเข้าสู่ระบบสำเร็จ ระบบปฏิเสธอัตโนมัติ" },
+	id_lock_name_mismatch: { label: "ชื่อบัญชี LINE ไม่ตรงกับที่ผูกไว้", hint: "บัญชี LINE (mid) ตรงกัน แต่ชื่อบัญชีที่ล็อกอินไม่ตรงกับชื่อที่บันทึกไว้ตอนล็อกครั้งแรก — สัญญาณว่าอาจมีการโอน/แชร์บัญชีให้คนอื่นใช้งานต่อ" },
 };
 
 const SEVERITY_CHIP: Record<string, string> = {
@@ -54,24 +55,6 @@ const USER_ACTION_LABELS: Record<string, string> = {
 };
 
 function userActionLabel(action: string): string {
-	if (action.startsWith("security.")) {
-		const kind = action.slice("security.".length);
-		const labels: Record<string, string> = {
-			login_failed: "ความปลอดภัย · ล็อกอินไม่สำเร็จ",
-			login_throttled: "ความปลอดภัย · ล็อกอินถี่เกินไป",
-			invalid_session: "ความปลอดภัย · session ไม่ถูกต้อง",
-			forbidden_access: "ความปลอดภัย · พยายามเข้าถึงสิทธิ์ห้ามใช้",
-			cross_site_write: "ความปลอดภัย · cross-site write",
-			untrusted_websocket: "ความปลอดภัย · WebSocket ไม่ได้รับอนุญาต",
-			invalid_worker_token: "ความปลอดภัย · worker token ไม่ถูกต้อง",
-			shard_bypass: "ความปลอดภัย · พยายามข้าม shard",
-			scanner_probe: "ความปลอดภัย · สแกนหาไฟล์ลับ",
-			data_scrape: "ความปลอดภัย · ดึงข้อมูลถี่ผิดปกติ",
-			oversized_request: "ความปลอดภัย · request ใหญ่เกินกำหนด",
-			suspicious_method: "ความปลอดภัย · HTTP method ผิดปกติ",
-		};
-		return labels[kind] ?? `ความปลอดภัย · ${kind}`;
-	}
 	return USER_ACTION_LABELS[action] ?? action;
 }
 
@@ -82,11 +65,7 @@ function userActionDetail(detail: string | null): string | null {
 		if (typeof value.botName === "string") {
 			return `ชื่อบอท: ${value.botName}${typeof value.botId === "number" ? ` (ID ${value.botId})` : ""}`;
 		}
-		const parts: string[] = [];
-		if (typeof value.ip === "string") parts.push(`IP: ${value.ip}`);
-		if (typeof value.method === "string" && typeof value.path === "string") parts.push(`${value.method} ${value.path}`);
-		if (typeof value.count === "number") parts.push(`ครั้งที่ ${value.count}`);
-		if (parts.length > 0) return parts.join(" · ");
+		if (typeof value.ip === "string") return `IP: ${value.ip}`;
 	} catch {
 		// Older audit records can contain arbitrary text; display it as-is.
 	}

@@ -42,8 +42,10 @@ import {
 	getBot,
 	isBotOverQuota,
 	isOwnerTestingEnabled,
+	listBotsNeedingNameReverification,
 	overQuotaBots,
 	resetAllBotStatuses,
+	setBotLockedLineDisplayName,
 	setBotLockedLineMid,
 	updateBotStatus,
 	type Bot,
@@ -575,32 +577,59 @@ async function attemptLogin(botId: number, device: Device, options: AttemptLogin
 		rt.client = client;
 		rt.watchdogFailures = 0;
 
-		// One LINE account per bot slot: the first account to log in locks
-		// it, and a different account scanning this bot's QR afterward is
-		// rejected before its token is ever persisted (trackAuthToken below)
-		// or the session goes online. evaluateIdLock is the pure decision
-		// (see bot/bots.ts); everything here is the I/O it requires.
+		// One LINE account per bot slot, its display name locked alongside
+		// it: the first account to log in locks both, and either a different
+		// account or the same account under a different display name (a
+		// plausible sign the login was handed off to someone else) scanning
+		// this bot's QR afterward is rejected before its token is ever
+		// persisted (trackAuthToken below) or the session goes online.
+		// evaluateIdLock is the pure decision (see bot/bots.ts); everything
+		// here is the I/O it requires.
 		const lineMid = client.base.profile?.mid;
+		const lineDisplayName = client.base.profile?.displayName ?? "";
 		if (lineMid) {
 			const loginBot = getBot(botId);
-			const idLockOutcome = loginBot ? evaluateIdLock(loginBot, lineMid) : "exempt";
+			const idLockOutcome = loginBot ? evaluateIdLock(loginBot, lineMid, lineDisplayName) : "exempt";
 			if (idLockOutcome === "first_login") {
-				setBotLockedLineMid(botId, lineMid);
-			} else if (idLockOutcome === "mismatch") {
+				setBotLockedLineMid(botId, lineMid, lineDisplayName);
+			} else if (idLockOutcome === "match" && loginBot && !loginBot.lockedLineDisplayName && lineDisplayName) {
+				// Defensive fallback only — sweepLegacyIdLockNames (the
+				// deploy-time sweep, below) is the primary path that gets a
+				// pre-existing lock's name recorded; this just covers a bot
+				// the sweep could not reach (e.g. it was mid-session on
+				// another shard process at the time).
+				setBotLockedLineDisplayName(botId, lineDisplayName);
+			} else if (idLockOutcome === "mismatch" || idLockOutcome === "name_mismatch") {
+				const isNameMismatch = idLockOutcome === "name_mismatch";
 				rt.client = undefined;
 				rt.listenAbort?.abort();
 				rt.listenAbort = undefined;
 				clearLoginPending(rt);
 				updateBotStatus(botId, "offline");
 				botEvents.emit("bot_status", { botId, status: "offline" });
-				botEvents.emit("id_lock_mismatch", { botId, botName: loginBot?.name ?? String(botId) });
+				botEvents.emit("id_lock_mismatch", {
+					botId,
+					botName: loginBot?.name ?? String(botId),
+					reason: isNameMismatch ? "name" : "account",
+					...(isNameMismatch
+						? { previousName: loginBot?.lockedLineDisplayName ?? undefined, attemptedName: lineDisplayName }
+						: {}),
+				});
 				recordAnomaly({
 					botId,
-					kind: "id_lock_mismatch",
+					kind: isNameMismatch ? "id_lock_name_mismatch" : "id_lock_mismatch",
 					severity: "critical",
-					detail: "มีความพยายามเข้าสู่ระบบด้วยบัญชี LINE อื่น — บอทนี้ผูกไว้กับบัญชีแรกที่เคยเข้าสู่ระบบสำเร็จแล้ว",
+					detail: isNameMismatch
+						? `นโยบาย 1 บัญชี LINE ต่อ 1 บอท — ชื่อบัญชีที่เข้าสู่ระบบ ("${lineDisplayName}") ไม่ตรงกับชื่อที่ผูกไว้ตั้งแต่ครั้งแรก ("${loginBot?.lockedLineDisplayName}") แม้บัญชี (mid) จะตรงกัน อาจมีการแชร์/โอนบัญชีให้คนอื่นใช้งาน หากต้องการเพิ่มบัญชี/อุปกรณ์ กรุณาติดต่อผู้ดูแลระบบ`
+						: "มีความพยายามเข้าสู่ระบบด้วยบัญชี LINE อื่น — บอทนี้ผูกไว้กับบัญชีแรกที่เคยเข้าสู่ระบบสำเร็จแล้ว",
 				});
-				logBotEvent(botId, "id_lock_rejected", "ปฏิเสธการเข้าสู่ระบบ — บัญชี LINE ไม่ตรงกับที่ผูกไว้กับบอทนี้");
+				logBotEvent(
+					botId,
+					isNameMismatch ? "id_lock_name_rejected" : "id_lock_rejected",
+					isNameMismatch
+						? "ปฏิเสธการเข้าสู่ระบบ — ชื่อบัญชี LINE ไม่ตรงกับที่ผูกไว้กับบอทนี้ (นโยบาย 1 บัญชี LINE ต่อ 1 บอท)"
+						: "ปฏิเสธการเข้าสู่ระบบ — บัญชี LINE ไม่ตรงกับที่ผูกไว้กับบอทนี้",
+				);
 				return;
 			}
 		}
@@ -944,6 +973,43 @@ async function resumeWithStoredToken(botId: number, device: Device): Promise<Cli
  */
 export async function clearStoredAuthToken(botId: number): Promise<void> {
 	await new SqliteStorage(botId).delete(AUTH_TOKEN_KEY).catch(() => {});
+}
+
+/**
+ * One-time deploy sweep for bots locked before the display-name half of the
+ * id lock existed (bots.ts listBotsNeedingNameReverification): mid is
+ * locked, no name is recorded to check against. Deliberately disruptive —
+ * every qualifying bot is stopped and loses its stored session, so its next
+ * start requires a fresh QR scan. `locked_line_mid` is left untouched, so
+ * that scan still requires the *same* LINE account; it is what finally
+ * records a display name for evaluateIdLock() to enforce from then on.
+ *
+ * Gated by server.ts to run exactly once, right when migration
+ * 028_bots_locked_line_display_name is newly applied — see runMigrations()
+ * in db/migrations.ts. Isolates per-bot failures the same way
+ * resumePreviouslyRunningBots does, so one bot's failure cannot skip the
+ * rest.
+ */
+export async function sweepLegacyIdLockNames(): Promise<void> {
+	const bots = listBotsNeedingNameReverification();
+	for (const bot of bots) {
+		try {
+			if (bot.status !== "offline") stopBot(bot.id);
+			await clearStoredAuthToken(bot.id);
+			logBotEvent(
+				bot.id,
+				"id_lock_rollout_relogin",
+				"อัปเดตนโยบายล็อกบัญชี LINE ให้ตรวจสอบชื่อบัญชีด้วย — บอทนี้ล็อกไว้ตั้งแต่ก่อนมีการบันทึกชื่อ จึงต้องสแกน QR ใหม่ด้วยบัญชีเดิม เพื่อบันทึกชื่อไว้ตรวจสอบต่อจากนี้",
+			);
+		} catch (err) {
+			console.error(`[bot ${bot.id}] legacy id-lock name sweep failed`, err);
+			logBotEvent(
+				bot.id,
+				"id_lock_rollout_relogin_failed",
+				`เคลียร์เซสชันเดิมเพื่อบังคับสแกน QR ใหม่ไม่สำเร็จ — ${err instanceof Error ? err.message : String(err)}`,
+			);
+		}
+	}
 }
 
 /**

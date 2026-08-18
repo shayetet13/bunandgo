@@ -1,5 +1,18 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { createBot, evaluateIdLock, getBot, isIdLockExempt, listBots, listBotsForUser, resetAllBotStatuses, resetBotLockedLineMid, setBotLockedLineMid, updateBotStatus } from "./bots.ts";
+import {
+	createBot,
+	evaluateIdLock,
+	getBot,
+	isIdLockExempt,
+	listBots,
+	listBotsForUser,
+	listBotsNeedingNameReverification,
+	resetAllBotStatuses,
+	resetBotLockedLineMid,
+	setBotLockedLineDisplayName,
+	setBotLockedLineMid,
+	updateBotStatus,
+} from "./bots.ts";
 import { db } from "../db/sqlite.ts";
 import { setUserExemptIdLock } from "../auth/users.ts";
 
@@ -109,45 +122,67 @@ describe("listBots / listBotsForUser scoping", () => {
 });
 
 describe("one-LINE-account-per-bot lock", () => {
-	test("first login locks the bot to that account; the same account matches afterward", () => {
+	test("first login locks the bot to that account and name; the same pair matches afterward", () => {
 		const ownerId = owner("id-lock-owner");
 		const bot = createBot("id-lock bot", "DESKTOPWIN", ownerId);
 
-		expect(evaluateIdLock(bot, "u-alice")).toBe("first_login");
-		setBotLockedLineMid(bot.id, "u-alice");
+		expect(evaluateIdLock(bot, "u-alice", "Alice")).toBe("first_login");
+		setBotLockedLineMid(bot.id, "u-alice", "Alice");
 
 		const locked = getBot(bot.id)!;
 		expect(locked.lockedLineMid).toBe("u-alice");
-		expect(evaluateIdLock(locked, "u-alice")).toBe("match");
+		expect(locked.lockedLineDisplayName).toBe("Alice");
+		expect(evaluateIdLock(locked, "u-alice", "Alice")).toBe("match");
 	});
 
 	test("a different account than the one locked in is a mismatch", () => {
 		const ownerId = owner("id-lock-mismatch-owner");
 		const bot = createBot("id-lock mismatch bot", "DESKTOPWIN", ownerId);
-		setBotLockedLineMid(bot.id, "u-alice");
+		setBotLockedLineMid(bot.id, "u-alice", "Alice");
 
-		expect(evaluateIdLock(getBot(bot.id)!, "u-bob")).toBe("mismatch");
+		expect(evaluateIdLock(getBot(bot.id)!, "u-bob", "Bob")).toBe("mismatch");
+	});
+
+	test("the same account under a different display name than the one locked in is a name_mismatch", () => {
+		const ownerId = owner("id-lock-name-mismatch-owner");
+		const bot = createBot("id-lock name mismatch bot", "DESKTOPWIN", ownerId);
+		setBotLockedLineMid(bot.id, "u-alice", "Alice");
+
+		expect(evaluateIdLock(getBot(bot.id)!, "u-alice", "Not Alice")).toBe("name_mismatch");
+	});
+
+	test("a legacy bot (mid locked, no name recorded yet) is a match regardless of the current name", () => {
+		const ownerId = owner("id-lock-legacy-owner");
+		const bot = createBot("id-lock legacy bot", "DESKTOPWIN", ownerId);
+		// Simulates a bot locked before locked_line_display_name existed:
+		// only the mid half is set, never the name half (setBotLockedLineMid
+		// with an empty name stores NULL — see bots.ts).
+		setBotLockedLineMid(bot.id, "u-alice", "");
+		const legacy = getBot(bot.id)!;
+		expect(legacy.lockedLineDisplayName).toBeNull();
+
+		expect(evaluateIdLock(legacy, "u-alice", "Whatever Name")).toBe("match");
 	});
 
 	test("an admin's bot is exempt regardless of who logs in", () => {
 		const adminId = adminOwner("id-lock-admin");
 		const bot = createBot("id-lock admin bot", "DESKTOPWIN", adminId);
-		setBotLockedLineMid(bot.id, "u-alice");
+		setBotLockedLineMid(bot.id, "u-alice", "Alice");
 
 		const locked = getBot(bot.id)!;
 		expect(isIdLockExempt(locked)).toBe(true);
-		expect(evaluateIdLock(locked, "u-bob")).toBe("exempt");
+		expect(evaluateIdLock(locked, "u-bob", "Bob")).toBe("exempt");
 	});
 
 	test("a user explicitly marked exempt is not locked either", () => {
 		const ownerId = owner("id-lock-exempt-owner");
 		setUserExemptIdLock(ownerId, true);
 		const bot = createBot("id-lock exempt bot", "DESKTOPWIN", ownerId);
-		setBotLockedLineMid(bot.id, "u-alice");
+		setBotLockedLineMid(bot.id, "u-alice", "Alice");
 
 		const locked = getBot(bot.id)!;
 		expect(isIdLockExempt(locked)).toBe(true);
-		expect(evaluateIdLock(locked, "u-bob")).toBe("exempt");
+		expect(evaluateIdLock(locked, "u-bob", "Bob")).toBe("exempt");
 	});
 
 	test("an ordinary (non-exempt) user's bot is not exempt", () => {
@@ -161,20 +196,49 @@ describe("one-LINE-account-per-bot lock", () => {
 		expect(isIdLockExempt(bot)).toBe(false);
 	});
 
-	test("resetting the lock lets a different account become the new first login, without touching other bots", () => {
+	test("resetting the lock clears both account and name, letting a different pair become the new first login, without touching other bots", () => {
 		const ownerId = owner("id-lock-reset-owner");
 		const resetBot = createBot("id-lock reset bot", "DESKTOPWIN", ownerId);
 		const siblingBot = createBot("id-lock reset sibling", "DESKTOPWIN", ownerId);
-		setBotLockedLineMid(resetBot.id, "u-banned-account");
-		setBotLockedLineMid(siblingBot.id, "u-sibling-account");
+		setBotLockedLineMid(resetBot.id, "u-banned-account", "Banned Name");
+		setBotLockedLineMid(siblingBot.id, "u-sibling-account", "Sibling Name");
 
 		resetBotLockedLineMid(resetBot.id);
 
 		const afterReset = getBot(resetBot.id)!;
 		expect(afterReset.lockedLineMid).toBeNull();
-		expect(evaluateIdLock(afterReset, "u-replacement-account")).toBe("first_login");
+		expect(afterReset.lockedLineDisplayName).toBeNull();
+		expect(evaluateIdLock(afterReset, "u-replacement-account", "Replacement Name")).toBe("first_login");
 		// The sibling's own lock is untouched — this is a single-bot reset,
 		// not an owner-wide exemption.
-		expect(getBot(siblingBot.id)!.lockedLineMid).toBe("u-sibling-account");
+		const sibling = getBot(siblingBot.id)!;
+		expect(sibling.lockedLineMid).toBe("u-sibling-account");
+		expect(sibling.lockedLineDisplayName).toBe("Sibling Name");
+	});
+
+	test("setBotLockedLineDisplayName backfills only the name half of an existing lock", () => {
+		const ownerId = owner("id-lock-backfill-owner");
+		const bot = createBot("id-lock backfill bot", "DESKTOPWIN", ownerId);
+		setBotLockedLineMid(bot.id, "u-alice", "");
+
+		setBotLockedLineDisplayName(bot.id, "Alice");
+
+		const backfilled = getBot(bot.id)!;
+		expect(backfilled.lockedLineMid).toBe("u-alice");
+		expect(backfilled.lockedLineDisplayName).toBe("Alice");
+	});
+
+	test("listBotsNeedingNameReverification returns only bots with a locked mid and no recorded name", () => {
+		const ownerId = owner("id-lock-reverify-owner");
+		const needsReverify = createBot("id-lock needs-reverify bot", "DESKTOPWIN", ownerId);
+		const alreadyNamed = createBot("id-lock already-named bot", "DESKTOPWIN", ownerId);
+		const neverLocked = createBot("id-lock never-locked bot", "DESKTOPWIN", ownerId);
+		setBotLockedLineMid(needsReverify.id, "u-legacy", "");
+		setBotLockedLineMid(alreadyNamed.id, "u-named", "Named");
+
+		const ids = listBotsNeedingNameReverification().map((bot) => bot.id);
+		expect(ids).toContain(needsReverify.id);
+		expect(ids).not.toContain(alreadyNamed.id);
+		expect(ids).not.toContain(neverLocked.id);
 	});
 });

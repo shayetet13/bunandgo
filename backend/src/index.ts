@@ -110,8 +110,5 @@ console.log("sender: healthy");
 const { startSystemLoadMonitor } = await import("./monitoring/system-load.ts");
 startSystemLoadMonitor();
 
-const { startRemoteLaneMonitor } = await import("./dispatch/remote-lanes.ts");
-startRemoteLaneMonitor();
-
 await import("./api/server.ts");
 applicationReady = true;

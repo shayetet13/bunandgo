@@ -294,11 +294,6 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 			clearConfirm(event.botId);
 			setIdLockAlert(event);
 		},
-		security_alert: (data) => {
-			const event = data as { kind?: string; severity?: string; path?: string; ip?: string; count?: number };
-			const severity = event.severity === "critical" ? "วิกฤต" : event.severity === "high" ? "สูง" : "ปานกลาง";
-			pushNotification(`🚨 ตรวจพบความพยายามเข้าถึงผิดปกติ (${severity}) · ${event.path ?? "-"} · IP ${event.ip ?? "-"} · ครั้งที่ ${event.count ?? 1}`);
-		},
 		ready: (data) => {
 			const { botId } = data as { botId: number };
 			setSelectedBotId(botId);
@@ -496,7 +491,7 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 			// The backend stops the session as part of this action (see
 			// bot-detail.ts) — the WS bot_status event confirms it, but
 			// reflecting it here too avoids a stale "online" flash in between.
-			setBots((prev) => prev.map((b) => (b.id === botId ? { ...b, status: "offline", lockedLineMid: null } : b)));
+			setBots((prev) => prev.map((b) => (b.id === botId ? { ...b, status: "offline", lockedLineMid: null, lockedLineDisplayName: null } : b)));
 			pushNotification("รีเซ็ตล็อกบัญชี LINE และออกจากระบบ session เดิมแล้ว — กดเริ่มเพื่อสแกน QR บัญชีใหม่ได้เลย");
 		} catch (err) {
 			pushNotification(err instanceof Error ? err.message : String(err));

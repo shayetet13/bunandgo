@@ -3,6 +3,7 @@ import { requireAdmin, requestUser } from "../../auth/request-user.ts";
 import { logUserActionImmediately } from "../../auth/user-actions.ts";
 import { readWorkerTopology } from "../../bot/worker-topology.ts";
 import { db } from "../../db/sqlite.ts";
+import { applyHedgeConfig, hedgeConfig, hedgeShadowReport, parseHedgeConfig } from "../../dispatch/hedge.ts";
 
 const RESTART_UNIT = "linebot-worker.service";
 const RESTART_CONFIRMATION = "restart-linebot-worker";
@@ -78,6 +79,29 @@ export function createSystemRoute(options: SystemRouteOptions = {}): Hono {
 		scheduleRestart(RESTART_DELAY_MS);
 
 		return c.json({ ok: true, unit: RESTART_UNIT, requestedAt }, 202);
+	});
+
+	// Hedge stage 0-1 is read-side only: the report is computed from send
+	// RTTs that lane racing already persists, so reading it — or flipping the
+	// mode — never adds work to any reply path and never needs a restart.
+	route.get("/hedge", (c) => {
+		const hours = Number(c.req.query("hours") ?? "");
+		return c.json(hedgeShadowReport(Number.isFinite(hours) && hours > 0 ? hours : undefined));
+	});
+
+	route.put("/hedge", async (c) => {
+		const body = (await c.req.json().catch(() => undefined)) as unknown;
+		let config;
+		try {
+			config = parseHedgeConfig(body);
+		} catch (error) {
+			return c.json({ error: error instanceof Error ? error.message : "รูปแบบการตั้งค่า hedge ไม่ถูกต้อง" }, 400);
+		}
+		const previous = hedgeConfig();
+		const applied = applyHedgeConfig(config);
+		const user = requestUser(c)!;
+		logUserActionImmediately(user, "system.hedge.config.updated", { previous, applied });
+		return c.json({ ok: true, config: applied });
 	});
 
 	return route;

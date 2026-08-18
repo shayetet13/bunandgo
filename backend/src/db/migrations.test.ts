@@ -43,4 +43,16 @@ describe("database startup migrations", () => {
 		expect(columns).toContain("worker_id");
 		expect(indexes).toContain("idx_lane_race_events_worker");
 	});
+
+	test("returns the ids it newly applied, and nothing on a second run against the same database", () => {
+		const database = new Database(":memory:");
+		opened.push(database);
+		database.exec(SCHEMA_SQL);
+
+		const firstRun = runMigrations(database);
+		expect(firstRun).toContain("028_bots_locked_line_display_name");
+
+		const secondRun = runMigrations(database);
+		expect(secondRun).toEqual([]);
+	});
 });

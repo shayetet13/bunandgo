@@ -376,14 +376,30 @@ const migrations: Migration[] = [
 			}
 		},
 	},
+	{
+		id: "028_bots_locked_line_display_name",
+		up: (db) => {
+			if (!hasColumn(db, "bots", "locked_line_display_name")) {
+				db.exec("ALTER TABLE bots ADD COLUMN locked_line_display_name TEXT");
+			}
+		},
+	},
 ];
 
-export function runMigrations(db: Database): void {
+/**
+ * Applies every pending migration and returns the ids that were actually
+ * newly applied this run (as opposed to already recorded from a previous
+ * boot) — callers use this to gate one-off follow-up work that should run
+ * exactly once, right when a specific migration first lands. See
+ * sweepLegacyIdLockNames() in bot/session-manager.ts for the current use.
+ */
+export function runMigrations(db: Database): string[] {
 	// One immediate transaction serializes schema work across the primary and
 	// shard processes that boot together against the same SQLite file. The old
 	// per-migration transactions let both processes observe a migration as
 	// missing, then race the same ALTER/INSERT. busy_timeout on the connection
 	// makes the second process wait here and re-read the applied set afterward.
+	const newlyApplied: string[] = [];
 	const applyAll = db.transaction(() => {
 		db.exec("CREATE TABLE IF NOT EXISTS schema_migrations (id TEXT PRIMARY KEY, applied_at INTEGER NOT NULL)");
 		const applied = new Set(db.query<{ id: string }, []>("SELECT id FROM schema_migrations").all().map((row) => row.id));
@@ -392,7 +408,9 @@ export function runMigrations(db: Database): void {
 			if (applied.has(migration.id)) continue;
 			migration.up(db);
 			markApplied.run(migration.id, Date.now());
+			newlyApplied.push(migration.id);
 		}
 	});
 	applyAll.immediate();
+	return newlyApplied;
 }

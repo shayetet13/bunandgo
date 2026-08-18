@@ -111,8 +111,8 @@ function validateWorkerTuning(worker: RuntimeWorkerTuning, label: string): void 
 	if (interval === 0 && (h2Lanes === undefined || reserved === undefined || slots === undefined)) {
 		throw new Error(`${label} zero-delay requires h2Lanes, sendReservedLanes, and fastPollSlots`);
 	}
-	if (hotCeiling !== undefined && discardCeiling !== undefined && hotCeiling > discardCeiling) {
-		throw new Error(`${label} applicationHotCeilingMs cannot exceed applicationDiscardCeilingMs`);
+	if (hotCeiling !== undefined && discardCeiling !== undefined && hotCeiling >= discardCeiling) {
+		throw new Error(`${label} applicationHotCeilingMs must be lower than applicationDiscardCeilingMs`);
 	}
 	if (
 		h2Lanes !== undefined && reserved !== undefined && exploreInterval !== undefined && sampleMaxAge !== undefined &&

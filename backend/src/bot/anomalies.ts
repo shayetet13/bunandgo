@@ -50,7 +50,9 @@ export type AnomalyKind =
 	/** A bot that was running when the process died could not be brought back on restart. */
 	| "resume_failed"
 	/** A LINE account other than the one first locked to this bot tried to log in. */
-	| "id_lock_mismatch";
+	| "id_lock_mismatch"
+	/** The same LINE account (mid matched) logged in under a different display name than the one locked at first login. */
+	| "id_lock_name_mismatch";
 
 export interface AnomalyInput {
 	botId: number | null;

@@ -21,6 +21,12 @@ export interface Bot {
 	overQuota: boolean;
 	/** The LINE account (profile.mid) locked to this bot slot, or null before its first login. */
 	lockedLineMid: string | null;
+	/**
+	 * Display name captured together with lockedLineMid at first login — see
+	 * evaluateIdLock(). Null for a bot locked before this field existed and
+	 * not yet reverified (see the deploy-time sweep in session-manager.ts).
+	 */
+	lockedLineDisplayName: string | null;
 	createdAt: number;
 }
 
@@ -56,6 +62,7 @@ function fromRow(row: BotRow): Bot {
 		allowOwnerTesting: ownerTestingBotIds.has(row.id),
 		overQuota: isRowOverQuota(row),
 		lockedLineMid: row.locked_line_mid,
+		lockedLineDisplayName: row.locked_line_display_name,
 		createdAt: row.created_at,
 	};
 }
@@ -72,42 +79,87 @@ export function isIdLockExempt(bot: Bot): boolean {
 	return !!owner && (owner.role === "admin" || owner.exemptIdLock);
 }
 
-export type IdLockOutcome = "exempt" | "first_login" | "match" | "mismatch";
+export type IdLockOutcome = "exempt" | "first_login" | "match" | "mismatch" | "name_mismatch";
 
 /**
- * What should happen when `lineMid` just logged into `bot`.
+ * What should happen when `lineMid`/`displayName` just logged into `bot`.
  *
  * Pure decision, no I/O — session-manager.ts acts on the result (persisting
- * the lock on "first_login", rejecting the session on "mismatch") so this
- * stays testable without a real LINE client.
+ * the lock on "first_login", rejecting the session on "mismatch" or
+ * "name_mismatch") so this stays testable without a real LINE client.
+ *
+ * The name check only fires once both sides have something to compare: a
+ * bot whose lock predates this field (lockedLineDisplayName still null) is
+ * never punished for a name it never recorded, and an empty displayName on
+ * the current attempt is never treated as a mismatch either — see the
+ * deploy-time sweep in session-manager.ts for how legacy bots get a name
+ * recorded instead.
  */
-export function evaluateIdLock(bot: Bot, lineMid: string): IdLockOutcome {
+export function evaluateIdLock(bot: Bot, lineMid: string, displayName: string): IdLockOutcome {
 	if (isIdLockExempt(bot)) return "exempt";
 	if (!bot.lockedLineMid) return "first_login";
-	return bot.lockedLineMid === lineMid ? "match" : "mismatch";
+	if (bot.lockedLineMid !== lineMid) return "mismatch";
+	if (bot.lockedLineDisplayName && displayName && bot.lockedLineDisplayName !== displayName) {
+		return "name_mismatch";
+	}
+	return "match";
 }
 
-const setLockedLineMidStmt = db.prepare<null, [string, number]>(
-	"UPDATE bots SET locked_line_mid = ? WHERE id = ?",
+const setLockedLineMidStmt = db.prepare<null, [string, string | null, number]>(
+	"UPDATE bots SET locked_line_mid = ?, locked_line_display_name = ? WHERE id = ?",
 );
 
-/** Records the LINE account a bot's first successful login belongs to. */
-export function setBotLockedLineMid(botId: number, lineMid: string): void {
-	setLockedLineMidStmt.run(lineMid, botId);
+/** Records the LINE account (and its display name) a bot's first successful login belongs to — locked as a pair. */
+export function setBotLockedLineMid(botId: number, lineMid: string, displayName: string): void {
+	setLockedLineMidStmt.run(lineMid, displayName || null, botId);
+}
+
+const setLockedLineDisplayNameStmt = db.prepare<null, [string, number]>(
+	"UPDATE bots SET locked_line_display_name = ? WHERE id = ?",
+);
+
+/**
+ * Backfills only the display-name half of an existing mid lock — for a bot
+ * that was locked before this field existed and reverified since (see the
+ * deploy-time sweep and evaluateIdLock()'s "match" fallback in
+ * session-manager.ts). Never used for a fresh lock; that's setBotLockedLineMid.
+ */
+export function setBotLockedLineDisplayName(botId: number, displayName: string): void {
+	setLockedLineDisplayNameStmt.run(displayName, botId);
 }
 
 const clearLockedLineMidStmt = db.prepare<null, [number]>(
-	"UPDATE bots SET locked_line_mid = NULL WHERE id = ?",
+	"UPDATE bots SET locked_line_mid = NULL, locked_line_display_name = NULL WHERE id = ?",
 );
 
 /**
- * Admin recovery path for a single bot: clears its lock so the next
- * successful login — from any LINE account — becomes the new one, without
- * exempting the owner's other bots. For a legitimately banned/replaced LINE
- * account; see evaluateIdLock() for the lock this undoes.
+ * Admin recovery path for a single bot: clears its lock (both the account
+ * and the display name locked alongside it) so the next successful login —
+ * from any LINE account — becomes the new one, without exempting the
+ * owner's other bots. For a legitimately banned/replaced LINE account, or a
+ * legitimate name change; see evaluateIdLock() for the lock this undoes.
  */
 export function resetBotLockedLineMid(botId: number): void {
 	clearLockedLineMidStmt.run(botId);
+}
+
+const needingNameReverificationStmt = db.prepare<BotRow, []>(
+	"SELECT * FROM bots WHERE locked_line_mid IS NOT NULL AND locked_line_display_name IS NULL",
+);
+
+/**
+ * Bots locked before the display-name half of the lock existed: mid is set,
+ * name isn't. Used once by the deploy-time sweep (session-manager.ts
+ * sweepLegacyIdLockNames) to force a fresh QR scan that captures a name —
+ * see evaluateIdLock()'s doc comment for why login itself doesn't punish
+ * these in the meantime.
+ *
+ * Scoped like listBots(): each of the two shard processes runs this sweep
+ * independently against the same shared database, and each must only touch
+ * the bots it actually owns the runtime for (stopBot() throws otherwise).
+ */
+export function listBotsNeedingNameReverification(): Bot[] {
+	return needingNameReverificationStmt.all().map(fromRow).filter((bot) => inWorkerScope(bot.ownerUserId));
 }
 
 const OWNER_TESTING_KEY = "allowOwnerTesting";

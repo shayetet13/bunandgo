@@ -13,6 +13,7 @@ function bot(id: number, status: Bot["status"]): Bot {
 		allowOwnerTesting: false,
 		overQuota: false,
 		lockedLineMid: null,
+		lockedLineDisplayName: null,
 		createdAt: 0,
 	};
 }

@@ -190,6 +190,12 @@ export function BotsPanel({ bots, role, selectedBotId, onSelect, qrByBot, confir
 									<span className="label">{STATUS_LABEL[bot.status]}</span>
 								</button>
 
+								{role === "admin" && bot.lockedLineMid && (
+									<div className="label" style={{ color: "var(--text-dim)", fontSize: "var(--text-xs)" }}>
+										ล็อกกับ: {bot.lockedLineDisplayName ?? "(ยังไม่มีชื่อบันทึก — รอสแกน QR ใหม่)"}
+									</div>
+								)}
+
 								<div className="bot-card-actions" style={{ display: "flex", gap: "var(--space-xs)" }}>
 									{bot.status === "offline" ? (
 										pendingConfirm ? (
@@ -248,7 +254,7 @@ export function BotsPanel({ bots, role, selectedBotId, onSelect, qrByBot, confir
 											<button
 												onClick={() => setConfirmResetIdLockId(bot.id)}
 												style={actionBtnStyle}
-												title="ปลดล็อกบัญชี LINE ของบอทนี้ — จะหยุดบอทและออกจากระบบ session เดิมด้วย ใช้เมื่อบัญชีเดิมโดนแบน/ต้องเปลี่ยนบัญชีใหม่"
+												title="ปลดล็อกบัญชี LINE และชื่อบัญชีของบอทนี้ — จะหยุดบอทและออกจากระบบ session เดิมด้วย ใช้เมื่อบัญชีเดิมโดนแบน/ต้องเปลี่ยนบัญชีใหม่ หรือชื่อบัญชีเปลี่ยนไปจริงๆ"
 											>
 												รีเซ็ตล็อกบัญชี
 											</button>

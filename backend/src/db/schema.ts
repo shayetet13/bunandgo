@@ -30,6 +30,12 @@ CREATE TABLE IF NOT EXISTS bots (
 	-- NULL until the first successful login; every login after that must
 	-- match, unless the owner is exempt — see bot/bots.ts evaluateIdLock().
 	locked_line_mid TEXT,
+	-- Display name captured together with locked_line_mid at first login —
+	-- a same-mid login with a different name is flagged too, since a
+	-- changed name can mean the account was handed to someone else. NULL
+	-- for bots locked before this column existed, until the deploy-time
+	-- sweep (or, as a fallback, their next successful login) backfills it.
+	locked_line_display_name TEXT,
 	created_at INTEGER NOT NULL
 );
 
@@ -256,6 +262,7 @@ export interface BotRow {
 	status: BotStatus;
 	owner_user_id: number | null;
 	locked_line_mid: string | null;
+	locked_line_display_name: string | null;
 	created_at: number;
 }
 
