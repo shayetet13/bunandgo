@@ -109,8 +109,15 @@ const APPLICATION_SAMPLE_MAX_AGE_MS = Math.max(
 	1_000,
 	Number(process.env.LINE_H2_APPLICATION_SAMPLE_MAX_AGE_MS ?? 30_000),
 );
+// Floor is a sanity minimum, not a policy default: repairDegradedLane() only
+// ever retires an idle, already-known-slow lane in the background (never the
+// fastest one, never one with inFlight work), so tightening this cannot slow
+// down a live reply — it only changes how quickly a degraded route is retried.
+// The 60s *default* (unset env) is unchanged; only the previously-hardcoded
+// lower bound is relaxed so LINE_H2_DEGRADED_REPAIR_GAP_MS can actually lower
+// it when that's deliberately chosen.
 const DEGRADED_REPAIR_MIN_GAP_MS = Math.max(
-	60_000,
+	5_000,
 	Number(process.env.LINE_H2_DEGRADED_REPAIR_GAP_MS ?? 60_000),
 );
 const DEGRADED_REPAIR_MIN_SAMPLES = Math.max(
@@ -396,9 +403,12 @@ function hasFreshEligibleApplicationSample(
 
 /**
  * Fresh sub-hot routes win first, then fresh routes below the hard discard
- * threshold. A known route at/above the discard threshold is never selected;
- * returning no candidate deliberately hands the request to the caller's
- * existing global-fetch fallback rather than delaying or dropping it.
+ * threshold. A known route at/above the discard threshold is deprioritized
+ * below every fresher/faster option, but is still the last resort when
+ * nothing else qualifies: the caller's global-fetch fallback loses the warm
+ * TLS/H2 connection entirely and measures slower than even the worst owned
+ * lane, so an empty candidate list is only returned when there are truly no
+ * usable lanes at all.
  */
 export function sendCandidatesWithCrossover<T extends LaneChoiceMetrics & { id: number }>(
 	usable: T[],
@@ -434,7 +444,19 @@ export function sendCandidatesWithCrossover<T extends LaneChoiceMetrics & { id: 
 		const idle = safeFallback.filter((lane) => lane.inFlight === 0);
 		return idle.length > 0 ? idle : safeFallback;
 	}
-	return [];
+
+	// Every reserved send lane has a real measurement at/above the discard
+	// ceiling ("known slow", not merely stale or unmeasured — those already
+	// took the safeFallback branch above). Surface the fastest of them rather
+	// than an empty list; repairDegradedLane() is what pulls a lane like this
+	// back under the ceiling in the background.
+	const reservedCandidates = laneCandidates(usable, "send", reserved);
+	if (reservedCandidates.length === 0) return [];
+	let fastest = reservedCandidates[0]!;
+	for (const lane of reservedCandidates) {
+		if (shouldPreferFastestSendLane(lane, fastest, 0)) fastest = lane;
+	}
+	return [fastest];
 }
 
 /** Applies the exact 0.50ms handoff rule to real application measurements. */

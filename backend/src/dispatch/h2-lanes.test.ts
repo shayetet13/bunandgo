@@ -445,13 +445,18 @@ describe("send-reserved lanes", () => {
 		expect(sendCandidatesWithCrossover(measured, 2, now).map((lane) => lane.id)).toEqual([1]);
 	});
 
-	test("falls back outside the H2 pool when every measured route is at least 23ms", () => {
+	test("returns the fastest known-slow lane instead of an empty list when every route is at least 23ms", () => {
 		const now = 100_000;
 		const measured = [
 			{ id: 0, sendRttMs: 24, lastSendOkAt: now, lastOkAt: now, inFlight: 0 },
 			{ id: 1, sendRttMs: 31, lastSendOkAt: now, lastOkAt: now, inFlight: 0 },
 		];
-		expect(sendCandidatesWithCrossover(measured, 2, now)).toEqual([]);
+		expect(sendCandidatesWithCrossover(measured, 2, now).map((lane) => lane.id)).toEqual([0]);
+	});
+
+	test("returns [] only when there are no usable lanes at all", () => {
+		const now = 100_000;
+		expect(sendCandidatesWithCrossover([], 2, now)).toEqual([]);
 	});
 
 	test("switches at exactly 0.50ms but not at 0.49ms", () => {
