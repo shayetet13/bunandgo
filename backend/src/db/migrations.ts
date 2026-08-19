@@ -384,6 +384,21 @@ const migrations: Migration[] = [
 			}
 		},
 	},
+	{
+		// A priority bot's answers toward its quota (bot/priority-answerer.ts)
+		// — one global count per bot across every room combined. Same story as
+		// messages_in/anomalies: SCHEMA_SQL creates it for a fresh database,
+		// this puts it on the existing production file.
+		id: "029_priority_answers_table",
+		up: (db) => {
+			db.exec(`
+				CREATE TABLE IF NOT EXISTS priority_answers (
+					bot_id INTEGER PRIMARY KEY,
+					wins INTEGER NOT NULL DEFAULT 0
+				)
+			`);
+		},
+	},
 ];
 
 /**

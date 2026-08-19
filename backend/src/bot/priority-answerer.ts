@@ -1,9 +1,13 @@
 /**
  * Gives one business-designated bot ("Big") first claim on a shared room's
- * incoming messages, for a bounded number of jobs per day, so the room
+ * incoming messages, for a bounded number of jobs — lifetime, across every
+ * room it answers in combined, not per room and not per day — so a room
  * doesn't just settle into whichever bot happens to be fastest every single
- * time — see reply-guard.ts's "hottest bot answers" note for why that is
- * the default outcome without this.
+ * time. Once the quota is spent, every room goes back to a fair race for
+ * good, everywhere. See reply-guard.ts's "hottest bot answers" note for why
+ * that is the default outcome without this, and its claimJobAnswer for why
+ * one real customer request only ever counts once toward the quota even if
+ * several messages about it arrive.
  *
  * Deliberately room-wide, not owner-scoped: unlike primary-bot.ts's
  * sibling handoff (same owner only, by design — reply-guard.ts keeps
@@ -35,6 +39,7 @@
  */
 import type { BotStatus, Surface } from "../db/schema.ts";
 import { db } from "../db/sqlite.ts";
+import { enqueuePriorityWin } from "../db/write-behind.ts";
 import { getBot } from "./bots.ts";
 import { getCompiledRules, matchRule } from "./rules.ts";
 
@@ -44,9 +49,6 @@ const PRIORITY_BOT_NAMES = new Set((process.env.PRIORITY_BOT_NAMES ?? "big,bigsa
 
 const PRIORITY_WIN_QUOTA = Number(process.env.PRIORITY_WIN_QUOTA ?? 2);
 const PRIORITY_LOOKUP_CACHE_MS = Number(process.env.PRIORITY_LOOKUP_CACHE_MS ?? 1500);
-
-const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000;
-const SEP = "\0";
 
 function normalizeName(name: string): string {
 	return name.trim().toLowerCase().replace(/\s+/g, "");
@@ -87,38 +89,45 @@ function priorityBotRooms(now: number): PriorityBotRoom[] {
 	return cachedPriorityRooms;
 }
 
-/** Bangkok calendar date, e.g. "2026-08-16" — the daily reset boundary. */
-function bangkokDayKey(now: number): string {
-	return new Date(now + BANGKOK_OFFSET_MS).toISOString().slice(0, 10);
-}
+/**
+ * Priority bot id -> wins recorded so far, lifetime, summed across every
+ * room it has ever answered in — once a bot hits PRIORITY_WIN_QUOTA in
+ * total, it stays a fair race everywhere from then on; a room does not get
+ * its own separate allowance, and nothing about this ever reopens. Hydrated
+ * from `priority_answers` at load (same boot-then-mirror shape as
+ * chat-access.ts's enabledChatsByBot) so a restart cannot hand out a fresh
+ * quota already spent; writes go through the write-behind worker so
+ * recording a win never blocks the reply hot path.
+ */
+const wins = new Map<number, number>();
 
-/** (priority bot, room, day) -> wins recorded so far. In-memory like every other reply-guard.ts counter; a restart just grants a fresh daily quota early. */
-const wins = new Map<string, number>();
-
-function winsKey(botId: number, chatMid: string, now: number): string {
-	return `${botId}${SEP}${chatMid}${SEP}${bangkokDayKey(now)}`;
+const hydrateWinsStmt = db.prepare<{ bot_id: number; wins: number }, []>(
+	"SELECT bot_id, wins FROM priority_answers",
+);
+for (const row of hydrateWinsStmt.all()) {
+	wins.set(row.bot_id, row.wins);
 }
 
 /**
- * Records a priority bot's answer toward its daily quota for `chatMid`,
- * returning the new count so the caller can log it (see session-manager.ts
- * — this module stays I/O-free, matching evaluateIdLock-style separation).
- * `undefined` for a non-priority bot, so callers can call this
+ * Records a priority bot's answer toward its quota, returning the new count
+ * so the caller can log it (see session-manager.ts — this module stays
+ * I/O-free of its own accord otherwise, matching evaluateIdLock-style
+ * separation). `undefined` for a non-priority bot, so callers can call this
  * unconditionally on every successful claim without checking
  * `isPriorityBot` themselves. Off the hot path (paid only by an actual
  * send, like primary-bot.ts's own `getBot` lookups), so the direct
  * `isPriorityBot` DB check is fine.
  */
-export function recordPriorityWin(botId: number, chatMid: string, now = Date.now()): number | undefined {
+export function recordPriorityWin(botId: number): number | undefined {
 	if (!isPriorityBot(botId)) return undefined;
-	const k = winsKey(botId, chatMid, now);
-	const count = (wins.get(k) ?? 0) + 1;
-	wins.set(k, count);
+	const count = (wins.get(botId) ?? 0) + 1;
+	wins.set(botId, count);
+	enqueuePriorityWin(botId);
 	return count;
 }
 
-function hasQuotaLeft(botId: number, chatMid: string, now: number): boolean {
-	return (wins.get(winsKey(botId, chatMid, now)) ?? 0) < PRIORITY_WIN_QUOTA;
+function hasQuotaLeft(botId: number): boolean {
+	return (wins.get(botId) ?? 0) < PRIORITY_WIN_QUOTA;
 }
 
 /**
@@ -129,10 +138,10 @@ function hasQuotaLeft(botId: number, chatMid: string, now: number): boolean {
  *
  * False whenever there is nothing to actually gain by yielding: no
  * priority bot in the room, the candidate itself IS the priority bot, the
- * priority bot is offline, its daily quota for this room is already
- * spent, or its own rules would not have matched this message anyway
- * (matching evaluateIdLock-style separation: this is the pure decision,
- * callers own recording the resulting win).
+ * priority bot is offline, its quota (across every room, not just this one)
+ * is already spent for good, or its own rules would not have matched this
+ * message anyway (matching evaluateIdLock-style separation: this is the
+ * pure decision, callers own recording the resulting win).
  */
 export function shouldYieldToPriorityBot(
 	candidateBotId: number,
@@ -143,11 +152,11 @@ export function shouldYieldToPriorityBot(
 ): boolean {
 	const priorityBot = priorityBotRooms(now).find((room) => room.chatMid === chatMid && room.online && room.botId !== candidateBotId);
 	if (!priorityBot) return false;
-	if (!hasQuotaLeft(priorityBot.botId, chatMid, now)) return false;
+	if (!hasQuotaLeft(priorityBot.botId)) return false;
 	return matchRule(getCompiledRules(priorityBot.botId), text, surface) !== undefined;
 }
 
-/** Test-only: clears every recorded win and forces the next room lookup to hit the DB, so tests are deterministic and don't leak across daily-boundary/cache windows. */
+/** Test-only: clears every recorded win and forces the next room lookup to hit the DB, so tests are deterministic and don't leak across cache windows. */
 export function clearPriorityWinsForTests(): void {
 	wins.clear();
 	cachedAt = -Infinity;

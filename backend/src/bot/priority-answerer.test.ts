@@ -128,7 +128,7 @@ describe("shouldYieldToPriorityBot", () => {
 		expect(shouldYieldToPriorityBot(other.id, room, "หวย", "square")).toBe(true);
 	});
 
-	test("stops yielding once the daily quota (default 2) is spent", () => {
+	test("stops yielding once the room's quota (default 2) is spent, for good", () => {
 		clearPriorityWinsForTests();
 		const room = uniqueMid();
 		const ownerId = owner();
@@ -142,25 +142,46 @@ describe("shouldYieldToPriorityBot", () => {
 		addRule(big.id, "หวย");
 		addRule(other.id, "หวย");
 
-		recordPriorityWin(big.id, room);
+		recordPriorityWin(big.id);
 		expect(shouldYieldToPriorityBot(other.id, room, "หวย", "square")).toBe(true); // 1 of 2 spent
 
-		recordPriorityWin(big.id, room);
+		recordPriorityWin(big.id);
 		expect(shouldYieldToPriorityBot(other.id, room, "หวย", "square")).toBe(false); // quota spent
 	});
 
-	test("recordPriorityWin is scoped per room", () => {
+	test("the quota never comes back — not even a month later", () => {
+		clearPriorityWinsForTests();
+		const room = uniqueMid();
+		const ownerId = owner();
+		const big = createBot("big");
+		const other = createBot("other no reset");
+		claimBotStmt.run(ownerId, big.id);
+		claimBotStmt.run(ownerId, other.id);
+		joinRoom(big.id, room, 1);
+		joinRoom(other.id, room, 2);
+		updateBotStatus(big.id, "online");
+		addRule(big.id, "หวย");
+		addRule(other.id, "หวย");
+
+		recordPriorityWin(big.id);
+		recordPriorityWin(big.id);
+
+		const thirtyDaysLater = Date.now() + 30 * 24 * 60 * 60 * 1000;
+		expect(shouldYieldToPriorityBot(other.id, room, "หวย", "square", thirtyDaysLater)).toBe(false);
+	});
+
+	test("the quota is global, not per room — a win anywhere counts everywhere", () => {
 		// A bot can only be an enabled member of one square room at a time
 		// (MAX_SQUARE_CHATS_PER_BOT, see chat-access.ts) — that cap belongs to
 		// the poller, not to this module, so it is bypassed here with a direct
-		// insert to prove the *win counter itself* isolates by chatMid rather
-		// than relying on setChatEnabled's business rule to keep rooms apart.
+		// insert to prove the win counter itself is one number per bot, not
+		// one per (bot, room).
 		clearPriorityWinsForTests();
 		const room = uniqueMid();
 		const otherRoom = uniqueMid();
 		const ownerId = owner();
 		const big = createBot("big");
-		const other = createBot("other per room");
+		const other = createBot("other cross room");
 		claimBotStmt.run(ownerId, big.id);
 		claimBotStmt.run(ownerId, other.id);
 		joinRoom(big.id, room, 1);
@@ -171,10 +192,12 @@ describe("shouldYieldToPriorityBot", () => {
 		addRule(big.id, "หวย");
 		addRule(other.id, "หวย");
 
-		recordPriorityWin(big.id, room);
-		recordPriorityWin(big.id, room);
-		expect(shouldYieldToPriorityBot(other.id, room, "หวย", "square")).toBe(false); // spent in room
-		expect(shouldYieldToPriorityBot(other.id, otherRoom, "หวย", "square")).toBe(true); // fresh in otherRoom
+		// One win in `room`, one win in `otherRoom` — quota (2) spent across
+		// the two combined, so both rooms should now race fairly.
+		recordPriorityWin(big.id);
+		recordPriorityWin(big.id);
+		expect(shouldYieldToPriorityBot(other.id, room, "หวย", "square")).toBe(false);
+		expect(shouldYieldToPriorityBot(other.id, otherRoom, "หวย", "square")).toBe(false);
 	});
 
 	test("yields to a priority bot owned by a different user in the same room", () => {
@@ -209,7 +232,7 @@ describe("shouldYieldToPriorityBot", () => {
 		claimBotStmt.run(ownerId, notBig.id);
 		joinRoom(notBig.id, room, 1);
 
-		expect(recordPriorityWin(notBig.id, room)).toBeUndefined();
+		expect(recordPriorityWin(notBig.id)).toBeUndefined();
 	});
 
 	test("recordPriorityWin returns the running count so callers can log it", () => {
@@ -220,8 +243,8 @@ describe("shouldYieldToPriorityBot", () => {
 		claimBotStmt.run(ownerId, big.id);
 		joinRoom(big.id, room, 1);
 
-		expect(recordPriorityWin(big.id, room)).toBe(1);
-		expect(recordPriorityWin(big.id, room)).toBe(2);
-		expect(recordPriorityWin(big.id, room)).toBe(3);
+		expect(recordPriorityWin(big.id)).toBe(1);
+		expect(recordPriorityWin(big.id)).toBe(2);
+		expect(recordPriorityWin(big.id)).toBe(3);
 	});
 });
