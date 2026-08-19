@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { api } from "./lib/api.ts";
 import { LoginPage } from "./components/LoginPage.tsx";
+import { MaintenancePage } from "./components/MaintenancePage.tsx";
 import type { UserRole } from "./lib/types.ts";
 
 const Dashboard = lazy(async () => ({ default: (await import("./Dashboard.tsx")).Dashboard }));
@@ -21,6 +22,7 @@ export default function App() {
 	const [authenticated, setAuthenticated] = useState<boolean | undefined>(undefined);
 	const [username, setUsername] = useState<string>("");
 	const [role, setRole] = useState<UserRole>("user");
+	const [maintenanceMode, setMaintenanceMode] = useState(false);
 
 	function refreshAuth() {
 		api
@@ -29,6 +31,7 @@ export default function App() {
 				setAuthenticated(r.authenticated);
 				setUsername(r.username ?? "");
 				setRole(r.role ?? "user");
+				setMaintenanceMode(r.maintenanceMode);
 			})
 			.catch(() => setAuthenticated(false));
 	}
@@ -43,6 +46,12 @@ export default function App() {
 
 	if (!authenticated) {
 		return <LoginPage onLoggedIn={refreshAuth} />;
+	}
+
+	// Admin (and any future non-"user" role) always keeps the full dashboard —
+	// otherwise nobody could reach Settings to turn maintenance mode back off.
+	if (role === "user" && maintenanceMode) {
+		return <MaintenancePage username={username} onLogout={() => setAuthenticated(false)} />;
 	}
 
 	return (

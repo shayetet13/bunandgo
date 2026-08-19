@@ -69,7 +69,8 @@ for new_file in \
 	frontend/src/lib/rule-input.ts \
 	frontend/src/lib/rule-input.test.ts \
 	frontend/src/lib/race-commentary.ts \
-	frontend/src/lib/race-commentary.test.ts
+	frontend/src/lib/race-commentary.test.ts \
+	frontend/src/components/MaintenancePage.tsx
 do
 	[ ! -f "$new_file" ] || GIT_INDEX_FILE="$TEMP_INDEX" git add -- "$new_file"
 done

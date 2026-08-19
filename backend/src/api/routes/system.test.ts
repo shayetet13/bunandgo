@@ -41,6 +41,7 @@ function restartRequest(app: Hono, cookie = "", confirm = "restart-linebot-worke
 beforeEach(() => {
 	db.prepare("DELETE FROM app_meta WHERE key = 'system.worker.last_restart_requested_at'").run();
 	db.prepare("DELETE FROM app_meta WHERE key = 'hedge.send.config'").run();
+	db.prepare("DELETE FROM app_meta WHERE key = 'system.maintenance_mode'").run();
 	db.prepare("DELETE FROM lane_race_events").run();
 });
 
@@ -134,5 +135,57 @@ describe("/api/system/hedge", () => {
 		expect(report.windowHours).toBe(24);
 		expect(report.totalSamples).toBe(0);
 		expect(report.workers).toEqual([]);
+	});
+});
+
+describe("/api/system/maintenance-mode", () => {
+	function maintenanceRequest(app: Hono, cookie = "", enabled?: boolean) {
+		return app.request("/api/system/maintenance-mode", {
+			method: enabled === undefined ? "GET" : "PUT",
+			headers: {
+				"content-type": "application/json",
+				...(cookie ? { cookie } : {}),
+			},
+			...(enabled === undefined ? {} : { body: JSON.stringify({ enabled }) }),
+		});
+	}
+
+	test("requires authentication and an admin role", async () => {
+		const app = buildApp();
+		expect((await maintenanceRequest(app)).status).toBe(401);
+
+		const user = createUser(`maintenance-user-${Date.now()}`, "maintenance-test-password");
+		const userCookie = `${SESSION_COOKIE}=${createSession(user.id)}`;
+		expect((await maintenanceRequest(app, userCookie)).status).toBe(403);
+	});
+
+	test("GET defaults to off, PUT rejects a non-boolean payload", async () => {
+		const app = buildApp();
+		const adminCookie = `${SESSION_COOKIE}=${createSession()}`;
+		const get = await maintenanceRequest(app, adminCookie);
+		expect(get.status).toBe(200);
+		expect(await get.json()).toEqual({ enabled: false });
+
+		const badBody = await app.request("/api/system/maintenance-mode", {
+			method: "PUT",
+			headers: { "content-type": "application/json", cookie: adminCookie },
+			body: JSON.stringify({ enabled: "yes" }),
+		});
+		expect(badBody.status).toBe(400);
+	});
+
+	test("PUT persists the flag and GET reflects it back", async () => {
+		const app = buildApp();
+		const adminCookie = `${SESSION_COOKIE}=${createSession()}`;
+
+		const on = await maintenanceRequest(app, adminCookie, true);
+		expect(on.status).toBe(200);
+		expect(await on.json()).toEqual({ ok: true, enabled: true });
+		expect(await (await maintenanceRequest(app, adminCookie)).json()).toEqual({ enabled: true });
+
+		const off = await maintenanceRequest(app, adminCookie, false);
+		expect(off.status).toBe(200);
+		expect(await off.json()).toEqual({ ok: true, enabled: false });
+		expect(await (await maintenanceRequest(app, adminCookie)).json()).toEqual({ enabled: false });
 	});
 });

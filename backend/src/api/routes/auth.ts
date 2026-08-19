@@ -14,6 +14,7 @@ import type { AuthUser } from "../../auth/users.ts";
 import { BOT_PRICE_THB_PER_MONTH, changePassword, MAX_BOT_QUOTA, UserValidationError } from "../../auth/users.ts";
 import { clearLoginAttempts, tryAcquireLoginAttempt } from "../../auth/login-throttle.ts";
 import { logUnauthenticatedUserAction, logUserAction } from "../../auth/user-actions.ts";
+import { isMaintenanceModeEnabled } from "../../bot/maintenance-mode.ts";
 import { isSecureRequest } from "../request-protocol.ts";
 
 export const authRoute = new Hono();
@@ -136,5 +137,8 @@ authRoute.get("/me", (c) => {
 		botQuota: user?.botQuota ?? null,
 		maxBotQuota: MAX_BOT_QUOTA,
 		botPricePerMonthThb: BOT_PRICE_THB_PER_MONTH,
+		// Only the "user"-role console reacts to this — the bot and the admin
+		// dashboard both ignore it. See bot/maintenance-mode.ts.
+		maintenanceMode: isMaintenanceModeEnabled(),
 	});
 });

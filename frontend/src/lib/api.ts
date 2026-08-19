@@ -33,6 +33,7 @@ export const api = {
 		botQuota: number | null;
 		maxBotQuota: number;
 		botPricePerMonthThb: number;
+		maintenanceMode: boolean;
 	}>("/api/auth/me"),
 
 	listUsers: () => request<ManagedUser[]>("/api/users"),
@@ -155,6 +156,13 @@ export const api = {
 		method: "POST",
 		body: JSON.stringify({ confirm: "restart-linebot-worker" }),
 	}),
+	// Admin-only — gates the "user"-role console only; the bot keeps running.
+	getMaintenanceMode: () => request<{ enabled: boolean }>("/api/system/maintenance-mode"),
+	setMaintenanceMode: (enabled: boolean) =>
+		request<{ ok: true; enabled: boolean }>("/api/system/maintenance-mode", {
+			method: "PUT",
+			body: JSON.stringify({ enabled }),
+		}),
 
 	// Logs page (admin only) — `from`/`to` are epoch-ms bounds.
 	metricsHistoryRange: (from: number, to: number, limit = 500) =>

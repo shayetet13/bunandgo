@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { requireAdmin, requestUser } from "../../auth/request-user.ts";
 import { logUserActionImmediately } from "../../auth/user-actions.ts";
+import { isMaintenanceModeEnabled, setMaintenanceMode } from "../../bot/maintenance-mode.ts";
 import { readWorkerTopology } from "../../bot/worker-topology.ts";
 import { db } from "../../db/sqlite.ts";
 import { applyHedgeConfig, hedgeConfig, hedgeShadowReport, parseHedgeConfig } from "../../dispatch/hedge.ts";
@@ -102,6 +103,23 @@ export function createSystemRoute(options: SystemRouteOptions = {}): Hono {
 		const user = requestUser(c)!;
 		logUserActionImmediately(user, "system.hedge.config.updated", { previous, applied });
 		return c.json({ ok: true, config: applied });
+	});
+
+	// The bot itself never checks this — only the "user"-role console does
+	// (see /api/auth/me). Flipping it never touches a running session.
+	route.get("/maintenance-mode", (c) => {
+		return c.json({ enabled: isMaintenanceModeEnabled() });
+	});
+
+	route.put("/maintenance-mode", async (c) => {
+		const body = (await c.req.json().catch(() => ({}))) as { enabled?: unknown };
+		if (typeof body.enabled !== "boolean") {
+			return c.json({ error: "enabled ต้องเป็น true หรือ false" }, 400);
+		}
+		setMaintenanceMode(body.enabled);
+		const user = requestUser(c)!;
+		logUserActionImmediately(user, "system.maintenance_mode.updated", { enabled: body.enabled });
+		return c.json({ ok: true, enabled: body.enabled });
 	});
 
 	return route;

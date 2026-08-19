@@ -1008,3 +1008,385 @@ textarea {
 	color: #1a0507;
 	cursor: pointer;
 }
+
+/* ── Maintenance splash ────────────────────────────────────────────────
+   Shown instead of the whole user console while an admin has maintenance
+   mode on (see App.tsx, MaintenancePage.tsx). Deliberately its own visual
+   system, not the rest of the app's green telemetry look — a dark,
+   glowing cyan/violet "robot on standby" moment instead. */
+.maint {
+	--maint-bg: #090c16;
+	--maint-surface: rgba(15, 21, 38, 0.74);
+	--maint-border: rgba(34, 211, 238, 0.3);
+	--maint-ink: #eaf6ff;
+	--maint-ink-2: #93a5c4;
+	--maint-cyan: #22d3ee;
+	--maint-cyan-soft: #67e8f9;
+	--maint-violet: #a78bfa;
+	--maint-green: #34d399;
+	--maint-green-soft: #6ee7b7;
+	--maint-green-wash: rgba(52, 211, 153, 0.16);
+	--maint-radius: 30px;
+
+	position: relative;
+	min-height: 100dvh;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+	color: var(--maint-ink);
+	font-family: var(--font-sans);
+	/* Cyan + violet glow pools over a faint blueprint grid — reuses the same
+	   layered-gradient technique .app-shell uses elsewhere, just recolored,
+	   so the "tech" texture is authentic to this app rather than borrowed. */
+	background-image:
+		radial-gradient(ellipse 780px 520px at 14% -8%, rgba(34, 211, 238, 0.16), transparent 60%),
+		radial-gradient(ellipse 640px 520px at 92% 4%, rgba(167, 139, 250, 0.14), transparent 58%),
+		radial-gradient(ellipse 700px 480px at 80% 108%, rgba(34, 211, 238, 0.1), transparent 55%),
+		linear-gradient(rgba(103, 232, 249, 0.05) 1px, transparent 1px),
+		linear-gradient(90deg, rgba(103, 232, 249, 0.05) 1px, transparent 1px);
+	background-size:
+		auto,
+		auto,
+		auto,
+		42px 42px,
+		42px 42px;
+	background-position:
+		0 0,
+		0 0,
+		0 0,
+		-1px -1px,
+		-1px -1px;
+	background-color: var(--maint-bg);
+}
+
+.maint-topbar {
+	position: relative;
+	z-index: 1;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	padding: max(1.1rem, env(safe-area-inset-top)) max(1.3rem, env(safe-area-inset-right)) 0
+		max(1.3rem, env(safe-area-inset-left));
+}
+
+.maint-username {
+	font-size: 1rem;
+	font-weight: 700;
+	color: var(--maint-ink-2);
+}
+
+.maint-logout {
+	display: inline-flex;
+	align-items: center;
+	min-height: 44px;
+	padding: 0 1.1rem;
+	border-radius: 999px;
+	border: 1px solid var(--maint-border);
+	background: rgba(15, 21, 38, 0.6);
+	color: var(--maint-ink-2);
+	font: inherit;
+	font-weight: 700;
+	font-size: 0.92rem;
+	cursor: pointer;
+	transition:
+		background var(--duration-normal) var(--ease-out-expo),
+		border-color var(--duration-normal) var(--ease-out-expo),
+		color var(--duration-normal) var(--ease-out-expo);
+}
+.maint-logout:hover {
+	background: rgba(34, 211, 238, 0.12);
+	border-color: var(--maint-cyan);
+	color: var(--maint-cyan-soft);
+}
+.maint-logout:focus-visible {
+	outline: 2px solid var(--maint-cyan);
+	outline-offset: 2px;
+}
+
+.maint-hero {
+	position: relative;
+	z-index: 1;
+	flex: 1;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 1.5rem 1.25rem max(2.5rem, env(safe-area-inset-bottom));
+}
+
+.maint-card {
+	width: 100%;
+	max-width: 34rem;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	text-align: center;
+	gap: 1.25rem;
+	padding: clamp(2.25rem, 6vw, 3.5rem) clamp(1.5rem, 6vw, 3rem);
+	background: var(--maint-surface);
+	backdrop-filter: blur(22px);
+	-webkit-backdrop-filter: blur(22px);
+	border: 1px solid var(--maint-border);
+	border-radius: var(--maint-radius);
+	box-shadow:
+		0 0 0 1px rgba(34, 211, 238, 0.06),
+		0 44px 90px -32px rgba(34, 211, 238, 0.22),
+		0 20px 46px -20px rgba(139, 92, 246, 0.2);
+}
+
+.maint-reveal {
+	opacity: 0;
+	transform: translateY(16px);
+	animation: maint-rise 560ms var(--ease-out-expo) forwards;
+}
+
+/* One staged entrance, oldest sibling first — the badge boots up, then the
+   readout prints underneath it. */
+.maint-card > .maint-reveal:nth-child(1) {
+	animation-delay: 0ms;
+}
+.maint-card > .maint-reveal:nth-child(2) {
+	animation-delay: 110ms;
+}
+.maint-card > .maint-reveal:nth-child(3) {
+	animation-delay: 200ms;
+}
+.maint-card > .maint-reveal:nth-child(4) {
+	animation-delay: 300ms;
+}
+.maint-card > .maint-reveal:nth-child(5) {
+	animation-delay: 390ms;
+}
+
+@keyframes maint-rise {
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+.maint-badge-wrap {
+	position: relative;
+	width: clamp(150px, 32vw, 216px);
+	height: clamp(150px, 32vw, 216px);
+	display: grid;
+	place-items: center;
+	margin-bottom: 0.15rem;
+	filter: drop-shadow(0 0 26px rgba(34, 211, 238, 0.28));
+}
+
+/* Separate element from .maint-reveal on purpose — the entrance drop and
+   the continuous idle float both animate `transform`, and stacking two
+   animations on one element would just have the second overwrite the
+   first instead of composing with it. */
+.maint-badge-float {
+	width: 100%;
+	height: 100%;
+	animation: maint-float 4.2s ease-in-out infinite;
+}
+
+@keyframes maint-float {
+	0%,
+	100% {
+		transform: translateY(0);
+	}
+	50% {
+		transform: translateY(-6px);
+	}
+}
+
+.maint-pulse-ring {
+	fill: none;
+	stroke: var(--maint-cyan);
+	stroke-width: 1.5;
+	transform-origin: 60px 62px;
+	animation: maint-pulse 2.8s ease-out infinite;
+}
+.maint-pulse-ring[data-ring="2"] {
+	animation-delay: 1.4s;
+}
+
+@keyframes maint-pulse {
+	0% {
+		opacity: 0.5;
+		transform: scale(0.64);
+	}
+	100% {
+		opacity: 0;
+		transform: scale(1.22);
+	}
+}
+
+.maint-hud {
+	stroke: var(--maint-cyan);
+	stroke-width: 2.5;
+	stroke-linecap: round;
+	fill: none;
+	opacity: 0.75;
+	animation: maint-hud-pulse 3.6s ease-in-out infinite;
+}
+
+@keyframes maint-hud-pulse {
+	0%,
+	100% {
+		opacity: 0.4;
+	}
+	50% {
+		opacity: 0.9;
+	}
+}
+
+.maint-antenna-dot {
+	animation: maint-blink 2.4s ease-in-out infinite;
+}
+
+@keyframes maint-blink {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.3;
+	}
+}
+
+.maint-eye {
+	stroke: var(--maint-cyan);
+	filter: drop-shadow(0 0 5px rgba(34, 211, 238, 0.85));
+	animation: maint-eye-glow 2.6s ease-in-out infinite;
+}
+
+@keyframes maint-eye-glow {
+	0%,
+	100% {
+		opacity: 0.65;
+	}
+	50% {
+		opacity: 1;
+	}
+}
+
+.maint-scanline {
+	animation: maint-scan 3.4s ease-in-out infinite;
+}
+
+@keyframes maint-scan {
+	0%,
+	100% {
+		transform: translateY(-24px);
+		opacity: 0;
+	}
+	15% {
+		opacity: 0.55;
+	}
+	50% {
+		transform: translateY(24px);
+		opacity: 0.55;
+	}
+	85% {
+		opacity: 0;
+	}
+}
+
+.maint-eyebrow {
+	font: 700 0.8rem/1 var(--font-mono);
+	letter-spacing: 0.2em;
+	text-transform: uppercase;
+	color: var(--maint-cyan-soft);
+}
+
+.maint-title {
+	margin: 0;
+	font-size: clamp(2.1rem, 1.6rem + 2.4vw, 3.1rem);
+	font-weight: 800;
+	letter-spacing: -0.015em;
+	line-height: 1.2;
+	color: var(--maint-ink);
+	text-shadow: 0 0 34px rgba(34, 211, 238, 0.28);
+}
+
+.maint-pill {
+	margin: 0;
+	display: inline-flex;
+	align-items: center;
+	gap: 0.55rem;
+	padding: 0.6rem 1.15rem;
+	border-radius: 999px;
+	background: var(--maint-green-wash);
+	color: var(--maint-green-soft);
+	font-size: 1.05rem;
+	font-weight: 800;
+}
+
+.maint-pill-dot {
+	width: 9px;
+	height: 9px;
+	border-radius: 999px;
+	background: var(--maint-green);
+	animation: maint-dot-pulse 2.2s ease-out infinite;
+}
+
+@keyframes maint-dot-pulse {
+	0% {
+		box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.55);
+	}
+	70% {
+		box-shadow: 0 0 0 9px rgba(52, 211, 153, 0);
+	}
+	100% {
+		box-shadow: 0 0 0 0 rgba(52, 211, 153, 0);
+	}
+}
+
+.maint-support {
+	margin: 0;
+	max-width: 36ch;
+	color: var(--maint-ink-2);
+	font-size: var(--text-base);
+	line-height: 1.7;
+}
+
+@media (max-width: 480px) {
+	.maint-title {
+		letter-spacing: -0.01em;
+	}
+	.maint-support {
+		max-width: 30ch;
+	}
+}
+
+@media (min-width: 1400px) {
+	.maint-card {
+		max-width: 38rem;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.maint-reveal {
+		animation: none;
+		opacity: 1;
+		transform: none;
+	}
+	.maint-badge-float,
+	.maint-pulse-ring,
+	.maint-hud,
+	.maint-antenna-dot,
+	.maint-eye,
+	.maint-scanline,
+	.maint-pill-dot {
+		animation: none;
+	}
+	.maint-pulse-ring {
+		opacity: 0.3;
+		transform: scale(0.9);
+	}
+	.maint-hud {
+		opacity: 0.75;
+	}
+	.maint-eye {
+		opacity: 1;
+	}
+	.maint-scanline {
+		opacity: 0;
+	}
+}

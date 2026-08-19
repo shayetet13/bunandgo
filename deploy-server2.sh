@@ -96,6 +96,7 @@ for new_file in \
 	backend/src/bot/start-confirmation.test.ts \
 	backend/src/bot/worker-topology.ts \
 	backend/src/bot/worker-topology.test.ts \
+	backend/src/bot/maintenance-mode.ts \
 	frontend/src/lib/rule-input.ts \
 	frontend/src/lib/rule-input.test.ts \
 	frontend/src/lib/race-commentary.ts \

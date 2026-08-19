@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../lib/api.ts";
 import type { UserRole } from "../lib/types.ts";
+import { ToggleSwitch } from "../components/ToggleSwitch.tsx";
 
 interface SettingsPageProps {
 	username: string;
@@ -25,6 +26,33 @@ export function SettingsPage({ username, role, onLogout }: SettingsPageProps) {
 	const [confirmPassword, setConfirmPassword] = useState("");
 	const [passwordState, setPasswordState] = useState<"idle" | "saving" | "done" | "error">("idle");
 	const [passwordMessage, setPasswordMessage] = useState("");
+	const [maintenanceMode, setMaintenanceModeState] = useState(false);
+	const [maintenanceSaving, setMaintenanceSaving] = useState(false);
+	const [maintenanceError, setMaintenanceError] = useState<string>();
+
+	useEffect(() => {
+		if (role !== "admin") return;
+		api
+			.getMaintenanceMode()
+			.then((r) => setMaintenanceModeState(r.enabled))
+			.catch(() => {
+				// Leave the default (off) — the toggle itself is the retry.
+			});
+	}, [role]);
+
+	async function handleToggleMaintenanceMode() {
+		const next = !maintenanceMode;
+		setMaintenanceSaving(true);
+		setMaintenanceError(undefined);
+		try {
+			await api.setMaintenanceMode(next);
+			setMaintenanceModeState(next);
+		} catch (error) {
+			setMaintenanceError(error instanceof Error ? error.message : "บันทึกไม่สำเร็จ");
+		} finally {
+			setMaintenanceSaving(false);
+		}
+	}
 
 	async function handleChangePassword(event: React.FormEvent) {
 		event.preventDefault();
@@ -138,6 +166,25 @@ export function SettingsPage({ username, role, onLogout }: SettingsPageProps) {
 						<p className="hint" style={{ margin: "var(--space-sm) 0 0", color: restartState === "error" ? "var(--signal-bad)" : restartState === "ready" ? "var(--signal-go)" : undefined }}>
 							{restartMessage}
 						</p>
+					)}
+				</section>
+			)}
+
+			{role === "admin" && (
+				<section className="panel" style={{ padding: "var(--space-md)" }}>
+					<div className="label" style={{ marginBottom: "var(--space-sm)" }}>โหมดปิดปรับปรุง</div>
+					<p className="hint" style={{ margin: "0 0 var(--space-sm)" }}>
+						เมื่อเปิดใช้ ผู้ใช้งานทั่วไป (ไม่ใช่ admin) จะเห็นข้อความ "ตอนนี้ระบบปิดปรับปรุง" แทนหน้าจัดการบอททั้งหมด
+						บอทของทุกคนยังทำงานตอบข้อความตามปกติ ไม่ถูกกระทบ — และหน้า Settings นี้ยังเข้าได้เสมอเพื่อปิดโหมดคืน
+					</p>
+					<div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)" }}>
+						<ToggleSwitch isSelected={maintenanceMode} onToggle={() => void handleToggleMaintenanceMode()} />
+						<span style={{ fontSize: "var(--text-sm)", fontWeight: 700 }}>
+							{maintenanceSaving ? "กำลังบันทึก…" : maintenanceMode ? "เปิดอยู่ — ผู้ใช้งานเห็นหน้าปิดปรับปรุง" : "ปิดอยู่ — ผู้ใช้งานใช้งานได้ตามปกติ"}
+						</span>
+					</div>
+					{maintenanceError && (
+						<p className="hint" style={{ margin: "var(--space-sm) 0 0", color: "var(--signal-bad)" }}>{maintenanceError}</p>
 					)}
 				</section>
 			)}
