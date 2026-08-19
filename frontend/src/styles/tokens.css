@@ -21,6 +21,7 @@
 	--signal-bad: #ff4557;
 	--signal-bad-dim: #7a1f28;
 	--signal-idle: #4d5566;
+	--signal-info: #4fc3ff;
 	--accent-line: #06c755; /* LINE brand green, used sparingly as a wink */
 
 	/* Type — Thai-capable stack first so labels render with real glyphs,

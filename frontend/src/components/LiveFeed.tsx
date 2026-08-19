@@ -14,9 +14,11 @@ interface LiveFeedProps {
 	botNameById?: Record<number, string>;
 	/** Only meaningful when true — a single-bot feed never shows the tag, matching today's look exactly. */
 	showBotTag?: boolean;
+	/** LINE room/group mid -> display name, for the per-row room tag. */
+	chatNameByMid?: Record<string, string>;
 }
 
-export function LiveFeed({ items, botNameById, showBotTag }: LiveFeedProps) {
+export function LiveFeed({ items, botNameById, showBotTag, chatNameByMid }: LiveFeedProps) {
 	// Dashboard refreshes its counters every five seconds. The feed itself may
 	// not have changed, so avoid re-sorting up to 200 rows on those renders.
 	const answerTimes = useMemo(() => measureAnswers(items), [items]);
@@ -24,7 +26,7 @@ export function LiveFeed({ items, botNameById, showBotTag }: LiveFeedProps) {
 	return (
 		<section className="panel" style={{ padding: "var(--space-md)", display: "flex", flexDirection: "column", height: "100%" }}>
 			<div className="label" style={{ marginBottom: "var(--space-xs)" }}>บันทึกสด</div>
-			<p className="hint" style={{ margin: "0 0 var(--space-sm)" }}>ข้อความเข้า-ออกของบอทที่เลือกอยู่ แบบเรียลไทม์</p>
+			<p className="hint" style={{ margin: "0 0 var(--space-sm)", color: "var(--text-primary)" }}>ข้อความเข้า-ออกของบอทที่เลือกอยู่ แบบเรียลไทม์</p>
 			<div style={{ overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
 				{items.length === 0 && (
 					<div style={{ color: "var(--text-dim)", fontSize: "var(--text-sm)", padding: "var(--space-sm) 0" }}>
@@ -37,6 +39,7 @@ export function LiveFeed({ items, botNameById, showBotTag }: LiveFeedProps) {
 						item={item}
 						answerMs={answerTimes.get(item.id)}
 						botName={showBotTag ? botNameById?.[item.data.botId] : undefined}
+						roomName={item.data.targetMid ? chatNameByMid?.[item.data.targetMid] : undefined}
 					/>
 				))}
 			</div>
@@ -46,23 +49,33 @@ export function LiveFeed({ items, botNameById, showBotTag }: LiveFeedProps) {
 
 function BotTag({ name }: { name: string }) {
 	return (
-		<span className="chip chip--idle mono" style={{ fontSize: "var(--text-xs)", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={name}>
+		<span className="chip chip--idle mono" style={{ ...tagChipStyle, maxWidth: 140 }} title={name}>
 			{name}
 		</span>
 	);
 }
 
-function FeedRow({ item, answerMs, botName }: { item: FeedItem; answerMs?: number; botName?: string }) {
+/** The LINE room/group this row's message belongs to. */
+function RoomTag({ name }: { name: string }) {
+	return (
+		<span className="chip" style={{ ...tagChipStyle, maxWidth: 160, border: "1px solid var(--border-hair)" }} title={`ห้อง/กลุ่ม: ${name}`}>
+			{name}
+		</span>
+	);
+}
+
+function FeedRow({ item, answerMs, botName, roomName }: { item: FeedItem; answerMs?: number; botName?: string; roomName?: string }) {
 	if (item.kind === "in") {
 		const { data } = item;
 		return (
 			<div style={row}>
 				<span className="mono" style={timeStyle}>{timeLabel(data.ts)}</span>
 				{botName !== undefined && <BotTag name={botName} />}
-				<span className="chip chip--idle" style={{ minWidth: 58, justifyContent: "center" }}>
+				{roomName !== undefined && <RoomTag name={roomName} />}
+				<span className="chip chip--idle" style={{ ...tagChipStyle, minWidth: 58, justifyContent: "center" }}>
 					{data.surface}
 				</span>
-				<span style={{ color: "var(--text-dim)", fontSize: var_xs }}>เข้า</span>
+				<span style={{ color: "var(--signal-info)", fontSize: var_xs, fontWeight: 700 }}>เข้า</span>
 				<span style={{ flex: 1, fontSize: "var(--text-sm)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
 					{data.text}
 				</span>
@@ -89,15 +102,16 @@ function FeedRow({ item, answerMs, botName }: { item: FeedItem; answerMs?: numbe
 			<div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)" }}>
 			<span className="mono" style={timeStyle}>{timeLabel(data.ts)}</span>
 			{botName !== undefined && <BotTag name={botName} />}
-			<span className="chip chip--idle" style={{ minWidth: 58, justifyContent: "center" }}>
+			{roomName !== undefined && <RoomTag name={roomName} />}
+			<span className="chip chip--idle" style={{ ...tagChipStyle, minWidth: 58, justifyContent: "center" }}>
 				{data.surface}
 			</span>
-			<span style={{ color: "var(--signal-go)", fontSize: var_xs }}>ออก</span>
+			<span style={{ color: "var(--signal-go)", fontSize: var_xs, fontWeight: 700 }}>ออก</span>
 			<span style={{ flex: 1, fontSize: "var(--text-sm)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
 				{data.textPreview}
 			</span>
 			<span className={`chip ${tone} mono`} title="ผลรวมของ phase ที่ไม่ทับซ้อนกัน">{ms(totalMs)}</span>
-			<span className="label">{data.source === "auto" ? "อัตโนมัติ" : "ทดสอบ"}</span>
+			<span className="label" style={{ color: "var(--text-primary)" }}>{data.source === "auto" ? "อัตโนมัติ" : "ทดสอบ"}</span>
 			</div>
 			{data.breakdown && (
 				<div className="mono" style={{ display: "flex", gap: "var(--space-md)", flexWrap: "wrap", margin: "0.35rem 0 0 98px", color: "var(--text-dim)", fontSize: "var(--text-xs)" }}>
@@ -144,4 +158,14 @@ const row: CSSProperties = {
 	animation: "row-in var(--duration-normal) var(--ease-out-expo)",
 };
 
-const timeStyle: CSSProperties = { color: "var(--text-dim)", fontSize: "var(--text-xs)", width: 90, flexShrink: 0 };
+const timeStyle: CSSProperties = { color: "var(--text-primary)", fontSize: "var(--text-xs)", width: 90, flexShrink: 0 };
+
+/** A filled pill so these tags read as distinct badges instead of blending into the row background. */
+const tagChipStyle: CSSProperties = {
+	fontSize: "var(--text-xs)",
+	overflow: "hidden",
+	textOverflow: "ellipsis",
+	whiteSpace: "nowrap",
+	background: "var(--bg-panel-raised)",
+	color: "var(--text-primary)",
+};
