@@ -6,7 +6,7 @@ import { ensureWarm, startWarmer } from "../dispatch/warmer.ts";
 import { clearSqliteStorageCache, SqliteStorage } from "../db/sqlite-storage.ts";
 import { latencyTracker, sumLatencyBreakdown } from "../metrics/latency.ts";
 import { getCompiledRules, matchRule, preloadRules } from "./rules.ts";
-import { claimIncomingMessage, claimJobAnswer, claimReply, claimRoomAnswer, clearBotClaims } from "./reply-guard.ts";
+import { claimIncomingMessage, claimReply, claimRoomAnswer, clearBotClaims } from "./reply-guard.ts";
 import { recordPriorityWin, shouldYieldToPriorityBot } from "./priority-answerer.ts";
 import { clearThrottle, tryAcquireSend } from "./rate-limiter.ts";
 import { clearChatAccess } from "./chat-access.ts";
@@ -2108,20 +2108,16 @@ async function handleIncoming(
 		logBotEvent(botId, "priority_yield", "ถอยให้บอทที่ตั้ง priority ตอบแทนในห้องนี้ — โควตาของบอทนั้นในห้องนี้ยังไม่หมด");
 	}
 	// Ordered deliberately: the per-bot claim is checked first because it is
-	// the cheaper of the two and rejects the ordinary push/poll duplicate,
+	// the cheaper of the two and rejects the ordinary push/poll duplicate;
 	// the shared one is only consumed by a bot that would genuinely have
 	// answered (claiming the room from a bot with no matching rule would
-	// silence the sibling that did have one), and the job claim runs last so
-	// it only marks this room "already answered" once every earlier check
-	// has already agreed this reply is actually going out — see
-	// reply-guard.ts's claimJobAnswer doc.
+	// silence the sibling that did have one).
 	if (
 		rule &&
 		client &&
 		!yieldToPriority &&
 		claimReply(guardBotId, targetMid, rule.id, messageId) &&
-		(prewarmGuardBotId !== undefined || claimRoomAnswer(replyOwnerKey(botId, runtime?.ownerUserId), botId, targetMid, messageId)) &&
-		(prewarmGuardBotId !== undefined || claimJobAnswer(guardBotId, targetMid))
+		(prewarmGuardBotId !== undefined || claimRoomAnswer(replyOwnerKey(botId, runtime?.ownerUserId), botId, targetMid, messageId))
 	) {
 		if (prewarmGuardBotId === undefined) {
 			const priorityWinCount = recordPriorityWin(botId);

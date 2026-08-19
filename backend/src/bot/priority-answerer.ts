@@ -5,9 +5,14 @@
  * doesn't just settle into whichever bot happens to be fastest every single
  * time. Once the quota is spent, every room goes back to a fair race for
  * good, everywhere. See reply-guard.ts's "hottest bot answers" note for why
- * that is the default outcome without this, and its claimJobAnswer for why
- * one real customer request only ever counts once toward the quota even if
- * several messages about it arrive.
+ * that is the default outcome without this.
+ *
+ * Each rule-matched message counts on its own toward the quota, including
+ * repeats of the same request — there is no time-window job dedup here. A
+ * message only ever produces one reply regardless (rules.ts's matchRule
+ * stops at the first rule a message matches, and reply-guard.ts's claims
+ * make the send exactly-once), so "the same job asked twice" is two real
+ * messages and two real answers, not one job double-counted.
  *
  * Deliberately room-wide, not owner-scoped: unlike primary-bot.ts's
  * sibling handoff (same owner only, by design — reply-guard.ts keeps

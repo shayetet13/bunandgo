@@ -8,17 +8,6 @@
 
 const CLAIM_TTL_MS = Number(process.env.REPLY_CLAIM_TTL_MS ?? 10 * 60_000);
 const MAX_CLAIMS = Number(process.env.REPLY_CLAIM_MAX ?? 50_000);
-/**
- * How long a room stays "already answered" after a bot's reply, so a burst
- * of separate messages about the same real-world job (a customer's request
- * repeated, or several people confirming the same slot) gets one reply
- * instead of one per message. Distinct from CLAIM_TTL_MS above: that one
- * dedupes a single message id being redelivered; this one dedupes different
- * message ids that are really the same job. Applies to every bot the same
- * way — not tied to priority-answerer.ts's quota, though it is what keeps
- * that quota counting real jobs instead of message spam.
- */
-const JOB_CLAIM_TTL_MS = Number(process.env.JOB_CLAIM_TTL_MS ?? 15_000);
 const SEP = "\0";
 
 /** Map insertion order doubles as an O(1) eviction queue. */
@@ -106,29 +95,6 @@ export function claimRoomAnswer(
 	return true;
 }
 
-/** (botId, chatMid) -> the last time that bot actually answered in that room. */
-const jobAnswers = new Map<string, { botId: number; claimedAt: number }>();
-
-function jobKey(botId: number, chatMid: string): string {
-	return `${botId}${SEP}${chatMid}`;
-}
-
-/**
- * One reply per job per bot per room. A bot that answered `chatMid` within
- * the last JOB_CLAIM_TTL_MS treats any further match there as the same job
- * still being talked about, not a new one — so it stays silent instead of
- * answering again. Once that window passes with no answer, the next match
- * is a fresh job and gets one reply of its own, which also restarts the
- * window.
- */
-export function claimJobAnswer(botId: number, chatMid: string, now = performance.now()): boolean {
-	const k = jobKey(botId, chatMid);
-	const existing = jobAnswers.get(k);
-	if (existing && now - existing.claimedAt < JOB_CLAIM_TTL_MS) return false;
-	jobAnswers.set(k, { botId, claimedAt: now });
-	return true;
-}
-
 function key(
 	botId: number,
 	chatMid: string,
@@ -177,10 +143,5 @@ export function clearBotClaims(botId: number): void {
 	// just before stopping keeps its siblings silent for the rest of the TTL.
 	for (const [k, claim] of roomAnswers) {
 		if (claim.botId === botId) roomAnswers.delete(k);
-	}
-	// Same reasoning as roomAnswers: a stopped bot's job cooldown must not
-	// keep a room "already answered" after it can no longer answer anything.
-	for (const [k, claim] of jobAnswers) {
-		if (claim.botId === botId) jobAnswers.delete(k);
 	}
 }

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { claimIncomingMessage, claimJobAnswer, claimReply, claimRoomAnswer, clearBotClaims } from "./reply-guard.ts";
+import { claimIncomingMessage, claimReply, claimRoomAnswer, clearBotClaims } from "./reply-guard.ts";
 
 const BOT = 1;
 const OTHER_BOT = 2;
@@ -181,56 +181,6 @@ describe("claimRoomAnswer", () => {
 	});
 });
 
-describe("claimJobAnswer", () => {
-	beforeEach(() => {
-		clearBotClaims(BOT);
-		clearBotClaims(OTHER_BOT);
-	});
-
-	test("answers the first message in a room", () => {
-		expect(claimJobAnswer(BOT, CHAT)).toBe(true);
-	});
-
-	test("refuses a second message about the same job soon after", () => {
-		claimJobAnswer(BOT, CHAT, 0);
-
-		expect(claimJobAnswer(BOT, CHAT, 5_000)).toBe(false);
-	});
-
-	test("answers again once the job's cooldown has passed", () => {
-		claimJobAnswer(BOT, CHAT, 0);
-
-		expect(claimJobAnswer(BOT, CHAT, 15_000 + 1)).toBe(true);
-	});
-
-	test("a fresh answer restarts the cooldown", () => {
-		claimJobAnswer(BOT, CHAT, 0);
-		claimJobAnswer(BOT, CHAT, 15_000 + 1); // new job, also claims
-
-		expect(claimJobAnswer(BOT, CHAT, 15_000 + 5_000)).toBe(false); // too soon after the second answer
-	});
-
-	test("does not let one room suppress another", () => {
-		claimJobAnswer(BOT, CHAT, 0);
-
-		expect(claimJobAnswer(BOT, OTHER_CHAT, 0)).toBe(true);
-	});
-
-	test("does not let one bot suppress another in the same room", () => {
-		claimJobAnswer(BOT, CHAT, 0);
-
-		expect(claimJobAnswer(OTHER_BOT, CHAT, 0)).toBe(true);
-	});
-
-	test("a stopped bot's cooldown does not outlive it", () => {
-		claimJobAnswer(BOT, CHAT, 0);
-
-		clearBotClaims(BOT);
-
-		expect(claimJobAnswer(BOT, CHAT, 1)).toBe(true);
-	});
-});
-
 describe("clearBotClaims", () => {
 	beforeEach(() => {
 		clearBotClaims(BOT);
@@ -291,22 +241,5 @@ describe("clearBotClaims", () => {
 		clearBotClaims(BOT);
 
 		expect(claimIncomingMessage(OTHER_BOT, SQUARE, "msg-1")).toBe(false);
-	});
-
-	test("also forgets that bot's job cooldown, not just its reply claims", () => {
-		claimJobAnswer(BOT, CHAT);
-
-		clearBotClaims(BOT);
-
-		expect(claimJobAnswer(BOT, CHAT)).toBe(true);
-	});
-
-	test("leaves another bot's job cooldown intact", () => {
-		claimJobAnswer(BOT, CHAT);
-		claimJobAnswer(OTHER_BOT, CHAT);
-
-		clearBotClaims(BOT);
-
-		expect(claimJobAnswer(OTHER_BOT, CHAT)).toBe(false);
 	});
 });
