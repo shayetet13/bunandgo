@@ -1098,6 +1098,12 @@ function sendOnLane(
 				lane.lastOkAt = Date.now();
 				const elapsedMs = performance.now() - startedAt;
 				recordApplicationRtt(lane, role, elapsedMs);
+				// Same repair rule the ping timer runs, fired the instant a sample
+				// crosses the ceiling instead of waiting up to PING_INTERVAL_MS for
+				// the next tick to notice. Deferred past this reply's own resolve()
+				// below so a degraded-lane retirement never adds latency to the
+				// request that just measured it.
+				setImmediate(() => repairDegradedLane(lanesForOrigin(lane.origin), Date.now()));
 				const shouldScore = role === "send" || (role === "poll" && shouldScorePollLane(lane.origin, lane.id));
 				if (shouldScore && role !== undefined) {
 					setImmediate(() => {
