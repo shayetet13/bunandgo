@@ -2264,6 +2264,68 @@ export async function testSend(botId: number, surface: Surface, targetMid: strin
 	}
 }
 
+export interface HardTimeoutBurstResult {
+	timeoutMs: number;
+	results: Array<{ delivered: boolean; tookMs: number; messageId?: string; error?: string }>;
+}
+
+/**
+ * Live-conditions proof for the "hard drop anything over N ms" idea raised
+ * 2026-08-20: fires `count` sequential Square sends, each aborted if it has
+ * not resolved within `timeoutMs`, to show concretely what a hard send
+ * timeout would actually do right now — how often it would fire, and what
+ * the "dropped" side looks like — before that rule is ever considered for
+ * the real reply path.
+ *
+ * A timeout here only means *this client* stopped waiting; LINE's server
+ * may still process a request whose response we gave up on (the reqSeq
+ * dedupe proof in memory "latency-18-21-plan" is exactly why a retry would
+ * be safe, but this harness does not retry — it is measuring drop
+ * behaviour, not working around it). Callers should read a "dropped" entry
+ * as "we didn't confirm delivery," not "LINE definitely never got it."
+ *
+ * Deliberately bypasses tryAcquireSend and sendTimed for the same reasons
+ * testHedgeDedupBurst did (see git history): this is a one-off
+ * admin-triggered diagnostic burst, not the reply-rate the limiter
+ * defends against, and sendTimed's metrics would pollute the real latency
+ * dashboard with synthetic sends. Sequential with a stagger between
+ * attempts, never fired all at once, so this cannot look like an abuse
+ * burst to LINE (see project memory "recurring-line-logout").
+ */
+export async function testHardTimeoutBurst(
+	botId: number,
+	targetMid: string,
+	text: string,
+	count: number,
+	timeoutMs: number,
+): Promise<HardTimeoutBurstResult> {
+	const client = runtimes.get(botId)?.client;
+	if (!client) throw new Error('บอทนี้ยังไม่ได้เข้าสู่ระบบ — กด "เริ่ม" ก่อน');
+	const results: HardTimeoutBurstResult["results"] = [];
+	for (let i = 0; i < count; i++) {
+		const startedAt = performance.now();
+		try {
+			const response = await client.base.square.sendMessage(
+				{ squareChatMid: targetMid, text: `${text} #${i + 1}/${count}`, fastAck: false },
+				timeoutMs,
+			);
+			results.push({
+				delivered: true,
+				tookMs: performance.now() - startedAt,
+				messageId: response.createdSquareMessage.message.id,
+			});
+		} catch (err) {
+			results.push({
+				delivered: false,
+				tookMs: performance.now() - startedAt,
+				error: err instanceof Error ? err.message : String(err),
+			});
+		}
+		if (i < count - 1) await new Promise((resolve) => setTimeout(resolve, 500));
+	}
+	return { timeoutMs, results };
+}
+
 // ---- Scheduled posts: the "no keyword" rule --------------------------------
 //
 // A post with no keyword to match — it fires because a wall-clock time

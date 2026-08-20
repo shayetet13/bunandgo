@@ -2,9 +2,14 @@ import { Hono } from "hono";
 import { requireAdmin, requestUser } from "../../auth/request-user.ts";
 import { logUserActionImmediately } from "../../auth/user-actions.ts";
 import { isMaintenanceModeEnabled, setMaintenanceMode } from "../../bot/maintenance-mode.ts";
+import { testHardTimeoutBurst } from "../../bot/session-manager.ts";
 import { readWorkerTopology } from "../../bot/worker-topology.ts";
 import { db } from "../../db/sqlite.ts";
 import { applyHedgeConfig, hedgeConfig, hedgeShadowReport, parseHedgeConfig } from "../../dispatch/hedge.ts";
+
+const HARD_TIMEOUT_TEST_CONFIRMATION = "test-hard-timeout";
+const HARD_TIMEOUT_TEST_MAX_COUNT = 30;
+const HARD_TIMEOUT_TEST_MAX_TIMEOUT_MS = 500;
 
 const RESTART_UNIT = "linebot-worker.service";
 const RESTART_CONFIRMATION = "restart-linebot-worker";
@@ -120,6 +125,72 @@ export function createSystemRoute(options: SystemRouteOptions = {}): Hono {
 		const user = requestUser(c)!;
 		logUserActionImmediately(user, "system.maintenance_mode.updated", { enabled: body.enabled });
 		return c.json({ ok: true, enabled: body.enabled });
+	});
+
+	// TEMPORARY — live-conditions proof for the "hard drop anything over Nms"
+	// idea raised 2026-08-20, before it is ever considered for the real reply
+	// path. Fires `count` sequential sends, each aborted client-side if it
+	// hasn't resolved within `timeoutMs`, into a caller-chosen bot/room, and
+	// reports how many would have been delivered vs. dropped under that rule
+	// against live network conditions right now. Remove this route once the
+	// decision is made either way. Never point this at a real work room — the
+	// confirm string is deliberate friction, not a hint to skip it.
+	route.post("/hard-timeout-test", async (c) => {
+		const body = (await c.req.json().catch(() => ({}))) as {
+			confirm?: unknown;
+			botId?: unknown;
+			targetMid?: unknown;
+			text?: unknown;
+			count?: unknown;
+			timeoutMs?: unknown;
+		};
+		if (body.confirm !== HARD_TIMEOUT_TEST_CONFIRMATION) {
+			return c.json({ error: `ต้องยืนยันด้วย confirm: "${HARD_TIMEOUT_TEST_CONFIRMATION}"` }, 400);
+		}
+		const botId = Number(body.botId);
+		if (!Number.isInteger(botId) || botId <= 0) {
+			return c.json({ error: "botId ไม่ถูกต้อง" }, 400);
+		}
+		const targetMid = body.targetMid;
+		if (typeof targetMid !== "string" || !/^m[0-9a-f]{32}$/i.test(targetMid)) {
+			return c.json({ error: "targetMid ไม่ถูกต้อง (ต้องเป็นห้อง Square)" }, 400);
+		}
+		const count = Number(body.count);
+		if (!Number.isInteger(count) || count <= 0 || count > HARD_TIMEOUT_TEST_MAX_COUNT) {
+			return c.json({ error: `count ต้องเป็นจำนวนเต็ม 1-${HARD_TIMEOUT_TEST_MAX_COUNT}` }, 400);
+		}
+		const timeoutMs = body.timeoutMs === undefined ? 20 : Number(body.timeoutMs);
+		if (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > HARD_TIMEOUT_TEST_MAX_TIMEOUT_MS) {
+			return c.json({ error: `timeoutMs ต้องเป็นจำนวนเต็ม 1-${HARD_TIMEOUT_TEST_MAX_TIMEOUT_MS}` }, 400);
+		}
+		const text = typeof body.text === "string" && body.text.trim()
+			? body.text.trim()
+			: `[hard-timeout test] ${timeoutMs}ms ceiling — ${new Date().toISOString()}`;
+
+		const user = requestUser(c)!;
+		try {
+			const result = await testHardTimeoutBurst(botId, targetMid, text, count, timeoutMs);
+			const delivered = result.results.filter((r) => r.delivered);
+			const dropped = result.results.filter((r) => !r.delivered);
+			const deliveredAvgMs = delivered.length > 0
+				? delivered.reduce((sum, r) => sum + r.tookMs, 0) / delivered.length
+				: undefined;
+			logUserActionImmediately(user, "system.hard_timeout_test.fired", {
+				botId,
+				targetMid,
+				count,
+				timeoutMs,
+				delivered: delivered.length,
+				dropped: dropped.length,
+			});
+			return c.json({
+				ok: true,
+				...result,
+				summary: { requested: count, delivered: delivered.length, dropped: dropped.length, deliveredAvgMs },
+			});
+		} catch (error) {
+			return c.json({ error: error instanceof Error ? error.message : "ยิงทดสอบไม่สำเร็จ" }, 400);
+		}
 	});
 
 	return route;

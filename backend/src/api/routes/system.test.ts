@@ -189,3 +189,65 @@ describe("/api/system/maintenance-mode", () => {
 		expect(await (await maintenanceRequest(app, adminCookie)).json()).toEqual({ enabled: false });
 	});
 });
+
+describe("/api/system/hard-timeout-test", () => {
+	const VALID_MID = `m${"a".repeat(32)}`;
+	const VALID_BODY = { confirm: "test-hard-timeout", botId: 1, targetMid: VALID_MID, count: 3, timeoutMs: 20 };
+
+	function hardTimeoutRequest(app: Hono, cookie = "", body: Record<string, unknown> = VALID_BODY) {
+		return app.request("/api/system/hard-timeout-test", {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+				...(cookie ? { cookie } : {}),
+			},
+			body: JSON.stringify(body),
+		});
+	}
+
+	test("requires authentication and an admin role", async () => {
+		const app = buildApp();
+		expect((await hardTimeoutRequest(app)).status).toBe(401);
+
+		const user = createUser(`hard-timeout-user-${Date.now()}`, "hard-timeout-test-password");
+		const userCookie = `${SESSION_COOKIE}=${createSession(user.id)}`;
+		expect((await hardTimeoutRequest(app, userCookie)).status).toBe(403);
+	});
+
+	test("rejects a missing or wrong confirm string", async () => {
+		const app = buildApp();
+		const adminCookie = `${SESSION_COOKIE}=${createSession()}`;
+		expect((await hardTimeoutRequest(app, adminCookie, { ...VALID_BODY, confirm: undefined })).status).toBe(400);
+		expect((await hardTimeoutRequest(app, adminCookie, { ...VALID_BODY, confirm: "nope" })).status).toBe(400);
+	});
+
+	test("validates botId, targetMid, count, and timeoutMs", async () => {
+		const app = buildApp();
+		const adminCookie = `${SESSION_COOKIE}=${createSession()}`;
+		expect((await hardTimeoutRequest(app, adminCookie, { ...VALID_BODY, botId: 0 })).status).toBe(400);
+		expect((await hardTimeoutRequest(app, adminCookie, { ...VALID_BODY, targetMid: "not-a-square-mid" })).status).toBe(400);
+		expect((await hardTimeoutRequest(app, adminCookie, { ...VALID_BODY, count: 0 })).status).toBe(400);
+		expect((await hardTimeoutRequest(app, adminCookie, { ...VALID_BODY, count: 31 })).status).toBe(400);
+		expect((await hardTimeoutRequest(app, adminCookie, { ...VALID_BODY, timeoutMs: 0 })).status).toBe(400);
+		expect((await hardTimeoutRequest(app, adminCookie, { ...VALID_BODY, timeoutMs: 501 })).status).toBe(400);
+	});
+
+	test("defaults timeoutMs to 20 when omitted", async () => {
+		const app = buildApp();
+		const adminCookie = `${SESSION_COOKIE}=${createSession()}`;
+		const { timeoutMs, ...withoutTimeout } = VALID_BODY;
+		const res = await hardTimeoutRequest(app, adminCookie, withoutTimeout);
+		// No live bot session in this test, so the request fails past
+		// validation -- proving timeoutMs's absence alone did not 400.
+		expect(res.status).toBe(400);
+		expect((await res.json() as { error: string }).error).toContain("เข้าสู่ระบบ");
+	});
+
+	test("surfaces an error when the bot has no live session", async () => {
+		const app = buildApp();
+		const adminCookie = `${SESSION_COOKIE}=${createSession()}`;
+		const res = await hardTimeoutRequest(app, adminCookie);
+		expect(res.status).toBe(400);
+		expect((await res.json() as { error: string }).error).toContain("เข้าสู่ระบบ");
+	});
+});

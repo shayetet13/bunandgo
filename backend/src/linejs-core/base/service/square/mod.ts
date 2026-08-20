@@ -231,8 +231,15 @@ export class SquareService implements BaseService {
 		);
 	}
 
+	/**
+	 * `timeoutMs`/`signal` exist only for the hard-drop-ceiling proof (see
+	 * bot/session-manager.ts's testHardTimeoutBurst) — every real caller omits
+	 * them and gets the client's normal configured timeout exactly as before.
+	 */
 	async sendMessage(
 		options: SquareSendMessageOptions,
+		timeoutMs?: number,
+		signal?: AbortSignal,
 	): Promise<LINETypes.SquareService_sendMessage_result["success"]> {
 		const reqSeq = this.client.takeReqseq("sq") ?? await this.client.getReqseq("sq");
 		return await this.client.request.request(
@@ -241,6 +248,9 @@ export class SquareService implements BaseService {
 			this.protocolType,
 			options.fastAck ? "ACK_ONLY" : true,
 			this.requestPath,
+			{},
+			timeoutMs,
+			signal,
 		);
 	}
 
