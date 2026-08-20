@@ -606,21 +606,23 @@ interface RecyclableLane {
 }
 
 /**
- * Picks one known-slow idle connection only when a healthy application-tested
- * standby already exists. This is called by a timer, never by laneFetch, and
- * therefore cannot add a handshake or reconnect to the reply path.
+ * Every idle, ready, over-ceiling lane that has confirmed the breach for
+ * `minimumSlowSamples` consecutive samples, worst RTT first. When every
+ * route is over the ceiling, the fastest measured lane is held back as the
+ * live fallback so this never empties the pool down to zero candidates.
+ *
+ * Both `selectDegradedLaneForRepair()`'s single pick and the repair
+ * scheduler's backlog count come from this one list, so they can never
+ * drift out of sync with each other.
  */
-export function selectDegradedLaneForRepair<T extends RecyclableLane & LaneChoiceMetrics>(
+export function degradedLaneCandidates<T extends RecyclableLane & LaneChoiceMetrics>(
 	lanes: T[],
-	ceilingMs: number = APPLICATION_DISCARD_CEILING_MS,
-	minimumSlowSamples: number = 1,
-): T | undefined {
+	ceilingMs: number,
+	minimumSlowSamples: number,
+): T[] {
 	const ready = lanes.filter((lane) => lane.state === "ready");
 	const measured = ready.filter((lane) => measuredApplicationRtt(lane) !== undefined);
-	if (measured.length < 2) return undefined;
-	// When every route is over the ceiling, retain the fastest measured lane
-	// as the live fallback while one worse idle connection looks for a new
-	// edge. This makes forward progress without ever draining the best route.
+	if (measured.length < 2) return [];
 	const fastest = [...measured].sort((left, right) =>
 		measuredApplicationRtt(left)! - measuredApplicationRtt(right)! || left.id - right.id
 	)[0]!;
@@ -635,26 +637,53 @@ export function selectDegradedLaneForRepair<T extends RecyclableLane & LaneChoic
 			(measuredApplicationRtt(right)! - measuredApplicationRtt(left)!) ||
 			applicationSampleAt(left) - applicationSampleAt(right) ||
 			left.id - right.id
-		)[0];
+		);
+}
+
+/**
+ * Picks one known-slow idle connection only when a healthy application-tested
+ * standby already exists. This is called by a timer, never by laneFetch, and
+ * therefore cannot add a handshake or reconnect to the reply path.
+ */
+export function selectDegradedLaneForRepair<T extends RecyclableLane & LaneChoiceMetrics>(
+	lanes: T[],
+	ceilingMs: number = APPLICATION_DISCARD_CEILING_MS,
+	minimumSlowSamples: number = 1,
+): T | undefined {
+	return degradedLaneCandidates(lanes, ceilingMs, minimumSlowSamples)[0];
 }
 
 function repairDegradedLane(lanes: Lane[], now: number): boolean {
 	if (lanes.length === 0) return false;
 	const origin = lanes[0]!.origin;
-	if (now - (lastDegradedRepairAt.get(origin) ?? now) < DEGRADED_REPAIR_MIN_GAP_MS) return false;
-	const candidate = selectDegradedLaneForRepair(
+	const candidates = degradedLaneCandidates(
 		lanes.filter(isUsable),
 		APPLICATION_DISCARD_CEILING_MS,
 		DEGRADED_REPAIR_MIN_SAMPLES,
 	);
-	if (!candidate) return false;
+	if (candidates.length === 0) return false;
 
+	// A lone degraded lane gets the full conservative gap -- no reason to
+	// rush a one-off blip. Once a second lane is *simultaneously* idle and
+	// over the ceiling, the repair queue is falling behind the rate lanes
+	// are degrading at: production evidence (2026-08-20, legy.line-apps.com,
+	// 21h/305 repairs) showed the gap sitting at its 60s floor in 56% of
+	// gaps, with another lane already waiting the instant it reopened --
+	// real reply p50 sat at 22.5ms against an 18-21ms target as a result.
+	// Backing off to one repair per timer tick when a backlog exists is
+	// still safe: this function is never called more than once per
+	// PING_INTERVAL_MS (see startPingTimer), and never touches the fastest
+	// lane or one with inFlight work either way.
+	const effectiveGapMs = candidates.length > 1 ? PING_INTERVAL_MS : DEGRADED_REPAIR_MIN_GAP_MS;
+	if (now - (lastDegradedRepairAt.get(origin) ?? now) < effectiveGapMs) return false;
+
+	const candidate = candidates[0]!;
 	lastDegradedRepairAt.set(origin, now);
 	console.log(
 		`[h2-lanes] background repair: lane ${candidate.id} ` +
 			`application=${measuredApplicationRtt(candidate)!.toFixed(1)}ms ` +
 			`discard=${APPLICATION_DISCARD_CEILING_MS.toFixed(1)}ms ` +
-			`slowSamples=${candidate.consecutiveSlowApplicationSamples} (origin=${origin})`,
+			`slowSamples=${candidate.consecutiveSlowApplicationSamples} backlog=${candidates.length} (origin=${origin})`,
 	);
 	retireLane(candidate, "draining");
 	return true;

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createServer, constants, type Http2Server, type ServerHttp2Stream, type IncomingHttpHeaders } from "node:http2";
 import { gzipSync } from "node:zlib";
-import { buildHeaders, decodeBody, ensureLanes, H2_LANE_ROLE_HEADER, laneCandidates, laneFetch, laneStats, selectAgedLaneForRecycle, selectDegradedLaneForRepair, selectPollingLaneCandidate, sendCandidatesWithCrossover, shouldPreferFastestSendLane, shouldPreferLane, stopLanes } from "./h2-lanes.ts";
+import { buildHeaders, decodeBody, degradedLaneCandidates, ensureLanes, H2_LANE_ROLE_HEADER, laneCandidates, laneFetch, laneStats, selectAgedLaneForRecycle, selectDegradedLaneForRepair, selectPollingLaneCandidate, sendCandidatesWithCrossover, shouldPreferFastestSendLane, shouldPreferLane, stopLanes } from "./h2-lanes.ts";
 import { readResponseBytes } from "./raw-response.ts";
 
 type StreamHandler = (stream: ServerHttp2Stream, headers: IncomingHttpHeaders) => void;
@@ -550,6 +550,27 @@ describe("rolling lane refresh", () => {
 			{ id: 0, state: "ready" as const, inFlight: 0, openedAt: old, sendRttMs: 31, lastSendOkAt: now, lastOkAt: now },
 		];
 		expect(selectDegradedLaneForRepair(lanes, 23)).toBeUndefined();
+	});
+
+	test("reports every simultaneously idle, over-ceiling lane -- not just the one it would repair next", () => {
+		const lanes = [
+			{ id: 0, state: "ready" as const, inFlight: 0, openedAt: young, sendRttMs: 18, lastSendOkAt: now, lastOkAt: now, consecutiveSlowApplicationSamples: 0 },
+			{ id: 1, state: "ready" as const, inFlight: 0, openedAt: old, sendRttMs: 26, lastSendOkAt: now, lastOkAt: now, consecutiveSlowApplicationSamples: 3 },
+			{ id: 2, state: "ready" as const, inFlight: 0, openedAt: old, pollRttMs: 40, lastPollOkAt: now, lastOkAt: now, consecutiveSlowApplicationSamples: 3 },
+			// Still mid-send: not idle, so it never counts toward the backlog.
+			{ id: 3, state: "ready" as const, inFlight: 1, openedAt: old, pollRttMs: 60, lastPollOkAt: now, lastOkAt: now, consecutiveSlowApplicationSamples: 3 },
+		];
+		const backlog = degradedLaneCandidates(lanes, 23, 3);
+		expect(backlog.map((lane) => lane.id)).toEqual([2, 1]);
+		expect(selectDegradedLaneForRepair(lanes, 23, 3)?.id).toBe(backlog[0]!.id);
+	});
+
+	test("backlog is empty with only one degraded lane, so a repair scheduler falls back to the conservative gap", () => {
+		const lanes = [
+			{ id: 0, state: "ready" as const, inFlight: 0, openedAt: young, sendRttMs: 18, lastSendOkAt: now, lastOkAt: now, consecutiveSlowApplicationSamples: 0 },
+			{ id: 1, state: "ready" as const, inFlight: 0, openedAt: old, pollRttMs: 31, lastPollOkAt: now, lastOkAt: now, consecutiveSlowApplicationSamples: 3 },
+		];
+		expect(degradedLaneCandidates(lanes, 23, 3)).toHaveLength(1);
 	});
 });
 
