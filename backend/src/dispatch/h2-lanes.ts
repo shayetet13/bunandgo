@@ -101,7 +101,7 @@ const LANE_RECYCLE_MIN_GAP_MS = recycleInterval(
 );
 
 /** A recent real LINE request, not edge-only H2 PING, gates hot routing.
- * 19/21 (not the older 18/20) on purpose: with a second, genuinely
+ * 20/21 (not the older 18/20) on purpose: with a second, genuinely
  * independent network path (the lane relay, see remote-lane.ts) now a real
  * candidate, the ceiling has to fit its typical RTT too, not just local
  * lanes' — 18/20 measured against server3's own numbers rejected it almost
@@ -113,7 +113,7 @@ const APPLICATION_HOT_CEILING_MS = Math.max(
 	Number(
 		process.env.LINE_H2_APPLICATION_HOT_CEILING_MS ??
 		process.env.LINE_H2_APPLICATION_LANE_CEILING_MS ??
-		19,
+		20,
 	),
 );
 /** Known routes at or above this RTT are removed from foreground sends. */
