@@ -151,6 +151,84 @@ describe("one-LINE-account-per-bot lock", () => {
 		expect(evaluateIdLock(getBot(bot.id)!, "u-alice", "Not Alice")).toBe("name_mismatch");
 	});
 
+	// The comparison in evaluateIdLock is a plain JS `!==` on the raw string
+	// LINE reports — no .trim(), .toLowerCase(), or .normalize() anywhere on
+	// this path (session-manager.ts captures client.base.profile.displayName
+	// as-is). Each case below isolates one category of difference a naive
+	// comparison (case-insensitive, whitespace-collapsing, etc.) might miss.
+	test("a display name differing only by case is a name_mismatch (no case-folding)", () => {
+		const ownerId = owner("id-lock-case-owner");
+		const bot = createBot("id-lock case bot", "DESKTOPWIN", ownerId);
+		setBotLockedLineMid(bot.id, "u-alice", "Alice");
+
+		expect(evaluateIdLock(getBot(bot.id)!, "u-alice", "alice")).toBe("name_mismatch");
+		expect(evaluateIdLock(getBot(bot.id)!, "u-alice", "ALICE")).toBe("name_mismatch");
+	});
+
+	test("a display name differing only by leading/trailing whitespace is a name_mismatch (no trimming)", () => {
+		const ownerId = owner("id-lock-whitespace-owner");
+		const bot = createBot("id-lock whitespace bot", "DESKTOPWIN", ownerId);
+		setBotLockedLineMid(bot.id, "u-alice", "Alice");
+
+		expect(evaluateIdLock(getBot(bot.id)!, "u-alice", "Alice ")).toBe("name_mismatch");
+		expect(evaluateIdLock(getBot(bot.id)!, "u-alice", " Alice")).toBe("name_mismatch");
+	});
+
+	test("a display name differing only by an invisible zero-width character is a name_mismatch", () => {
+		const ownerId = owner("id-lock-zwsp-owner");
+		const bot = createBot("id-lock zwsp bot", "DESKTOPWIN", ownerId);
+		setBotLockedLineMid(bot.id, "u-alice", "Alice");
+
+		// U+200B ZERO WIDTH SPACE renders invisibly but is a real code unit.
+		expect(evaluateIdLock(getBot(bot.id)!, "u-alice", "Alice​")).toBe("name_mismatch");
+	});
+
+	test("a display name differing only by a trailing emoji/symbol pair is a name_mismatch", () => {
+		const ownerId = owner("id-lock-emoji-owner");
+		const bot = createBot("id-lock emoji bot", "DESKTOPWIN", ownerId);
+		setBotLockedLineMid(bot.id, "u-alice", "T-:(^_-)");
+
+		expect(evaluateIdLock(getBot(bot.id)!, "u-alice", "T-:(^_-)\u{1F6AD}\u{1F9E8}")).toBe("name_mismatch");
+	});
+
+	test("a single trailing punctuation character added to an otherwise-identical name is still a name_mismatch", () => {
+		const ownerId = owner("id-lock-punct-owner");
+		const bot = createBot("id-lock punct bot", "DESKTOPWIN", ownerId);
+		setBotLockedLineMid(bot.id, "u-alice", "T-:(^_-)\u{1F6AD}\u{1F9E8}");
+
+		expect(evaluateIdLock(getBot(bot.id)!, "u-alice", "T-:(^_-)\u{1F6AD}\u{1F9E8}.")).toBe("name_mismatch");
+	});
+
+	test("a display name differing only by script/language is a name_mismatch", () => {
+		const ownerId = owner("id-lock-script-owner");
+		const bot = createBot("id-lock script bot", "DESKTOPWIN", ownerId);
+		setBotLockedLineMid(bot.id, "u-alice", "สมชาย");
+
+		expect(evaluateIdLock(getBot(bot.id)!, "u-alice", "Somchai")).toBe("name_mismatch");
+	});
+
+	test("an empty display name on the current attempt is a name_mismatch once a real name is locked in (closes the bypass)", () => {
+		const ownerId = owner("id-lock-empty-owner");
+		const bot = createBot("id-lock empty bot", "DESKTOPWIN", ownerId);
+		setBotLockedLineMid(bot.id, "u-alice", "Alice");
+
+		// A shared/handed-off account (mid intact, name swapped) could
+		// previously dodge the lock just by having LINE report an empty
+		// displayName on that attempt — see evaluateIdLock's doc comment.
+		expect(evaluateIdLock(getBot(bot.id)!, "u-alice", "")).toBe("name_mismatch");
+	});
+
+	test("an empty display name is still a match on a legacy bot that never recorded a name at all", () => {
+		const ownerId = owner("id-lock-legacy-empty-owner");
+		const bot = createBot("id-lock legacy empty bot", "DESKTOPWIN", ownerId);
+		// setBotLockedLineMid with an empty name stores NULL (see bots.ts) —
+		// this is the one case an empty incoming name must NOT be punished:
+		// there was never a name on record to compare against.
+		setBotLockedLineMid(bot.id, "u-alice", "");
+
+		expect(evaluateIdLock(getBot(bot.id)!, "u-alice", "")).toBe("match");
+	});
+
 	test("a legacy bot (mid locked, no name recorded yet) is a match regardless of the current name", () => {
 		const ownerId = owner("id-lock-legacy-owner");
 		const bot = createBot("id-lock legacy bot", "DESKTOPWIN", ownerId);

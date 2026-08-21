@@ -88,18 +88,23 @@ export type IdLockOutcome = "exempt" | "first_login" | "match" | "mismatch" | "n
  * the lock on "first_login", rejecting the session on "mismatch" or
  * "name_mismatch") so this stays testable without a real LINE client.
  *
- * The name check only fires once both sides have something to compare: a
- * bot whose lock predates this field (lockedLineDisplayName still null) is
- * never punished for a name it never recorded, and an empty displayName on
- * the current attempt is never treated as a mismatch either — see the
- * deploy-time sweep in session-manager.ts for how legacy bots get a name
- * recorded instead.
+ * The name check exempts exactly one case: a bot whose lock predates this
+ * field (lockedLineDisplayName still null) is never punished for a name it
+ * never recorded — see the deploy-time sweep in session-manager.ts for how
+ * legacy bots get a name recorded instead. Once a name IS recorded, any
+ * difference from it is a name_mismatch, including the current attempt
+ * reporting an empty displayName — an empty incoming name used to be read
+ * as "nothing to compare" and waved through, which meant a login that
+ * legitimately changed hands (mid intact, name swapped) could dodge the
+ * lock simply by having a client that omits displayName on that attempt.
+ * Closed deliberately, accepting that a genuine transient empty-name
+ * response from LINE now also locks the bot out until an admin resets it.
  */
 export function evaluateIdLock(bot: Bot, lineMid: string, displayName: string): IdLockOutcome {
 	if (isIdLockExempt(bot)) return "exempt";
 	if (!bot.lockedLineMid) return "first_login";
 	if (bot.lockedLineMid !== lineMid) return "mismatch";
-	if (bot.lockedLineDisplayName && displayName && bot.lockedLineDisplayName !== displayName) {
+	if (bot.lockedLineDisplayName && bot.lockedLineDisplayName !== displayName) {
 		return "name_mismatch";
 	}
 	return "match";
