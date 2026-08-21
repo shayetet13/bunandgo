@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { requireAdmin, requestUser } from "../../auth/request-user.ts";
 import { logUserActionImmediately } from "../../auth/user-actions.ts";
 import { isMaintenanceModeEnabled, setMaintenanceMode } from "../../bot/maintenance-mode.ts";
-import { testHardTimeoutBurst, testLaneRelayBurst } from "../../bot/session-manager.ts";
+import { testHardTimeoutBurst, testLaneRelayBurst, type LaneRelayTestTarget } from "../../bot/session-manager.ts";
 import { readWorkerTopology } from "../../bot/worker-topology.ts";
 import { db } from "../../db/sqlite.ts";
 import { applyHedgeConfig, hedgeConfig, hedgeShadowReport, parseHedgeConfig } from "../../dispatch/hedge.ts";
@@ -217,12 +217,25 @@ export function createSystemRoute(options: SystemRouteOptions = {}): Hono {
 		if (!Number.isInteger(botId) || botId <= 0) {
 			return c.json({ error: "botId ไม่ถูกต้อง" }, 400);
 		}
-		const targetMids = body.targetMids;
+		const rawTargetMids = body.targetMids;
 		if (
-			!Array.isArray(targetMids) || targetMids.length === 0 || targetMids.length > 5 ||
-			!targetMids.every((mid) => typeof mid === "string" && /^m[0-9a-f]{32}$/i.test(mid))
+			!Array.isArray(rawTargetMids) || rawTargetMids.length === 0 || rawTargetMids.length > 5 ||
+			!rawTargetMids.every((mid) => typeof mid === "string" && /^[a-z][0-9a-f]{32}$/i.test(mid))
 		) {
-			return c.json({ error: "targetMids ไม่ถูกต้อง (ต้องเป็น array ของห้อง Square 1-5 ห้อง)" }, 400);
+			return c.json({ error: "targetMids ไม่ถูกต้อง (ต้องเป็น array ของ mid ห้อง 1-5 ห้อง)" }, 400);
+		}
+		// Looked up rather than trusted from the request: confirms every mid is
+		// really one of this bot's own rooms (not a typo'd/foreign mid) and
+		// picks the right client method (square vs talk) per room automatically.
+		const targets: LaneRelayTestTarget[] = [];
+		for (const mid of rawTargetMids as string[]) {
+			const chat = db.query<{ surface: string }, [number, string]>(
+				"SELECT surface FROM chats WHERE bot_id = ? AND mid = ?",
+			).get(botId, mid);
+			if (!chat || (chat.surface !== "square" && chat.surface !== "talk")) {
+				return c.json({ error: `ห้อง ${mid} ไม่พบสำหรับบอทนี้ หรือไม่ใช่ห้องแชท` }, 400);
+			}
+			targets.push({ mid, surface: chat.surface });
 		}
 		const count = Number(body.count);
 		if (!Number.isInteger(count) || count <= 0 || count > LANE_RELAY_TEST_MAX_COUNT) {
@@ -241,13 +254,13 @@ export function createSystemRoute(options: SystemRouteOptions = {}): Hono {
 
 		const user = requestUser(c)!;
 		try {
-			const result = await testLaneRelayBurst(botId, targetMids as string[], text, count, ceilingMs);
+			const result = await testLaneRelayBurst(botId, targets, text, count, ceilingMs);
 			const delivered = result.results.filter((r) => r.delivered);
 			const skipped = result.results.filter((r) => r.skipped);
 			const failed = result.results.filter((r) => !r.delivered && !r.skipped);
 			logUserActionImmediately(user, "system.lane_relay_test.fired", {
 				botId,
-				targetMids,
+				targets,
 				count,
 				ceilingMs,
 				sent: result.results.length,

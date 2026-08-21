@@ -2327,6 +2327,11 @@ export async function testHardTimeoutBurst(
 	return { timeoutMs, results };
 }
 
+export interface LaneRelayTestTarget {
+	mid: string;
+	surface: "square" | "talk";
+}
+
 export interface LaneRelayTestEntry {
 	index: number;
 	targetMid: string;
@@ -2372,31 +2377,33 @@ const LANE_RELAY_TEST_ABORT_AFTER_CONSECUTIVE_FAILURES = 3;
  * "recurring-line-logout"). Stops early on repeated failures rather than
  * finishing `count` no matter what.
  *
- * `targetMids` round-robins across however many rooms are given (1 or more)
- * so one run can exercise the relay under more than one room's traffic at
- * once. `ceilingMs`, when given, gates every attempt on the relay's own most
- * recently measured RTT (see bestKnownRelayRttMs()): an attempt whose best
- * available lane is already known to run over the ceiling is skipped rather
- * than sent anyway, so `results.length` can land under `count` on purpose.
+ * `targets` round-robins across however many rooms are given (1 or more),
+ * each tagged with its surface since Square and Talk send through different
+ * client methods, so one run can exercise the relay under more than one
+ * room's (and surface's) traffic at once. `ceilingMs`, when given, gates
+ * every attempt on the relay's own most recently measured RTT (see
+ * bestKnownRelayRttMs()): an attempt whose best available lane is already
+ * known to run over the ceiling is skipped rather than sent anyway, so
+ * `results.length` can land under `count` on purpose.
  */
 export async function testLaneRelayBurst(
 	botId: number,
-	targetMids: string[],
+	targets: LaneRelayTestTarget[],
 	text: string,
 	count: number,
 	ceilingMs?: number,
 ): Promise<LaneRelayTestResult> {
 	const client = runtimes.get(botId)?.client;
 	if (!client) throw new Error('บอทนี้ยังไม่ได้เข้าสู่ระบบ — กด "เริ่ม" ก่อน');
-	if (targetMids.length === 0) throw new Error("ต้องระบุห้องอย่างน้อย 1 ห้อง");
+	if (targets.length === 0) throw new Error("ต้องระบุห้องอย่างน้อย 1 ห้อง");
 	const results: LaneRelayTestEntry[] = [];
 	let consecutiveFailures = 0;
 	for (let i = 0; i < count; i++) {
-		const targetMid = targetMids[i % targetMids.length]!;
+		const target = targets[i % targets.length]!;
 		if (ceilingMs !== undefined) {
 			const knownRttMs = await bestKnownRelayRttMs();
 			if (knownRttMs === undefined || knownRttMs > ceilingMs) {
-				results.push({ index: i, targetMid, delivered: false, skipped: true, tookMs: 0, knownRttMs });
+				results.push({ index: i, targetMid: target.mid, delivered: false, skipped: true, tookMs: 0, knownRttMs });
 				if (i < count - 1) {
 					const stagger = LANE_RELAY_TEST_MIN_STAGGER_MS + Math.random() * LANE_RELAY_TEST_STAGGER_JITTER_MS;
 					await new Promise((resolve) => setTimeout(resolve, stagger));
@@ -2406,25 +2413,35 @@ export async function testLaneRelayBurst(
 		}
 		const startedAt = performance.now();
 		try {
-			const response = await runWithLaneRelayTest(() =>
-				client.base.square.sendMessage(
-					{ squareChatMid: targetMid, text: `${text} #${i + 1}/${count}`, fastAck: false },
+			const messageText = `${text} #${i + 1}/${count}`;
+			const messageId = await runWithLaneRelayTest(async () => {
+				if (target.surface === "talk") {
+					const response = await client.base.talk.sendCompactMessage({
+						to: target.mid,
+						text: messageText,
+						fastAck: true,
+					});
+					return String(response.messageId);
+				}
+				const response = await client.base.square.sendMessage(
+					{ squareChatMid: target.mid, text: messageText, fastAck: false },
 					LANE_RELAY_TEST_TIMEOUT_MS,
-				)
-			);
+				);
+				return response.createdSquareMessage.message.id;
+			});
 			results.push({
 				index: i,
-				targetMid,
+				targetMid: target.mid,
 				delivered: true,
 				skipped: false,
 				tookMs: performance.now() - startedAt,
-				messageId: response.createdSquareMessage.message.id,
+				messageId,
 			});
 			consecutiveFailures = 0;
 		} catch (err) {
 			results.push({
 				index: i,
-				targetMid,
+				targetMid: target.mid,
 				delivered: false,
 				skipped: false,
 				tookMs: performance.now() - startedAt,
