@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { requireAdmin, requestUser } from "../../auth/request-user.ts";
 import { logUserActionImmediately } from "../../auth/user-actions.ts";
 import { isMaintenanceModeEnabled, setMaintenanceMode } from "../../bot/maintenance-mode.ts";
-import { testHardTimeoutBurst } from "../../bot/session-manager.ts";
+import { testHardTimeoutBurst, testLaneRelayBurst } from "../../bot/session-manager.ts";
 import { readWorkerTopology } from "../../bot/worker-topology.ts";
 import { db } from "../../db/sqlite.ts";
 import { applyHedgeConfig, hedgeConfig, hedgeShadowReport, parseHedgeConfig } from "../../dispatch/hedge.ts";
@@ -10,6 +10,9 @@ import { applyHedgeConfig, hedgeConfig, hedgeShadowReport, parseHedgeConfig } fr
 const HARD_TIMEOUT_TEST_CONFIRMATION = "test-hard-timeout";
 const HARD_TIMEOUT_TEST_MAX_COUNT = 30;
 const HARD_TIMEOUT_TEST_MAX_TIMEOUT_MS = 500;
+
+const LANE_RELAY_TEST_CONFIRMATION = "test-lane-relay";
+const LANE_RELAY_TEST_MAX_COUNT = 150;
 
 const RESTART_UNIT = "linebot-worker.service";
 const RESTART_CONFIRMATION = "restart-linebot-worker";
@@ -187,6 +190,69 @@ export function createSystemRoute(options: SystemRouteOptions = {}): Hono {
 				ok: true,
 				...result,
 				summary: { requested: count, delivered: delivered.length, dropped: dropped.length, deliveredAvgMs },
+			});
+		} catch (error) {
+			return c.json({ error: error instanceof Error ? error.message : "ยิงทดสอบไม่สำเร็จ" }, 400);
+		}
+	});
+
+	// TEMPORARY — ban-risk proof for routing real sends through the lane-relay
+	// box (server3), raised 2026-08-21. Remove this route and
+	// lane-relay-test-transport.ts once that question is answered either way.
+	// Never point this at a real work room — the confirm string is
+	// deliberate friction, not a hint to skip it.
+	route.post("/lane-relay-test", async (c) => {
+		const body = (await c.req.json().catch(() => ({}))) as {
+			confirm?: unknown;
+			botId?: unknown;
+			targetMid?: unknown;
+			text?: unknown;
+			count?: unknown;
+		};
+		if (body.confirm !== LANE_RELAY_TEST_CONFIRMATION) {
+			return c.json({ error: `ต้องยืนยันด้วย confirm: "${LANE_RELAY_TEST_CONFIRMATION}"` }, 400);
+		}
+		const botId = Number(body.botId);
+		if (!Number.isInteger(botId) || botId <= 0) {
+			return c.json({ error: "botId ไม่ถูกต้อง" }, 400);
+		}
+		const targetMid = body.targetMid;
+		if (typeof targetMid !== "string" || !/^m[0-9a-f]{32}$/i.test(targetMid)) {
+			return c.json({ error: "targetMid ไม่ถูกต้อง (ต้องเป็นห้อง Square)" }, 400);
+		}
+		const count = Number(body.count);
+		if (!Number.isInteger(count) || count <= 0 || count > LANE_RELAY_TEST_MAX_COUNT) {
+			return c.json({ error: `count ต้องเป็นจำนวนเต็ม 1-${LANE_RELAY_TEST_MAX_COUNT}` }, 400);
+		}
+		const text = typeof body.text === "string" && body.text.trim()
+			? body.text.trim()
+			: `[lane-relay test] via server3 — ${new Date().toISOString()}`;
+
+		const user = requestUser(c)!;
+		try {
+			const result = await testLaneRelayBurst(botId, targetMid, text, count);
+			const delivered = result.results.filter((r) => r.delivered);
+			const failed = result.results.filter((r) => !r.delivered);
+			logUserActionImmediately(user, "system.lane_relay_test.fired", {
+				botId,
+				targetMid,
+				count,
+				sent: result.results.length,
+				delivered: delivered.length,
+				failed: failed.length,
+				abortedEarly: result.abortedEarly,
+				distinctMessageIds: result.distinctMessageIds,
+			});
+			return c.json({
+				ok: true,
+				...result,
+				summary: {
+					requested: count,
+					sent: result.results.length,
+					delivered: delivered.length,
+					failed: failed.length,
+					distinctMessageIds: result.distinctMessageIds,
+				},
 			});
 		} catch (error) {
 			return c.json({ error: error instanceof Error ? error.message : "ยิงทดสอบไม่สำเร็จ" }, 400);

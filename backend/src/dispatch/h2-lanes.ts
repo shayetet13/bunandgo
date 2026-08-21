@@ -2,6 +2,7 @@ import { connect as connectHttp2, constants, type ClientHttp2Session, type Clien
 import { gunzipSync, inflateSync, brotliDecompressSync } from "node:zlib";
 import { attachRawDispatchBody } from "./raw-response.ts";
 import { laneRaceScore, recordLaneRace, shouldScorePollLane, type LaneRaceScore } from "./lane-race.ts";
+import { fetchViaLaneRelayTest, isLaneRelayTestActive } from "./lane-relay-test-transport.ts";
 
 /**
  * A small pool of HTTP/2 connections ("lanes") to a LINE host that this
@@ -134,7 +135,7 @@ const CONNECT_TIMEOUT_MS = 10_000;
 const RECONNECT_MAX_DELAY_MS = 8_000;
 
 type LaneState = "connecting" | "ready" | "draining" | "dead";
-type LaneRole = "send" | "poll" | undefined;
+export type LaneRole = "send" | "poll" | undefined;
 
 /** Process-local routing hint. It is stripped before anything reaches LINE. */
 export const H2_LANE_ROLE_HEADER = "x-linebot-h2-role";
@@ -1142,6 +1143,12 @@ function lanesForOrigin(origin: string): Lane[] {
  * the whole benefit here, and it costs no risk of sending twice.
  */
 export function laneFetch(info: RequestInfo | URL, init?: RequestInit): Promise<Response | undefined> {
+	// TEMPORARY — see lane-relay-test-transport.ts. Only ever set inside the
+	// async call tree of testLaneRelayBurst's own sendMessage calls; every
+	// other caller on this process is completely unaffected.
+	if (isLaneRelayTestActive()) {
+		return fetchViaLaneRelayTest(info, init, requestRole(init));
+	}
 	if (LANE_COUNT === 0) return undefined;
 	const url = info instanceof URL ? info : new URL(typeof info === "string" ? info : info.url);
 	const lanes = pools.get(url.origin);

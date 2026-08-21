@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import { type Client, loginWithAuthToken, loginWithQR, SquareMessage, type TalkMessage } from "../linejs-core/client/mod.ts";
 import type { Device } from "../linejs-core/base/mod.ts";
 import { createDispatchFetch } from "../dispatch/client.ts";
+import { runWithLaneRelayTest } from "../dispatch/lane-relay-test-transport.ts";
 import { ensureWarm, startWarmer } from "../dispatch/warmer.ts";
 import { clearSqliteStorageCache, SqliteStorage } from "../db/sqlite-storage.ts";
 import { latencyTracker, sumLatencyBreakdown } from "../metrics/latency.ts";
@@ -2324,6 +2325,96 @@ export async function testHardTimeoutBurst(
 		if (i < count - 1) await new Promise((resolve) => setTimeout(resolve, 500));
 	}
 	return { timeoutMs, results };
+}
+
+export interface LaneRelayTestEntry {
+	index: number;
+	delivered: boolean;
+	tookMs: number;
+	messageId?: string;
+	error?: string;
+}
+
+export interface LaneRelayTestResult {
+	results: LaneRelayTestEntry[];
+	abortedEarly: boolean;
+	distinctMessageIds: number;
+}
+
+const LANE_RELAY_TEST_MIN_STAGGER_MS = 2_500;
+const LANE_RELAY_TEST_STAGGER_JITTER_MS = 1_000;
+/** Generous on purpose — this proves out routing through a second box over a
+ * real network hop, not send-latency, so a slow relay response must never
+ * read as "undelivered" and pollute the ban-risk signal with false drops. */
+const LANE_RELAY_TEST_TIMEOUT_MS = 15_000;
+/** Consecutive failures before stopping rather than pushing on toward
+ * `count` — protecting the account matters more than finishing the run. */
+const LANE_RELAY_TEST_ABORT_AFTER_CONSECUTIVE_FAILURES = 3;
+
+/**
+ * TEMPORARY — ban-risk proof for routing a bot's real sends through the
+ * lane-relay box (server3) instead of this process's own h2-lanes, raised
+ * 2026-08-21. Every send in the burst is wrapped in runWithLaneRelayTest()
+ * so laneFetch() forwards *only this call* to the relay (see
+ * lane-relay-test-transport.ts) — every other bot's traffic on this process
+ * is completely unaffected. Sequential with a jittered multi-second stagger,
+ * same reasoning as testHardTimeoutBurst: never fired as a burst, so this
+ * cannot look like automated abuse on its own (see project memory
+ * "recurring-line-logout"). Stops early on repeated failures rather than
+ * finishing `count` no matter what.
+ */
+export async function testLaneRelayBurst(
+	botId: number,
+	targetMid: string,
+	text: string,
+	count: number,
+): Promise<LaneRelayTestResult> {
+	const client = runtimes.get(botId)?.client;
+	if (!client) throw new Error('บอทนี้ยังไม่ได้เข้าสู่ระบบ — กด "เริ่ม" ก่อน');
+	const results: LaneRelayTestEntry[] = [];
+	let consecutiveFailures = 0;
+	for (let i = 0; i < count; i++) {
+		const startedAt = performance.now();
+		try {
+			const response = await runWithLaneRelayTest(() =>
+				client.base.square.sendMessage(
+					{ squareChatMid: targetMid, text: `${text} #${i + 1}/${count}`, fastAck: false },
+					LANE_RELAY_TEST_TIMEOUT_MS,
+				)
+			);
+			results.push({
+				index: i,
+				delivered: true,
+				tookMs: performance.now() - startedAt,
+				messageId: response.createdSquareMessage.message.id,
+			});
+			consecutiveFailures = 0;
+		} catch (err) {
+			results.push({
+				index: i,
+				delivered: false,
+				tookMs: performance.now() - startedAt,
+				error: err instanceof Error ? err.message : String(err),
+			});
+			consecutiveFailures++;
+			if (consecutiveFailures >= LANE_RELAY_TEST_ABORT_AFTER_CONSECUTIVE_FAILURES) {
+				return {
+					results,
+					abortedEarly: true,
+					distinctMessageIds: new Set(results.map((r) => r.messageId).filter(Boolean)).size,
+				};
+			}
+		}
+		if (i < count - 1) {
+			const stagger = LANE_RELAY_TEST_MIN_STAGGER_MS + Math.random() * LANE_RELAY_TEST_STAGGER_JITTER_MS;
+			await new Promise((resolve) => setTimeout(resolve, stagger));
+		}
+	}
+	return {
+		results,
+		abortedEarly: false,
+		distinctMessageIds: new Set(results.map((r) => r.messageId).filter(Boolean)).size,
+	};
 }
 
 // ---- Scheduled posts: the "no keyword" rule --------------------------------
