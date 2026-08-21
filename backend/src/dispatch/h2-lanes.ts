@@ -3,6 +3,14 @@ import { gunzipSync, inflateSync, brotliDecompressSync } from "node:zlib";
 import { attachRawDispatchBody } from "./raw-response.ts";
 import { laneRaceScore, recordLaneRace, shouldScorePollLane, type LaneRaceScore } from "./lane-race.ts";
 import { fetchViaLaneRelayTest, isLaneRelayTestActive } from "./lane-relay-test-transport.ts";
+import {
+	dispatchViaRelay,
+	recordRemoteDispatchEnd,
+	recordRemoteDispatchStart,
+	remoteDispatchConfig,
+	remoteLaneCandidate,
+	type RemoteLaneMetrics,
+} from "./remote-lane.ts";
 
 /**
  * A small pool of HTTP/2 connections ("lanes") to a LINE host that this
@@ -92,19 +100,26 @@ const LANE_RECYCLE_MIN_GAP_MS = recycleInterval(
 	60_000,
 );
 
-/** A recent real LINE request, not edge-only H2 PING, gates hot routing. */
+/** A recent real LINE request, not edge-only H2 PING, gates hot routing.
+ * 19/21 (not the older 18/20) on purpose: with a second, genuinely
+ * independent network path (the lane relay, see remote-lane.ts) now a real
+ * candidate, the ceiling has to fit its typical RTT too, not just local
+ * lanes' — 18/20 measured against server3's own numbers rejected it almost
+ * every time. These were previously only overridden via worker-topology.json
+ * (whose value is authoritative in production either way); kept in sync here
+ * so the source default stops silently lying about what's actually live. */
 const APPLICATION_HOT_CEILING_MS = Math.max(
 	0,
 	Number(
 		process.env.LINE_H2_APPLICATION_HOT_CEILING_MS ??
 		process.env.LINE_H2_APPLICATION_LANE_CEILING_MS ??
-		20,
+		19,
 	),
 );
 /** Known routes at or above this RTT are removed from foreground sends. */
 const APPLICATION_DISCARD_CEILING_MS = Math.max(
 	APPLICATION_HOT_CEILING_MS,
-	Number(process.env.LINE_H2_APPLICATION_DISCARD_CEILING_MS ?? 23),
+	Number(process.env.LINE_H2_APPLICATION_DISCARD_CEILING_MS ?? 21),
 );
 const APPLICATION_SAMPLE_MAX_AGE_MS = Math.max(
 	1_000,
@@ -1142,6 +1157,17 @@ function lanesForOrigin(origin: string): Lane[] {
  * the moment that arrives, so the next reply simply picks another. That is
  * the whole benefit here, and it costs no risk of sending twice.
  */
+/**
+ * A second physical machine's h2-lanes pool (server3, see remote-lane.ts) is
+ * folded in here as one more candidate, never inside pickLane()/pickPollingLane()
+ * themselves — those stay exactly as they were, local-lanes-only, so every
+ * existing guarantee about them is untouched. The remote candidate only ever
+ * wins when it is genuinely at least as good as whatever the local pool just
+ * picked (or the local pool has nothing at all), using the exact same
+ * hot/discard ceiling and shouldPreferLane comparison local lanes already
+ * apply to each other — see ARCHITECTURE.md's h2-lanes section and project
+ * memory "server3-lane-relay" for why this exists and how it was validated.
+ */
 export function laneFetch(info: RequestInfo | URL, init?: RequestInit): Promise<Response | undefined> {
 	// TEMPORARY — see lane-relay-test-transport.ts. Only ever set inside the
 	// async call tree of testLaneRelayBurst's own sendMessage calls; every
@@ -1149,18 +1175,47 @@ export function laneFetch(info: RequestInfo | URL, init?: RequestInit): Promise<
 	if (isLaneRelayTestActive()) {
 		return fetchViaLaneRelayTest(info, init, requestRole(init));
 	}
-	if (LANE_COUNT === 0) return undefined;
 	const url = info instanceof URL ? info : new URL(typeof info === "string" ? info : info.url);
-	const lanes = pools.get(url.origin);
-	if (!lanes) return undefined;
-
 	// Polls identify themselves explicitly. Every other hot one-shot call is
 	// a send/control request and should benefit from send affinity.
 	const role = requestRole(init) ?? "send";
-	const lane = pickLane(lanes, role);
-	if (!lane) return undefined;
+	const lanes = LANE_COUNT === 0 ? undefined : pools.get(url.origin);
+	const lane = lanes ? pickLane(lanes, role) : undefined;
 
+	const relayConfig = remoteDispatchConfig();
+	if (relayConfig) {
+		const remote = remoteLaneCandidate(url.origin);
+		if (remote) {
+			const now = Date.now();
+			const remoteEligible = hasFreshEligibleApplicationSample(remote, now, APPLICATION_HOT_CEILING_MS) ||
+				hasFreshEligibleApplicationSample(remote, now, APPLICATION_DISCARD_CEILING_MS);
+			if (remoteEligible && (!lane || shouldPreferLane(remote, lane, role))) {
+				return dispatchViaRemoteLane(relayConfig, url, init, role);
+			}
+		}
+	}
+
+	if (!lane) return undefined;
 	return sendOnLane(lane, url, init, toBodyBytes(init?.body as BodyInit | null | undefined), role);
+}
+
+async function dispatchViaRemoteLane(
+	config: { url: string; token: string },
+	url: URL,
+	init: RequestInit | undefined,
+	role: LaneRole,
+): Promise<Response | undefined> {
+	recordRemoteDispatchStart(url.origin);
+	const startedAt = performance.now();
+	const scoredRole = role === "poll" ? "poll" : "send";
+	try {
+		const response = await dispatchViaRelay(config, url, init, role);
+		recordRemoteDispatchEnd(url.origin, scoredRole, performance.now() - startedAt, APPLICATION_DISCARD_CEILING_MS);
+		return response;
+	} catch (error) {
+		recordRemoteDispatchEnd(url.origin, scoredRole, performance.now() - startedAt, APPLICATION_DISCARD_CEILING_MS);
+		throw error;
+	}
 }
 
 export function laneStats(): LaneStat[] {

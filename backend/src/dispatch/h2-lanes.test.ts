@@ -428,9 +428,11 @@ describe("send-reserved lanes", () => {
 
 	test("uses an idle warm route instead of queueing behind an occupied hot route", () => {
 		const now = 100_000;
+		// 18 sits under the 19ms hot ceiling; 20 sits at/above it but still
+		// under the 21ms discard ceiling — the "warm" band this test exercises.
 		const measured = [
 			{ id: 0, sendRttMs: 18, lastSendOkAt: now, lastOkAt: now, inFlight: 1 },
-			{ id: 1, sendRttMs: 21, lastSendOkAt: now, lastOkAt: now, inFlight: 0 },
+			{ id: 1, sendRttMs: 20, lastSendOkAt: now, lastOkAt: now, inFlight: 0 },
 		];
 		expect(sendCandidatesWithCrossover(measured, 2, now).map((lane) => lane.id)).toEqual([1]);
 	});

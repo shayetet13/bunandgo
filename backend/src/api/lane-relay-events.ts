@@ -4,6 +4,7 @@ import { safeTokenEqual } from "./worker-proxy.ts";
 import { formatZodError } from "./validate.ts";
 import type { LaneStat } from "../dispatch/h2-lanes.ts";
 import type { LaneRaceLaneView } from "../dispatch/h2-lanes.ts";
+import { updateRemoteLaneFromReport } from "../dispatch/remote-lane.ts";
 
 export const LANE_RELAY_TOKEN_HEADER = "x-lane-relay-token";
 
@@ -104,7 +105,22 @@ laneRelayEventsRoute.post("/", async (c) => {
 	if (!reports.has(workerId) && reports.size >= MAX_TRACKED_WORKERS) {
 		return c.json({ error: "too many distinct lane relay workers reporting" }, 429);
 	}
-	reports.set(workerId, { workerId, receivedAt: Date.now(), lanes: lanes as LaneStat[], races: races as LaneRaceLaneView[] });
+	const receivedAt = Date.now();
+	reports.set(workerId, { workerId, receivedAt, lanes: lanes as LaneStat[], races: races as LaneRaceLaneView[] });
+
+	// Keeps the routing candidate in remote-lane.ts warm from the relay's own
+	// self-report, so laneFetch() has a background RTT estimate to race
+	// against even before this process has dispatched anything through it —
+	// see remote-lane.ts's own docs for why this never adds a network round
+	// trip to a live send/poll decision.
+	const bestByOrigin = new Map<string, number>();
+	for (const lane of lanes as LaneStat[]) {
+		if (lane.state !== "ready" || lane.applicationRttMs === undefined) continue;
+		const best = bestByOrigin.get(lane.origin);
+		if (best === undefined || lane.applicationRttMs < best) bestByOrigin.set(lane.origin, lane.applicationRttMs);
+	}
+	for (const [origin, bestRttMs] of bestByOrigin) updateRemoteLaneFromReport(origin, bestRttMs, receivedAt);
+
 	return c.json({ accepted: true }, 202);
 });
 
