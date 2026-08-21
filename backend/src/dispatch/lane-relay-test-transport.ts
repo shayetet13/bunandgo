@@ -56,6 +56,35 @@ async function bodyToBase64(body: BodyInit | null | undefined): Promise<string |
 	return Buffer.from(buf).toString("base64");
 }
 
+interface RelayStatsLane {
+	origin: string;
+	state: string;
+	applicationRttMs?: number;
+}
+
+/**
+ * Reads server3's own current best measured send RTT for legy.line-apps.com
+ * so a caller can gate a send on it *before* dispatching — the same
+ * predictive, most-recent-measurement approach the production ceiling in
+ * h2-lanes.ts uses locally. Returns undefined when the relay is unreachable
+ * or has no ready lane yet, which a caller should treat as "not eligible"
+ * rather than guessing.
+ */
+export async function bestKnownRelayRttMs(): Promise<number | undefined> {
+	try {
+		const response = await fetch("http://10.90.0.2:8795/stats", { signal: AbortSignal.timeout(3_000) });
+		if (!response.ok) return undefined;
+		const data = await response.json() as { lanes: RelayStatsLane[] };
+		const eligible = data.lanes.filter((lane) =>
+			lane.origin === "https://legy.line-apps.com" && lane.state === "ready" && lane.applicationRttMs !== undefined
+		);
+		if (eligible.length === 0) return undefined;
+		return Math.min(...eligible.map((lane) => lane.applicationRttMs!));
+	} catch {
+		return undefined;
+	}
+}
+
 /**
  * Mirrors laneFetch()'s contract as closely as a network hop allows:
  * resolves with a real Response only when the relay box confirms it got a

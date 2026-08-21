@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import { type Client, loginWithAuthToken, loginWithQR, SquareMessage, type TalkMessage } from "../linejs-core/client/mod.ts";
 import type { Device } from "../linejs-core/base/mod.ts";
 import { createDispatchFetch } from "../dispatch/client.ts";
-import { runWithLaneRelayTest } from "../dispatch/lane-relay-test-transport.ts";
+import { bestKnownRelayRttMs, runWithLaneRelayTest } from "../dispatch/lane-relay-test-transport.ts";
 import { ensureWarm, startWarmer } from "../dispatch/warmer.ts";
 import { clearSqliteStorageCache, SqliteStorage } from "../db/sqlite-storage.ts";
 import { latencyTracker, sumLatencyBreakdown } from "../metrics/latency.ts";
@@ -2329,10 +2329,17 @@ export async function testHardTimeoutBurst(
 
 export interface LaneRelayTestEntry {
 	index: number;
+	targetMid: string;
 	delivered: boolean;
+	/** True when this attempt never sent anything — the pre-check ceiling
+	 * rejected every relay lane, so it's neither a success nor a failure. */
+	skipped: boolean;
 	tookMs: number;
 	messageId?: string;
 	error?: string;
+	/** The relay's best known RTT at the moment this attempt was gated,
+	 * present whenever `ceilingMs` was supplied. */
+	knownRttMs?: number;
 }
 
 export interface LaneRelayTestResult {
@@ -2348,7 +2355,9 @@ const LANE_RELAY_TEST_STAGGER_JITTER_MS = 1_000;
  * read as "undelivered" and pollute the ban-risk signal with false drops. */
 const LANE_RELAY_TEST_TIMEOUT_MS = 15_000;
 /** Consecutive failures before stopping rather than pushing on toward
- * `count` — protecting the account matters more than finishing the run. */
+ * `count` — protecting the account matters more than finishing the run. A
+ * skipped (ceiling-rejected) attempt never counts toward this: declining to
+ * send is the safe outcome, not a sign of trouble. */
 const LANE_RELAY_TEST_ABORT_AFTER_CONSECUTIVE_FAILURES = 3;
 
 /**
@@ -2362,18 +2371,39 @@ const LANE_RELAY_TEST_ABORT_AFTER_CONSECUTIVE_FAILURES = 3;
  * cannot look like automated abuse on its own (see project memory
  * "recurring-line-logout"). Stops early on repeated failures rather than
  * finishing `count` no matter what.
+ *
+ * `targetMids` round-robins across however many rooms are given (1 or more)
+ * so one run can exercise the relay under more than one room's traffic at
+ * once. `ceilingMs`, when given, gates every attempt on the relay's own most
+ * recently measured RTT (see bestKnownRelayRttMs()): an attempt whose best
+ * available lane is already known to run over the ceiling is skipped rather
+ * than sent anyway, so `results.length` can land under `count` on purpose.
  */
 export async function testLaneRelayBurst(
 	botId: number,
-	targetMid: string,
+	targetMids: string[],
 	text: string,
 	count: number,
+	ceilingMs?: number,
 ): Promise<LaneRelayTestResult> {
 	const client = runtimes.get(botId)?.client;
 	if (!client) throw new Error('บอทนี้ยังไม่ได้เข้าสู่ระบบ — กด "เริ่ม" ก่อน');
+	if (targetMids.length === 0) throw new Error("ต้องระบุห้องอย่างน้อย 1 ห้อง");
 	const results: LaneRelayTestEntry[] = [];
 	let consecutiveFailures = 0;
 	for (let i = 0; i < count; i++) {
+		const targetMid = targetMids[i % targetMids.length]!;
+		if (ceilingMs !== undefined) {
+			const knownRttMs = await bestKnownRelayRttMs();
+			if (knownRttMs === undefined || knownRttMs > ceilingMs) {
+				results.push({ index: i, targetMid, delivered: false, skipped: true, tookMs: 0, knownRttMs });
+				if (i < count - 1) {
+					const stagger = LANE_RELAY_TEST_MIN_STAGGER_MS + Math.random() * LANE_RELAY_TEST_STAGGER_JITTER_MS;
+					await new Promise((resolve) => setTimeout(resolve, stagger));
+				}
+				continue;
+			}
+		}
 		const startedAt = performance.now();
 		try {
 			const response = await runWithLaneRelayTest(() =>
@@ -2384,7 +2414,9 @@ export async function testLaneRelayBurst(
 			);
 			results.push({
 				index: i,
+				targetMid,
 				delivered: true,
+				skipped: false,
 				tookMs: performance.now() - startedAt,
 				messageId: response.createdSquareMessage.message.id,
 			});
@@ -2392,7 +2424,9 @@ export async function testLaneRelayBurst(
 		} catch (err) {
 			results.push({
 				index: i,
+				targetMid,
 				delivered: false,
+				skipped: false,
 				tookMs: performance.now() - startedAt,
 				error: err instanceof Error ? err.message : String(err),
 			});

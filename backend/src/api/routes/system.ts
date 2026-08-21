@@ -205,9 +205,10 @@ export function createSystemRoute(options: SystemRouteOptions = {}): Hono {
 		const body = (await c.req.json().catch(() => ({}))) as {
 			confirm?: unknown;
 			botId?: unknown;
-			targetMid?: unknown;
+			targetMids?: unknown;
 			text?: unknown;
 			count?: unknown;
+			ceilingMs?: unknown;
 		};
 		if (body.confirm !== LANE_RELAY_TEST_CONFIRMATION) {
 			return c.json({ error: `ต้องยืนยันด้วย confirm: "${LANE_RELAY_TEST_CONFIRMATION}"` }, 400);
@@ -216,13 +217,23 @@ export function createSystemRoute(options: SystemRouteOptions = {}): Hono {
 		if (!Number.isInteger(botId) || botId <= 0) {
 			return c.json({ error: "botId ไม่ถูกต้อง" }, 400);
 		}
-		const targetMid = body.targetMid;
-		if (typeof targetMid !== "string" || !/^m[0-9a-f]{32}$/i.test(targetMid)) {
-			return c.json({ error: "targetMid ไม่ถูกต้อง (ต้องเป็นห้อง Square)" }, 400);
+		const targetMids = body.targetMids;
+		if (
+			!Array.isArray(targetMids) || targetMids.length === 0 || targetMids.length > 5 ||
+			!targetMids.every((mid) => typeof mid === "string" && /^m[0-9a-f]{32}$/i.test(mid))
+		) {
+			return c.json({ error: "targetMids ไม่ถูกต้อง (ต้องเป็น array ของห้อง Square 1-5 ห้อง)" }, 400);
 		}
 		const count = Number(body.count);
 		if (!Number.isInteger(count) || count <= 0 || count > LANE_RELAY_TEST_MAX_COUNT) {
 			return c.json({ error: `count ต้องเป็นจำนวนเต็ม 1-${LANE_RELAY_TEST_MAX_COUNT}` }, 400);
+		}
+		let ceilingMs: number | undefined;
+		if (body.ceilingMs !== undefined) {
+			ceilingMs = Number(body.ceilingMs);
+			if (!Number.isFinite(ceilingMs) || ceilingMs <= 0 || ceilingMs > 1_000) {
+				return c.json({ error: "ceilingMs ต้องเป็นตัวเลข 1-1000" }, 400);
+			}
 		}
 		const text = typeof body.text === "string" && body.text.trim()
 			? body.text.trim()
@@ -230,15 +241,18 @@ export function createSystemRoute(options: SystemRouteOptions = {}): Hono {
 
 		const user = requestUser(c)!;
 		try {
-			const result = await testLaneRelayBurst(botId, targetMid, text, count);
+			const result = await testLaneRelayBurst(botId, targetMids as string[], text, count, ceilingMs);
 			const delivered = result.results.filter((r) => r.delivered);
-			const failed = result.results.filter((r) => !r.delivered);
+			const skipped = result.results.filter((r) => r.skipped);
+			const failed = result.results.filter((r) => !r.delivered && !r.skipped);
 			logUserActionImmediately(user, "system.lane_relay_test.fired", {
 				botId,
-				targetMid,
+				targetMids,
 				count,
+				ceilingMs,
 				sent: result.results.length,
 				delivered: delivered.length,
+				skipped: skipped.length,
 				failed: failed.length,
 				abortedEarly: result.abortedEarly,
 				distinctMessageIds: result.distinctMessageIds,
@@ -248,8 +262,9 @@ export function createSystemRoute(options: SystemRouteOptions = {}): Hono {
 				...result,
 				summary: {
 					requested: count,
-					sent: result.results.length,
+					attempted: result.results.length,
 					delivered: delivered.length,
+					skipped: skipped.length,
 					failed: failed.length,
 					distinctMessageIds: result.distinctMessageIds,
 				},
