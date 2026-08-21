@@ -1,7 +1,7 @@
 import { connect as connectHttp2, constants, type ClientHttp2Session, type ClientHttp2Stream, type OutgoingHttpHeaders } from "node:http2";
 import { gunzipSync, inflateSync, brotliDecompressSync } from "node:zlib";
 import { attachRawDispatchBody } from "./raw-response.ts";
-import { recordLaneRace, shouldScorePollLane } from "./lane-race.ts";
+import { laneRaceScore, recordLaneRace, shouldScorePollLane, type LaneRaceScore } from "./lane-race.ts";
 
 /**
  * A small pool of HTTP/2 connections ("lanes") to a LINE host that this
@@ -1182,6 +1182,43 @@ export function laneStats(): LaneStat[] {
 		}
 	}
 	return stats;
+}
+
+export interface LaneRaceLaneView {
+	origin: string;
+	laneId: number;
+	state: LaneState;
+	inFlight: number;
+	sendRttMs?: number;
+	pollRttMs?: number;
+	applicationRttMs?: number;
+	applicationSampleAt: number;
+	routingEligible: boolean;
+	send: LaneRaceScore;
+	poll: LaneRaceScore;
+}
+
+/**
+ * The exact shape the LANE RACE dashboard panel renders, built from this
+ * process's own `laneStats()` + persisted scores. Shared by `/api/metrics/
+ * lane-race` (this process's own lanes) and the lane-relay service (which
+ * ships the same shape for its own lanes to the control plane) so neither
+ * has to duplicate the mapping.
+ */
+export function laneRaceView(): LaneRaceLaneView[] {
+	return laneStats().map((lane) => ({
+		origin: lane.origin,
+		laneId: lane.id,
+		state: lane.state,
+		inFlight: lane.inFlight,
+		sendRttMs: lane.sendRttMs,
+		pollRttMs: lane.pollRttMs,
+		applicationRttMs: lane.applicationRttMs,
+		applicationSampleAt: lane.applicationSampleAt,
+		routingEligible: lane.routingEligible,
+		send: laneRaceScore(lane.origin, lane.id, "send"),
+		poll: laneRaceScore(lane.origin, lane.id, "poll"),
+	}));
 }
 
 /** Tears the pool down — used by tests and shutdown, not by the hot path. */

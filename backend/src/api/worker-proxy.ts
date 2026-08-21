@@ -20,7 +20,7 @@ const HOP_BY_HOP_HEADERS = [
 	"upgrade",
 ];
 
-function safeTokenEqual(left: string | undefined, right: string | undefined): boolean {
+export function safeTokenEqual(left: string | undefined, right: string | undefined): boolean {
 	if (!left || !right) return false;
 	const a = Buffer.from(left);
 	const b = Buffer.from(right);

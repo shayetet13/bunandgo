@@ -8,10 +8,11 @@ import { requestUser } from "../../auth/request-user.ts";
 import { listBotIdsForUser } from "../../bot/bots.ts";
 import type { LatencySample } from "../../metrics/latency.ts";
 import type { FastPathSample } from "../../metrics/fast-path.ts";
-import { laneStats } from "../../dispatch/h2-lanes.ts";
-import { LANE_RACE_RETENTION_DAYS, laneRaceDailyHistory, laneRaceScore, laneRaceSnapshot, type LaneRaceScore } from "../../dispatch/lane-race.ts";
+import { laneRaceView, type LaneRaceLaneView } from "../../dispatch/h2-lanes.ts";
+import { LANE_RACE_RETENTION_DAYS, laneRaceDailyHistory, laneRaceSnapshot, WORKER_ID } from "../../dispatch/lane-race.ts";
 import { isControlPlane } from "../../bot/worker-topology.ts";
 import { relayedFastPathSamples, relayedLatencySamples } from "../worker-events.ts";
+import { remoteLaneRaces } from "../lane-relay-events.ts";
 
 export const metricsRoute = new Hono();
 const PROCESS_STARTED_AT = Date.now();
@@ -120,19 +121,7 @@ metricsRoute.get("/fast-path", (c) => {
 	return c.json({ snapshot: fastSnapshot(recent), recent });
 });
 
-interface LaneRaceResponseLane {
-	origin: string;
-	laneId: number;
-	state: string;
-	inFlight: number;
-	sendRttMs?: number;
-	pollRttMs?: number;
-	applicationRttMs?: number;
-	applicationSampleAt: number;
-	routingEligible: boolean;
-	send: LaneRaceScore;
-	poll: LaneRaceScore;
-}
+type LaneRaceResponseLane = LaneRaceLaneView & { workerId: string };
 
 const recentLaneLatencyStmt = db.prepare<LatencySampleRow, [number]>(
 	"SELECT * FROM latency_samples WHERE bot_id IS NOT NULL ORDER BY id DESC LIMIT ?",
@@ -145,25 +134,20 @@ const recentLaneLatencyStmt = db.prepare<LatencySampleRow, [number]>(
  */
 metricsRoute.get("/lane-race", (c) => {
 	if (requestUser(c)!.role !== "admin") return c.json({ error: "forbidden" }, 403);
-	const lanes: LaneRaceResponseLane[] = laneStats().map((lane) => {
-		return {
-			origin: lane.origin,
-			laneId: lane.id,
-			state: lane.state,
-			inFlight: lane.inFlight,
-			sendRttMs: lane.sendRttMs,
-			pollRttMs: lane.pollRttMs,
-			applicationRttMs: lane.applicationRttMs,
-			applicationSampleAt: lane.applicationSampleAt,
-			routingEligible: lane.routingEligible,
-			send: laneRaceScore(lane.origin, lane.id, "send"),
-			poll: laneRaceScore(lane.origin, lane.id, "poll"),
-		};
-	});
+	// This process's own lanes plus whatever any lane-relay box (a separate
+	// physical machine that owns no bots, only extra h2-lanes — see
+	// backend/src/relay/) most recently reported. Tagged with workerId since
+	// lane ids (0..15) repeat across processes/machines and would otherwise
+	// collide as React keys on the dashboard.
+	const lanes: LaneRaceResponseLane[] = [
+		...laneRaceView().map((lane) => ({ ...lane, workerId: WORKER_ID })),
+		...remoteLaneRaces(),
+	];
 	lanes.sort((a, b) =>
 		Number(b.routingEligible) - Number(a.routingEligible) ||
 		(a.applicationRttMs ?? Number.POSITIVE_INFINITY) - (b.applicationRttMs ?? Number.POSITIVE_INFINITY) ||
-		a.laneId - b.laneId
+		a.laneId - b.laneId ||
+		a.workerId.localeCompare(b.workerId)
 	);
 	return c.json({
 		retentionDays: LANE_RACE_RETENTION_DAYS,

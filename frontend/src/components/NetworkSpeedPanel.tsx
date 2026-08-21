@@ -57,7 +57,7 @@ export function NetworkSpeedPanel({ lanes }: NetworkSpeedPanelProps) {
 						const primary = applied ?? lane.rttMs;
 						return (
 							<div
-								key={`${lane.origin}-${lane.id}`}
+								key={`${lane.workerId}-${lane.origin}-${lane.id}`}
 								style={{
 									display: "grid",
 									gridTemplateColumns: "minmax(140px, 1fr) auto auto auto",
@@ -70,7 +70,7 @@ export function NetworkSpeedPanel({ lanes }: NetworkSpeedPanelProps) {
 							>
 								<div style={{ minWidth: 0 }}>
 									<div style={{ fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-										{shortOrigin(lane.origin)} <span className="hint" style={{ fontWeight: 400 }}>· lane {lane.id}</span>
+										{shortOrigin(lane.origin)} <span className="hint" style={{ fontWeight: 400 }}>· lane {lane.id} · {lane.workerId}</span>
 									</div>
 									<div className="hint" style={{ fontSize: "0.72rem" }}>
 										{lane.inFlight > 0 ? `กำลังส่ง ${lane.inFlight} คำขอ` : "ว่าง"}

@@ -22,7 +22,10 @@ function retentionDays(): number {
 }
 export const LANE_RACE_RETENTION_DAYS = retentionDays();
 const RETENTION_MS = LANE_RACE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
-const WORKER_ID = process.env.WORKER_ID?.trim() || "standalone";
+/** Exported so anything tagging a response with "which process is this" (the
+ * dashboard merge in metrics.ts/health.ts, the lane relay's own reports)
+ * reads the exact same value this module already persists events under. */
+export const WORKER_ID = process.env.WORKER_ID?.trim() || "standalone";
 
 export interface LaneRaceEvent {
 	ts: number;

@@ -39,6 +39,7 @@ import {
 	type ForwardedEventName,
 	workerEventsRoute,
 } from "./worker-events.ts";
+import { laneRelayEventsRoute } from "./lane-relay-events.ts";
 
 const { upgradeWebSocket, websocket } = createBunWebSocket<ServerWebSocket>();
 
@@ -88,6 +89,10 @@ app.all("/internal/security-probe", (c) => {
 // Loopback-only in deployment and authenticated independently with the
 // shared control token. It must be mounted before browser auth middleware.
 app.route("/internal/worker-events", workerEventsRoute);
+// Reached over the server2<->server3 tunnel only, authenticated with its own
+// LANE_RELAY_TOKEN (never the shard control token — see lane-relay-events.ts
+// for why that separation matters). Also mounted ahead of browser auth.
+app.route("/internal/lane-relay-events", laneRelayEventsRoute);
 
 async function requireAuth(c: Context, next: Next) {
 	const token = getCookie(c, SESSION_COOKIE);

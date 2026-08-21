@@ -3,10 +3,12 @@ import { listBotsForUser } from "../../bot/bots.ts";
 import { requestUser } from "../../auth/request-user.ts";
 import { db } from "../../db/sqlite.ts";
 import { laneStats } from "../../dispatch/h2-lanes.ts";
+import { WORKER_ID } from "../../dispatch/lane-race.ts";
 import { getSystemLoadSnapshot } from "../../monitoring/system-load.ts";
 import { botEvents, getRuntimeDiagnostics } from "../../bot/session-manager.ts";
 import { isControlPlane } from "../../bot/worker-topology.ts";
 import { workerEventRelayDiagnostics } from "../worker-events.ts";
+import { remoteLaneStats } from "../lane-relay-events.ts";
 import { requireAdmin } from "../../auth/request-user.ts";
 
 export const healthRoute = new Hono();
@@ -112,8 +114,14 @@ healthRoute.get("/", async (c) => {
 		servers: [server1, localServerStatus(senderHealthy, dbHealthy)],
 		// Surfaced so a reply riding the fetch fallback instead of an owned
 		// lane is visible here rather than only as unexplained jitter on the
-		// latency chart.
-		lanes: laneStats(),
+		// latency chart. Tagged with workerId and merged with whatever a lane
+		// relay box (see backend/src/relay/) most recently reported, so a
+		// second physical machine's lanes show up in the same list instead of
+		// only this process's own.
+		lanes: [
+			...laneStats().map((lane) => ({ ...lane, workerId: WORKER_ID })),
+			...remoteLaneStats(),
+		],
 		// One listener per open /ws connection per event name is normal. A
 		// count that keeps climbing with the dashboard closed points at a
 		// socket whose close handler never ran — see api/server.ts's

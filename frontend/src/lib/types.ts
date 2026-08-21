@@ -132,6 +132,10 @@ export interface HealthStatus {
 export interface LaneStat {
 	origin: string;
 	id: number;
+	/** Which physical process/machine this lane runs on — "standalone"/a
+	 * WORKER_ID like "linebot-worker-2", or a lane-relay box's own id. Needed
+	 * because lane ids repeat across processes/machines. */
+	workerId: string;
 	state: "connecting" | "ready" | "draining" | "dead";
 	inFlight: number;
 	lastOkAt: number;
@@ -307,6 +311,8 @@ export interface LaneRaceScore {
 export interface LaneRaceLane {
 	origin: string;
 	laneId: number;
+	/** Same purpose as LaneStat.workerId — see there. */
+	workerId: string;
 	state: string;
 	inFlight: number;
 	sendRttMs?: number;
