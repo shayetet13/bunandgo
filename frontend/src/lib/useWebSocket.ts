@@ -49,10 +49,39 @@ export function useLiveSocket(handlers: Partial<Record<WsEventType, Handler>>): 
 				if (!stopped) reconnectTimer = setTimeout(connect, 1000);
 			};
 		}
+
+		// Chrome force-closes an open socket the instant a page enters the
+		// back-forward cache (bfcache) instead of freezing it — but that
+		// teardown happens alongside this closure's own JS, so onclose above
+		// never runs and no reconnect ever gets scheduled. A bfcache restore
+		// resumes this exact closure with `connected` still true and `socket`
+		// still pointing at that dead connection, silently dropping every
+		// event until someone manually refreshes. pageshow's `persisted` flag
+		// is the standard cross-browser signal for "this is a bfcache
+		// restore, not a fresh load" (see web.dev/articles/bfcache).
+		function handlePageShow(event: PageTransitionEvent) {
+			if (!event.persisted) return;
+			if (reconnectTimer) clearTimeout(reconnectTimer);
+			socket?.close();
+			connect();
+		}
+
+		// Closing cleanly before the freeze avoids the "Page entered
+		// Back-Forward Cache" console error and guarantees handlePageShow
+		// starts its reconnect from a known-closed socket, rather than
+		// racing whatever onclose's own setTimeout does across the freeze.
+		function handlePageHide(event: PageTransitionEvent) {
+			if (event.persisted) socket?.close();
+		}
+
 		connect();
+		window.addEventListener("pageshow", handlePageShow);
+		window.addEventListener("pagehide", handlePageHide);
 
 		return () => {
 			stopped = true;
+			window.removeEventListener("pageshow", handlePageShow);
+			window.removeEventListener("pagehide", handlePageHide);
 			if (reconnectTimer) clearTimeout(reconnectTimer);
 			socket?.close();
 		};
