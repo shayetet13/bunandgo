@@ -1,5 +1,5 @@
 import type { DispatchConfig } from "./client.ts";
-import { ensureLanes, H2_LANE_ROLE_HEADER, laneFetch } from "./h2-lanes.ts";
+import { H2_LANE_ROLE_HEADER, laneFetch, primeLanes } from "./h2-lanes.ts";
 
 /**
  * Hosts that carry the outbound legs of a reply. Both must stay warm:
@@ -110,7 +110,7 @@ async function warmGo(config: DispatchConfig, hosts: readonly string[]): Promise
  */
 async function warmLanes(): Promise<void> {
 	try {
-		await ensureLanes(LANE_ORIGIN);
+		await primeLanes(LANE_ORIGIN);
 	} catch (error) {
 		console.error(
 			`[warmer] lanes for ${LANE_ORIGIN} unavailable, falling back to the pool: ` +

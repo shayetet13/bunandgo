@@ -11,6 +11,7 @@ import {
 	laneCandidates,
 	laneFetch,
 	laneStats,
+	primeLanes,
 	selectAgedLaneForRecycle,
 	selectDegradedLaneForRepair,
 	selectPollingLaneCandidate,
@@ -135,6 +136,28 @@ describe("owned HTTP/2 lanes", () => {
 		expect(used[0]!.pollRttMs).toBeUndefined();
 		expect(used[0]!.applicationRttMs).toBeUndefined();
 		expect(used[0]!.routingEligible).toBe(false);
+	});
+
+	test("primes every lane once without fabricating an application sample", async () => {
+		let requests = 0;
+		const sessions = new Set<object>();
+		const { origin, server } = await startServer((stream) => {
+			requests++;
+			sessions.add(stream.session!);
+			stream.respond({ ":status": 204 });
+			stream.end();
+		});
+		running = server;
+
+		await primeLanes(origin);
+		const lanes = laneStats();
+		expect(requests).toBe(lanes.length);
+		expect(sessions.size).toBe(lanes.length);
+		expect(lanes.every((lane) => lane.lastOkAt > 0)).toBe(true);
+		expect(lanes.every((lane) => lane.applicationRttMs === undefined)).toBe(true);
+
+		await primeLanes(origin);
+		expect(requests).toBe(lanes.length);
 	});
 
 	test("holds a standby lane alongside the one in use", async () => {

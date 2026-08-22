@@ -191,6 +191,8 @@ export interface LaneStat {
 }
 
 const pools = new Map<string, Lane[]>();
+const primedOrigins = new Set<string>();
+const originPrimeRuns = new Map<string, Promise<void>>();
 /**
  * Latest TLS session ticket per origin, so a reconnect can resume instead of
  * paying a full handshake. `node:http2`/`node:tls` has no built-in cache the
@@ -899,6 +901,40 @@ export async function ensureLanes(origin: string): Promise<void> {
 	}
 }
 
+/**
+ * Exercises one harmless HEAD stream on every newly-created lane before bot
+ * sessions resume. Opening TCP/TLS/H2 alone still left the first real poll on
+ * a connection paying one-time stream/edge setup; priming the whole pool once
+ * removes that cold start without fabricating application RTT samples.
+ */
+export function primeLanes(origin: string): Promise<void> {
+	const key = new URL(origin).origin;
+	if (primedOrigins.has(key)) return Promise.resolve();
+	const existing = originPrimeRuns.get(key);
+	if (existing) return existing;
+
+	const run = (async () => {
+		await ensureLanes(key);
+		const lanes = pools.get(key)?.filter(isUsable) ?? [];
+		if (lanes.length === 0) throw new Error(`no usable lane to prime for ${key}`);
+		await Promise.all(
+			lanes.map(async (lane) => {
+				const response = await sendOnLane(
+					lane,
+					new URL("/", key),
+					{ method: "HEAD", signal: AbortSignal.timeout(10_000) },
+					undefined,
+					"warm",
+				);
+				if (!response) throw new Error(`lane ${lane.id} closed before its warm response`);
+			}),
+		);
+		primedOrigins.add(key);
+	})().finally(() => originPrimeRuns.delete(key));
+	originPrimeRuns.set(key, run);
+	return run;
+}
+
 export function buildHeaders(authority: string, scheme: string, path: string, method: string, init?: RequestInit): OutgoingHttpHeaders {
 	const headers: OutgoingHttpHeaders = {
 		":method": method,
@@ -1265,6 +1301,8 @@ export function stopLanes(): void {
 		}
 	}
 	pools.clear();
+	primedOrigins.clear();
+	originPrimeRuns.clear();
 	preferredSendLaneIds.clear();
 	pollCursorIds.clear();
 	lastPollExploreAt.clear();
