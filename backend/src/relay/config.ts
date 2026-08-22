@@ -18,6 +18,24 @@ function parsePort(raw: string | undefined, fallback: number): number {
 	return port;
 }
 
+function parseOrigins(raw: string | undefined, fallback: string): string[] {
+	const values = (raw ?? fallback)
+		.split(",")
+		.map((value) => value.trim())
+		.filter(Boolean)
+		.map((value) => {
+			const url = new URL(value);
+			if (url.protocol !== "https:" || url.origin !== value.replace(/\/$/, "")) {
+				throw new Error(`Invalid lane relay origin: ${value}`);
+			}
+			return url.origin;
+		});
+	if (values.length === 0) throw new Error("lane relay origin list cannot be empty");
+	return [...new Set(values)];
+}
+
+const lineOrigins = parseOrigins(process.env.LANE_RELAY_LINE_ORIGINS, "https://legy.line-apps.com");
+
 export const relayConfig = {
 	port: parsePort(process.env.PORT, 8795),
 	/** Binds loopback-only unless explicitly pointed at the tunnel address —
@@ -32,10 +50,10 @@ export const relayConfig = {
 	reportUrl: required("LANE_RELAY_REPORT_URL"),
 	reportToken: required("LANE_RELAY_REPORT_TOKEN"),
 	reportIntervalMs: Math.max(1_000, Number(process.env.LANE_RELAY_REPORT_INTERVAL_MS ?? 1_000)),
-	/** LINE origins to keep warm from boot, so the NETWORK/LANE RACE panels
-	 * show real RTT even before this box ever carries a real dispatch. */
-	lineOrigins: (process.env.LANE_RELAY_LINE_ORIGINS ?? "https://legy.line-apps.com")
-		.split(",")
-		.map((origin) => origin.trim())
-		.filter(Boolean),
+	/** Origins that own dedicated H2 lanes. Production keeps all 32 on legy;
+	 * gf is not part of the latency-sensitive workload. */
+	lineOrigins,
+	/** A rare login/control request may still name gf. Permit it to use the
+	 * ordinary one-off fetch fallback without spending a permanent lane pool. */
+	allowedOrigins: parseOrigins(process.env.LANE_RELAY_ALLOWED_ORIGINS, [...lineOrigins, "https://gf.line.naver.jp"].join(",")),
 };

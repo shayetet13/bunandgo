@@ -58,7 +58,7 @@ relayRoute.post("/dispatch", async (c) => {
 	} catch {
 		return c.json({ error: "invalid dispatch URL" }, 400);
 	}
-	if (!relayConfig.lineOrigins.includes(target.origin)) {
+	if (!relayConfig.allowedOrigins.includes(target.origin)) {
 		return c.json({ error: "dispatch origin is not allowed" }, 403);
 	}
 

@@ -8,20 +8,19 @@
     "port": 8791,
     "laneSource": "local",
     "h2Lanes": 16,
-    "relayLanes": 16,
+    "relayLanes": 32,
     "relayUrl": "http://10.90.0.2:8795/dispatch",
     "relayToken": "replace-with-a-different-random-32-character-secret",
     "sendReservedLanes": 4,
     "fastPollSlots": 8,
     "fastPollIntervalMs": 0,
-    "pollExploreIntervalMs": 2000,
-    "pollCalibrationSamples": 3,
     "applicationHotCeilingMs": 20,
     "applicationDiscardCeilingMs": 23,
     "applicationSampleMaxAgeMs": 30000,
     "laneMaxAgeMs": 1200000,
     "laneRecycleGapMs": 60000,
-    "degradedRepairMinSamples": 3
+    "degradedRepairGapMs": 5000,
+    "degradedRepairMinSamples": 1
   },
   "shards": [
     {
@@ -29,20 +28,19 @@
       "port": 8792,
       "laneSource": "relay",
       "h2Lanes": 0,
-      "relayLanes": 16,
+      "relayLanes": 32,
       "relayUrl": "http://10.90.0.2:8795/dispatch",
       "relayToken": "replace-with-a-different-random-32-character-secret",
       "sendReservedLanes": 4,
       "fastPollSlots": 8,
       "fastPollIntervalMs": 0,
-      "pollExploreIntervalMs": 2000,
-      "pollCalibrationSamples": 3,
       "applicationHotCeilingMs": 20,
       "applicationDiscardCeilingMs": 23,
       "applicationSampleMaxAgeMs": 30000,
       "laneMaxAgeMs": 1200000,
       "laneRecycleGapMs": 60000,
-      "degradedRepairMinSamples": 3
+      "degradedRepairGapMs": 5000,
+      "degradedRepairMinSamples": 1
     }
   ]
 }

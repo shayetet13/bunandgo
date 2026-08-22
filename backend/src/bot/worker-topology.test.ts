@@ -38,6 +38,7 @@ const ENV_KEYS = [
 	"LINE_H2_APPLICATION_SAMPLE_MAX_AGE_MS",
 	"LINE_H2_LANE_MAX_AGE_MS",
 	"LINE_H2_LANE_RECYCLE_GAP_MS",
+	"LINE_H2_DEGRADED_REPAIR_GAP_MS",
 	"LINE_H2_DEGRADED_REPAIR_MIN_SAMPLES",
 ] as const;
 const original = new Map<string, string | undefined>();
@@ -225,14 +226,13 @@ describe("worker topology", () => {
 			h2Lanes: 16,
 			sendReservedLanes: 4,
 			fastPollSlots: 8,
-			pollExploreIntervalMs: 2_000,
-			pollCalibrationSamples: 3,
 			applicationHotCeilingMs: 20,
 			applicationDiscardCeilingMs: 23,
 			applicationSampleMaxAgeMs: 30_000,
 			laneMaxAgeMs: 20 * 60_000,
 			laneRecycleGapMs: 60_000,
-			degradedRepairMinSamples: 3,
+			degradedRepairGapMs: 5_000,
+			degradedRepairMinSamples: 1,
 		};
 		const runtimeFile = JSON.stringify({
 			version: 1,
@@ -245,9 +245,8 @@ describe("worker topology", () => {
 		expect(process.env.LINE_H2_LANES).toBe("16");
 		expect(process.env.LINE_H2_APPLICATION_HOT_CEILING_MS).toBe("20");
 		expect(process.env.LINE_H2_APPLICATION_DISCARD_CEILING_MS).toBe("23");
-		expect(process.env.LINE_H2_POLL_EXPLORE_INTERVAL_MS).toBe("2000");
-		expect(process.env.LINE_H2_POLL_CALIBRATION_SAMPLES).toBe("3");
-		expect(process.env.LINE_H2_DEGRADED_REPAIR_MIN_SAMPLES).toBe("3");
+		expect(process.env.LINE_H2_DEGRADED_REPAIR_GAP_MS).toBe("5000");
+		expect(process.env.LINE_H2_DEGRADED_REPAIR_MIN_SAMPLES).toBe("1");
 	});
 
 	test("balanced-sticky topology gives primary a relay fallback and pins shard traffic to the relay", () => {
@@ -261,7 +260,7 @@ describe("worker topology", () => {
 				fastPollIntervalMs: 0,
 				h2Lanes: 16,
 				laneSource: "local",
-				relayLanes: 16,
+				relayLanes: 32,
 				relayUrl: "http://10.90.0.2:8795/dispatch",
 				relayToken: "r".repeat(32),
 				sendReservedLanes: 4,
@@ -274,7 +273,7 @@ describe("worker topology", () => {
 					fastPollIntervalMs: 0,
 					h2Lanes: 0,
 					laneSource: "relay",
-					relayLanes: 16,
+					relayLanes: 32,
 					relayUrl: "http://10.90.0.2:8795/dispatch",
 					relayToken: "r".repeat(32),
 					sendReservedLanes: 4,
@@ -297,7 +296,7 @@ describe("worker topology", () => {
 		expect(applyRuntimeTopologyFile(runtimeFile)).toBe(true);
 		expect(process.env.WORKER_ROUTES).toBeUndefined();
 		expect(process.env.LINE_H2_LANES).toBe("0");
-		expect(process.env.LINE_EFFECTIVE_H2_LANES).toBe("16");
+		expect(process.env.LINE_EFFECTIVE_H2_LANES).toBe("32");
 		expect(process.env.LINE_RELAY_MODE).toBe("always");
 		expect(validateWorkerTopology().controlPlaneUrl?.port).toBe("8791");
 	});

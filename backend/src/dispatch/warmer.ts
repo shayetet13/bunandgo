@@ -2,15 +2,12 @@ import type { DispatchConfig } from "./client.ts";
 import { H2_LANE_ROLE_HEADER, laneFetch, primeLanes } from "./h2-lanes.ts";
 
 /**
- * Hosts that carry the outbound legs of a reply. Both must stay warm:
- * they are different origins with very different characteristics, and a
- * cold handshake on either one dwarfs the request it precedes.
+ * Host that carries the latency-sensitive poll/reply workload.
  *
  * Measured on a Thai connection:
  *   legy.line-apps.com  cold 146ms / warm  29ms  (square `/SQ1`)
- *   gf.line.naver.jp    cold 335ms / warm  99ms  (LEGY-wrapped talk paths)
  */
-export const WARM_HOSTS = ["legy.line-apps.com", "gf.line.naver.jp"] as const;
+export const WARM_HOSTS = ["legy.line-apps.com"] as const;
 
 /** The origin that carries every latency-sensitive send. */
 const HOT_SEND_HOST = WARM_HOSTS[0];

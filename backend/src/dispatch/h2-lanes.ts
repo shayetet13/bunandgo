@@ -24,9 +24,8 @@ import {
  * time.
  *
  * Deliberately NOT hedging: exactly one lane carries each send, so a
- * message can never be delivered twice. Poll traffic rotates to keep every
- * candidate application-warm; send traffic retains soft affinity until a
- * materially better or less-loaded lane is available.
+ * message can never be delivered twice. Poll traffic stays on the fastest
+ * proven application route; spare connections remain ready for failover.
  *
  * `LINE_H2_LANES=0` falls straight back to `globalThis.fetch`.
  */
@@ -45,9 +44,9 @@ function relayOnlyEnabled(): boolean {
  * How many low-numbered lanes carry sends only, with poll traffic kept off
  * them entirely.
  *
- * Polling and sending share one pool, and `pickPollingLane` rotates across
- * every lane — so a continuous poller leaves an in-flight stream on most of
- * them, and `IN_FLIGHT_PENALTY_MS` then scores whatever is left as worse.
+ * Polling and sending share one pool, and enough concurrent pollers can leave
+ * every proven-fast lane occupied; `IN_FLIGHT_PENALTY_MS` then scores those
+ * routes as worse.
  * That is the mechanism behind the `SQUARE_FAST_POLL_WORKERS=2` result
  * recorded in `bot/fast-square-poller.ts`: eight continuous polls over six
  * lanes left a reply no uncontended route, and `upstream` went 16.6ms ->
@@ -126,7 +125,6 @@ const APPLICATION_SAMPLE_MAX_AGE_MS = Math.max(1_000, Number(process.env.LINE_H2
 // it when that's deliberately chosen.
 const DEGRADED_REPAIR_MIN_GAP_MS = Math.max(5_000, Number(process.env.LINE_H2_DEGRADED_REPAIR_GAP_MS ?? 60_000));
 const DEGRADED_REPAIR_MIN_SAMPLES = Math.max(1, Math.floor(Number(process.env.LINE_H2_DEGRADED_REPAIR_MIN_SAMPLES ?? 3)));
-const POLL_LANE_CALIBRATION_SAMPLES = Math.max(1, Math.floor(Number(process.env.LINE_H2_POLL_CALIBRATION_SAMPLES ?? 3)));
 
 const CONNECT_TIMEOUT_MS = 10_000;
 /** Backoff ceiling for a host that is refusing connections outright. */
@@ -157,7 +155,6 @@ interface Lane {
 	pollRttMs?: number;
 	lastSendOkAt: number;
 	lastPollOkAt: number;
-	pollApplicationSamples: number;
 	consecutiveFailures: number;
 	consecutiveSlowApplicationSamples: number;
 	/** Wall-clock time this physical HTTP/2 session connected. */
@@ -205,22 +202,11 @@ const originPrimeRuns = new Map<string, Promise<void>>();
 const sessionTickets = new Map<string, Buffer>();
 /** Soft send affinity, re-evaluated against real application RTT every send. */
 const preferredSendLaneIds = new Map<string, number>();
-/** Last polling lane per origin. The next poll advances from here. */
-const pollCursorIds = new Map<string, number>();
-/** Last deliberate standby application probe per origin. */
-const lastPollExploreAt = new Map<string, number>();
 /** Last rolling lane replacement per origin; keeps replacements staggered. */
 const lastLaneRecycleAt = new Map<string, number>();
 /** Background-only repair throttle; never awaited by a reply. */
 const lastDegradedRepairAt = new Map<string, number>();
 let pingTimer: ReturnType<typeof setInterval> | undefined;
-
-// Fast polling supplies enough real traffic to rank application paths, but
-// pinning forever to yesterday's winner would never discover a recovered
-// standby. The interval is configurable so a wider pool still refreshes every
-// route inside the application-sample freshness window.
-const POLL_LANE_EXPLORE_INTERVAL_MS = Math.max(1_000, Number(process.env.LINE_H2_POLL_EXPLORE_INTERVAL_MS ?? 5_000));
-const LOG_POLL_LANE_EXPLORATION = process.env.LINE_H2_LOG_POLL_EXPLORE === "1";
 
 function isUsable(lane: Lane): boolean {
 	const session = lane.session;
@@ -264,32 +250,7 @@ export function laneCandidates<T extends { id: number }>(usable: T[], role: Lane
 function pickPollingLane(lanes: Lane[]): Lane | undefined {
 	const usable = laneCandidates(lanes.filter(isUsable), "poll");
 	if (usable.length === 0) return undefined;
-	const origin = usable[0]!.origin;
-	const minInFlight = Math.min(...usable.map((lane) => lane.inFlight));
-	const candidates = usable.filter((lane) => lane.inFlight === minInFlight).sort((a, b) => a.id - b.id);
-	// Calibrate every available application path before trusting the winner.
-	// H2 PING reaches the Akamai edge, while poll RTT also includes LINE's
-	// request path; the latter is the number this workload actually races on.
-	const cursor = pollCursorIds.get(origin) ?? -1;
-	const now = Date.now();
-	const explore = now - (lastPollExploreAt.get(origin) ?? 0) >= POLL_LANE_EXPLORE_INTERVAL_MS;
-	const next = selectPollingLaneCandidate(candidates, cursor, explore)!;
-	if (explore && candidates.every((lane) => lane.pollRttMs !== undefined)) {
-		lastPollExploreAt.set(origin, now);
-		// Diagnostic only, logged only on the case that can actually hurt: an
-		// explore round handed this poll a lane measurably worse than the best
-		// one available. Silent when explore happens to land on the best lane
-		// anyway, so this stays rare instead of firing every 5s regardless.
-		const bestRtt = Math.min(...candidates.map((lane) => lane.pollRttMs!));
-		if (LOG_POLL_LANE_EXPLORATION && next.pollRttMs !== undefined && next.pollRttMs - bestRtt > RTT_SWITCH_MARGIN_MS) {
-			console.log(
-				`[h2-lanes] poll explore: lane ${next.id} rtt=${next.pollRttMs.toFixed(1)}ms ` +
-					`vs best available rtt=${bestRtt.toFixed(1)}ms (origin=${origin})`,
-			);
-		}
-	}
-	pollCursorIds.set(origin, next.id);
-	return next;
+	return selectPollingLaneCandidate(usable);
 }
 
 function pickLane(lanes: Lane[], role: LaneRole): Lane | undefined {
@@ -331,7 +292,6 @@ interface LaneChoiceMetrics {
 	pollRttMs?: number;
 	lastSendOkAt?: number;
 	lastPollOkAt?: number;
-	pollApplicationSamples?: number;
 	consecutiveSlowApplicationSamples?: number;
 	lastOkAt: number;
 	inFlight: number;
@@ -386,6 +346,16 @@ export function canTryRemoteFallback(
 ): boolean {
 	if (hasFreshEligibleApplicationSample(candidate, now, hotCeilingMs)) return true;
 	return measuredApplicationRtt(candidate) === undefined && candidate.rttMs !== undefined && candidate.rttMs < hotCeilingMs;
+}
+
+/** Server 3 may replace a local route only after the local route has a real
+ * measurement that misses the sub-20ms target (or no local route exists). */
+export function shouldTryRemoteForLocal(
+	localAvailable: boolean,
+	localApplicationRtt: number | undefined,
+	hotCeilingMs: number = APPLICATION_HOT_CEILING_MS,
+): boolean {
+	return !localAvailable || (localApplicationRtt !== undefined && localApplicationRtt >= hotCeilingMs);
 }
 
 /**
@@ -486,46 +456,41 @@ export function shouldPreferLane(candidate: LaneChoiceMetrics, current: LaneChoi
 /** Pure adaptive poll decision used by the live pool and focused tests. */
 export function selectPollingLaneCandidate<T extends LaneChoiceMetrics & { id: number; lastPollOkAt: number }>(
 	candidates: T[],
-	cursor: number,
-	explore: boolean,
 	hotCeilingMs: number = APPLICATION_HOT_CEILING_MS,
 	discardCeilingMs: number = APPLICATION_DISCARD_CEILING_MS,
-	calibrationSamples: number = POLL_LANE_CALIBRATION_SAMPLES,
-	discardConfirmationSamples: number = DEGRADED_REPAIR_MIN_SAMPLES,
 ): T | undefined {
 	if (candidates.length === 0) return undefined;
-	// A connection's first application response is commonly a cold outlier.
-	// Give every physical route a tiny fixed calibration window before normal
-	// ranking; these are the same polls the room already issues, not probes.
-	const calibrating = candidates.filter(
-		(lane) =>
-			lane.pollRttMs === undefined || (lane.pollApplicationSamples !== undefined && lane.pollApplicationSamples < calibrationSamples),
-	);
-	if (calibrating.length > 0) {
-		return calibrating.find((lane) => lane.id > cursor) ?? calibrating[0];
-	}
-	// Prefer HOT routes, retain 20-23ms routes only as fallback, and never
-	// explore a known discarded route while any sub-discard route is ready.
+
+	const fastest = (pool: T[]): T => {
+		let best = pool[0]!;
+		for (const lane of pool.slice(1)) {
+			if (shouldPreferLane(lane, best, "poll")) best = lane;
+		}
+		return best;
+	};
+
+	// Foreground polls are user-visible latency. Once one route has proved it
+	// can complete a real LINE RPC below 20ms, keep choosing the fastest proven
+	// route instead of spending live polls to calibrate or periodically explore
+	// unused connections. Those experiments were the controllable source of
+	// recurring 24/30/40/80ms samples despite plenty of spare lanes.
 	const hot = candidates.filter((lane) => lane.pollRttMs! < hotCeilingMs);
+	if (hot.length > 0) return fastest(hot);
+
+	// A 20-23ms route is allowed only when no sub-20ms route remains.
 	const warm = candidates.filter((lane) => lane.pollRttMs! < discardCeilingMs);
-	const selectable = hot.length > 0 ? hot : warm.length > 0 ? warm : candidates;
-	if (explore) {
-		// A route that crossed 23ms once remains send-ineligible, but polling
-		// gives it enough spaced confirmations to distinguish a transient spike
-		// from a path that really needs reconnecting.
-		const suspects = candidates.filter(
-			(lane) =>
-				lane.pollRttMs! >= discardCeilingMs &&
-				(lane.consecutiveSlowApplicationSamples ?? discardConfirmationSamples) < discardConfirmationSamples,
-		);
-		const explorePool = warm.length > 0 ? [...warm, ...suspects] : selectable;
-		return [...explorePool].sort((left, right) => left.lastPollOkAt - right.lastPollOkAt || left.id - right.id)[0];
-	}
-	let best = selectable[0]!;
-	for (const candidate of selectable.slice(1)) {
-		if (shouldPreferLane(candidate, best, "poll")) best = candidate;
-	}
-	return best;
+	if (warm.length > 0) return fastest(warm);
+
+	// Bootstrap exactly one unmeasured route only when there is no usable
+	// measured route below 23ms. H2 PING is sufficient to pick which unknown
+	// connection gets that unavoidable first real sample; it is never allowed
+	// to outrank a proven application-fast lane.
+	const unmeasured = candidates.filter((lane) => lane.pollRttMs === undefined);
+	if (unmeasured.length > 0) return fastest(unmeasured);
+
+	// Availability last resort. A >=23ms lane is used only if every alternative
+	// is also known slow; background repair replaces these sessions.
+	return fastest(candidates);
 }
 
 function isBetterLane(candidate: Lane, current: Lane, role: LaneRole): boolean {
@@ -554,7 +519,6 @@ function recordApplicationRtt(lane: Lane, role: LaneRole, sampleMs: number): voi
 		// for minutes. Three samples at this weight reduce a one-off outlier to
 		// 12.25% while repeated slow responses remain unmistakably slow.
 		lane.pollRttMs = lane.pollRttMs === undefined ? sampleMs : lane.pollRttMs * 0.35 + sampleMs * 0.65;
-		lane.pollApplicationSamples++;
 		lane.lastPollOkAt = now;
 		return;
 	}
@@ -755,7 +719,6 @@ function openLane(lane: Lane): Promise<void> {
 	lane.pollRttMs = undefined;
 	lane.lastSendOkAt = 0;
 	lane.lastPollOkAt = 0;
-	lane.pollApplicationSamples = 0;
 	lane.consecutiveSlowApplicationSamples = 0;
 	lane.openedAt = 0;
 
@@ -884,7 +847,6 @@ export async function ensureLanes(origin: string): Promise<void> {
 			pollRttMs: undefined,
 			lastSendOkAt: 0,
 			lastPollOkAt: 0,
-			pollApplicationSamples: 0,
 			consecutiveFailures: 0,
 			consecutiveSlowApplicationSamples: 0,
 			openedAt: 0,
@@ -1154,18 +1116,10 @@ function lanesForOrigin(origin: string): Lane[] {
  *
  * A second physical machine's h2-lanes pool (server3, see remote-lane.ts) is
  * folded in here as pure standby, never inside pickLane()/pickPollingLane()
- * themselves — those stay exactly as they were, local-lanes-only, so every
- * existing guarantee about them is untouched. Deliberately NOT a race: the
- * remote candidate is only ever considered once the local pick has already
- * fallen through to "no usable lane at all" or "the best this process has
- * is already known-slow" (>= the discard ceiling) — local never loses a
- * genuinely healthy lane to remote, busy or not. A comparison-based race
- * was tried first and rejected: server3's own baseline RTT runs a few ms
- * above local's tuned baseline, so racing it risked occasionally handing a
- * real, competitive reply to the slower path on nothing but sampling noise
- * — the same reasoning that shelved hedge mode's stage C (see project
- * memory "latency-18-21-plan"). See memory "server3-lane-relay" for the
- * validation history.
+ * themselves — those stay local-lanes-only. Deliberately NOT a duplicate
+ * race: Server 3 is considered only when no local route has a proven sub-20ms
+ * application sample. A local 20-23ms route remains the safe fallback when
+ * Server 3 is not itself proven sub-20ms.
  */
 export function laneFetch(info: RequestInfo | URL, init?: RequestInit): Promise<Response | undefined> {
 	const url = info instanceof URL ? info : new URL(typeof info === "string" ? info : info.url);
@@ -1180,8 +1134,9 @@ export function laneFetch(info: RequestInfo | URL, init?: RequestInit): Promise<
 	const lanes = LANE_COUNT === 0 ? undefined : pools.get(url.origin);
 	const lane = lanes ? pickLane(lanes, role) : undefined;
 
-	const localExhausted = !lane || (measuredApplicationRtt(lane) ?? -Infinity) >= APPLICATION_DISCARD_CEILING_MS;
-	if (localExhausted) {
+	const localApplicationRtt = lane ? measuredApplicationRtt(lane) : undefined;
+	const localMissesHotTarget = shouldTryRemoteForLocal(lane !== undefined, localApplicationRtt);
+	if (localMissesHotTarget) {
 		const relayConfig = remoteDispatchConfig();
 		if (relayConfig) {
 			const remote = remoteLaneCandidate(url.origin);
@@ -1306,8 +1261,6 @@ export function stopLanes(): void {
 	primedOrigins.clear();
 	originPrimeRuns.clear();
 	preferredSendLaneIds.clear();
-	pollCursorIds.clear();
-	lastPollExploreAt.clear();
 	lastLaneRecycleAt.clear();
 	lastDegradedRepairAt.clear();
 }
