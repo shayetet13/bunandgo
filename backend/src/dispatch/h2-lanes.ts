@@ -921,7 +921,9 @@ export function primeLanes(origin: string): Promise<void> {
 			lanes.map(async (lane) => {
 				const response = await sendOnLane(
 					lane,
-					new URL("/", key),
+					// Prime the same Akamai/application route the hot Square poll uses.
+					// HEAD carries no LINE token or RPC body, so it cannot poll or send.
+					new URL("/SQ1", key),
 					{ method: "HEAD", signal: AbortSignal.timeout(10_000) },
 					undefined,
 					"warm",
