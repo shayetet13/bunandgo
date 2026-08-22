@@ -1162,17 +1162,21 @@ function lanesForOrigin(origin: string): Lane[] {
  * not within one: a lane LINE has GOAWAY'd or dropped is marked unusable
  * the moment that arrives, so the next reply simply picks another. That is
  * the whole benefit here, and it costs no risk of sending twice.
- */
-/**
+ *
  * A second physical machine's h2-lanes pool (server3, see remote-lane.ts) is
- * folded in here as one more candidate, never inside pickLane()/pickPollingLane()
+ * folded in here as pure standby, never inside pickLane()/pickPollingLane()
  * themselves — those stay exactly as they were, local-lanes-only, so every
- * existing guarantee about them is untouched. The remote candidate only ever
- * wins when it is genuinely at least as good as whatever the local pool just
- * picked (or the local pool has nothing at all), using the exact same
- * hot/discard ceiling and shouldPreferLane comparison local lanes already
- * apply to each other — see ARCHITECTURE.md's h2-lanes section and project
- * memory "server3-lane-relay" for why this exists and how it was validated.
+ * existing guarantee about them is untouched. Deliberately NOT a race: the
+ * remote candidate is only ever considered once the local pick has already
+ * fallen through to "no usable lane at all" or "the best this process has
+ * is already known-slow" (>= the discard ceiling) — local never loses a
+ * genuinely healthy lane to remote, busy or not. A comparison-based race
+ * was tried first and rejected: server3's own baseline RTT runs a few ms
+ * above local's tuned baseline, so racing it risked occasionally handing a
+ * real, competitive reply to the slower path on nothing but sampling noise
+ * — the same reasoning that shelved hedge mode's stage C (see project
+ * memory "latency-18-21-plan"). See memory "server3-lane-relay" for the
+ * validation history.
  */
 export function laneFetch(info: RequestInfo | URL, init?: RequestInit): Promise<Response | undefined> {
 	// TEMPORARY — see lane-relay-test-transport.ts. Only ever set inside the
@@ -1188,14 +1192,18 @@ export function laneFetch(info: RequestInfo | URL, init?: RequestInit): Promise<
 	const lanes = LANE_COUNT === 0 ? undefined : pools.get(url.origin);
 	const lane = lanes ? pickLane(lanes, role) : undefined;
 
-	const relayConfig = remoteDispatchConfig();
-	if (relayConfig) {
-		const remote = remoteLaneCandidate(url.origin);
-		if (remote) {
+	const localExhausted = !lane ||
+		(measuredApplicationRtt(lane) ?? -Infinity) >= APPLICATION_DISCARD_CEILING_MS;
+	if (localExhausted) {
+		const relayConfig = remoteDispatchConfig();
+		if (relayConfig) {
+			const remote = remoteLaneCandidate(url.origin);
 			const now = Date.now();
-			const remoteEligible = hasFreshEligibleApplicationSample(remote, now, APPLICATION_HOT_CEILING_MS) ||
-				hasFreshEligibleApplicationSample(remote, now, APPLICATION_DISCARD_CEILING_MS);
-			if (remoteEligible && (!lane || shouldPreferLane(remote, lane, role))) {
+			const remoteEligible = remote !== undefined && (
+				hasFreshEligibleApplicationSample(remote, now, APPLICATION_HOT_CEILING_MS) ||
+				hasFreshEligibleApplicationSample(remote, now, APPLICATION_DISCARD_CEILING_MS)
+			);
+			if (remoteEligible) {
 				return dispatchViaRemoteLane(relayConfig, url, init, role);
 			}
 		}
