@@ -206,7 +206,6 @@ export function createSystemRoute(options: SystemRouteOptions = {}): Hono {
 			confirm?: unknown;
 			botId?: unknown;
 			targetMids?: unknown;
-			text?: unknown;
 			count?: unknown;
 			ceilingMs?: unknown;
 		};
@@ -248,13 +247,9 @@ export function createSystemRoute(options: SystemRouteOptions = {}): Hono {
 				return c.json({ error: "ceilingMs ต้องเป็นตัวเลข 1-1000" }, 400);
 			}
 		}
-		const text = typeof body.text === "string" && body.text.trim()
-			? body.text.trim()
-			: `[lane-relay test] via server3 — ${new Date().toISOString()}`;
-
 		const user = requestUser(c)!;
 		try {
-			const result = await testLaneRelayBurst(botId, targets, text, count, ceilingMs);
+			const result = await testLaneRelayBurst(botId, targets, count, ceilingMs);
 			const delivered = result.results.filter((r) => r.delivered);
 			const skipped = result.results.filter((r) => r.skipped);
 			const failed = result.results.filter((r) => !r.delivered && !r.skipped);
