@@ -3,8 +3,11 @@ import { relayConfig } from "./config.ts";
 
 let timer: ReturnType<typeof setInterval> | undefined;
 let lastFailureLogAt = 0;
+let reportInFlight = false;
 
 async function pushReport(): Promise<void> {
+	if (reportInFlight) return;
+	reportInFlight = true;
 	try {
 		const body = JSON.stringify({
 			workerId: relayConfig.workerId,
@@ -29,6 +32,8 @@ async function pushReport(): Promise<void> {
 			lastFailureLogAt = now;
 			console.error("lane relay: report to control plane failed:", error instanceof Error ? error.message : error);
 		}
+	} finally {
+		reportInFlight = false;
 	}
 }
 
@@ -43,4 +48,5 @@ export function startLaneRelayReporting(): void {
 export function stopLaneRelayReporting(): void {
 	if (timer) clearInterval(timer);
 	timer = undefined;
+	reportInFlight = false;
 }

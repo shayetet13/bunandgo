@@ -25,7 +25,7 @@ function laneRelayToken(): string | undefined {
 
 /** Two report intervals' worth of grace before a relay is treated as gone,
  * so one missed push (a GC pause, a blip on the tunnel) doesn't blank it. */
-const REPORT_STALE_MS = Math.max(5_000, Number(process.env.LANE_RELAY_STALE_MS ?? 15_000));
+const REPORT_STALE_MS = Math.max(3_000, Number(process.env.LANE_RELAY_STALE_MS ?? 3_000));
 
 /** Defensive bound only — the token already keeps this to trusted senders.
  * Exported so the test can hit the limit without hardcoding the number. */

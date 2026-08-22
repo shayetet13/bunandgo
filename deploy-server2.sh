@@ -86,7 +86,6 @@ cp "$(git rev-parse --git-path index)" "$TEMP_INDEX"
 GIT_INDEX_FILE="$TEMP_INDEX" git add -u
 for new_file in \
 	ARCHITECTURE.md \
-	setup-shard-b.sh \
 	backend/src/api/worker-events.ts \
 	backend/src/api/worker-events.test.ts \
 	backend/src/api/worker-proxy.ts \
@@ -94,9 +93,13 @@ for new_file in \
 	backend/src/api/routes/system.ts \
 	backend/src/api/routes/system.test.ts \
 	backend/src/bot/start-confirmation.test.ts \
+	backend/src/bot/worker-assignment.ts \
+	backend/src/bot/worker-assignment.test.ts \
 	backend/src/bot/worker-topology.ts \
 	backend/src/bot/worker-topology.test.ts \
+	backend/src/dispatch/relay-only.test.ts \
 	backend/src/bot/maintenance-mode.ts \
+	deploy/server2/worker-topology.example.json \
 	frontend/src/lib/rule-input.ts \
 	frontend/src/lib/rule-input.test.ts \
 	frontend/src/lib/race-commentary.ts \
@@ -248,14 +251,14 @@ if [ -r "$RUNTIME_TOPOLOGY" ]; then
 	# sender or LINE session starts. Both known service ports must resolve to
 	# opposite, authenticated sides of the same split.
 	NODE_ENV=production DB_PATH="$SHARED_DB" PORT=8791 bun --no-env-file -e '
-		import { validateWorkerTopology } from "./src/bot/worker-topology.ts";
+		import { isControlPlane, validateWorkerTopology } from "./src/bot/worker-topology.ts";
 		const topology = validateWorkerTopology();
-		if (topology.ownerRoutes.size === 0 || topology.controlPlaneUrl) throw new Error("8791 is not the control plane");
+		if (!isControlPlane() || topology.controlPlaneUrl) throw new Error("8791 is not the control plane");
 	'
 	NODE_ENV=production DB_PATH="$SHARED_DB" PORT=8792 bun --no-env-file -e '
 		import { validateWorkerTopology } from "./src/bot/worker-topology.ts";
 		const topology = validateWorkerTopology();
-		if (!topology.controlPlaneUrl || topology.ownerRoutes.size !== 0) throw new Error("8792 is not a shard");
+		if (!topology.controlPlaneUrl || topology.workerRoutes.size !== 0) throw new Error("8792 is not a shard");
 	'
 	if ! systemctl is-enabled linebot-worker-shard-b.service >/dev/null 2>&1 \
 		&& ! systemctl is-active linebot-worker-shard-b.service >/dev/null 2>&1; then
@@ -264,7 +267,7 @@ if [ -r "$RUNTIME_TOPOLOGY" ]; then
 	fi
 	ENABLED_SHARD_UNITS=" linebot-worker-shard-b"
 else
-echo "--- Validating disjoint worker scopes before restart ---"
+echo "--- Validating legacy disjoint worker scopes before restart ---"
 PRIMARY_INCLUDE=$(read_env_value /etc/linebot/worker.env WORKER_OWNER_SCOPE)
 PRIMARY_EXCLUDE=$(read_env_value /etc/linebot/worker.env WORKER_OWNER_EXCLUDE)
 PRIMARY_ROUTES=$(read_env_value /etc/linebot/worker.env WORKER_OWNER_ROUTES)

@@ -67,21 +67,33 @@ export function RulesPage({
 	const hasSiblings = (selectedGroup?.bots.length ?? 0) > 1;
 
 	return (
-		<div style={{ display: "flex", flexDirection: "column", gap: "var(--space-md)", }}>
-			<section className="panel responsive-toolbar" style={{ padding: "var(--space-md)", display: "flex", alignItems: "center", gap: "var(--space-sm)" }}>
+		<div style={{ display: "flex", flexDirection: "column", gap: "var(--space-md)" }}>
+			<section
+				className="panel responsive-toolbar"
+				style={{ padding: "var(--space-md)", display: "flex", alignItems: "center", gap: "var(--space-sm)" }}
+			>
 				<label className="label">เลือกบอท</label>
 				<select value={selectedBotId ?? ""} onChange={(e) => onSelectBotId(Number(e.target.value))} style={selectStyle}>
-					<option value="" disabled>— เลือกบอท —</option>
+					<option value="" disabled>
+						— เลือกบอท —
+					</option>
 					{groups.map((group) =>
 						group.bots.length > 1 ? (
-							<optgroup key={group.key} label={group.ownerUserId === null ? "" : ownerNames[group.ownerUserId] ?? `ผู้ใช้ #${group.ownerUserId}`}>
+							<optgroup
+								key={group.key}
+								label={group.ownerUserId === null ? "" : (ownerNames[group.ownerUserId] ?? `ผู้ใช้ #${group.ownerUserId}`)}
+							>
 								{group.bots.map((bot) => (
-									<option key={bot.id} value={bot.id}>{bot.name}</option>
+									<option key={bot.id} value={bot.id}>
+										{bot.name}
+									</option>
 								))}
 							</optgroup>
 						) : (
 							group.bots.map((bot) => (
-								<option key={bot.id} value={bot.id}>{bot.name}</option>
+								<option key={bot.id} value={bot.id}>
+									{bot.name}
+								</option>
 							))
 						),
 					)}
@@ -89,18 +101,32 @@ export function RulesPage({
 			</section>
 
 			{!selectedBot ? (
-				<section className="panel" style={{ padding: "var(--space-lg)", textAlign: "center", color: "var(--text-secondary)", fontSize: "var(--text-sm)" }}>
+				<section
+					className="panel"
+					style={{ padding: "var(--space-lg)", textAlign: "center", color: "var(--text-secondary)", fontSize: "var(--text-sm)" }}
+				>
 					เลือกบอทด้านบนเพื่อจัดการกฎการตอบและทดสอบส่งข้อความ
 				</section>
 			) : (
 				<>
-					<section className="panel responsive-toolbar" style={{ padding: "var(--space-md)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-md)" }}>
+					<section
+						className="panel responsive-toolbar"
+						style={{
+							padding: "var(--space-md)",
+							display: "flex",
+							alignItems: "center",
+							justifyContent: "space-between",
+							gap: "var(--space-md)",
+						}}
+					>
 						<div>
-							<div className="label" style={{ marginBottom: "var(--space-xs)" }}>กฎพิเศษ · ทดสอบโดยเจ้าของบัญชี</div>
+							<div className="label" style={{ marginBottom: "var(--space-xs)" }}>
+								กฎพิเศษ · ทดสอบโดยเจ้าของบัญชี
+							</div>
 							<p className="hint" style={{ margin: 0 }}>
 								เปิดเพื่อให้บัญชี LINE ที่สแกน QR (ตัวบอทเอง) พิมพ์ข้อความแล้วทริกเกอร์กฎได้เหมือนลูกค้าจริง —
-								ปกติบอทจะไม่ตอบข้อความของตัวเอง ต้องเปิดสวิตช์นี้ก่อนถึงจะทดสอบด้วยบัญชีนี้ได้
-								(ลูกค้าจริงคนอื่นในห้องที่ "ตอบอัตโนมัติ" เปิดไว้ด้านล่างจะได้รับคำตอบตามปกติอยู่แล้ว ไม่ต้องเปิดสวิตช์นี้)
+								ปกติบอทจะไม่ตอบข้อความของตัวเอง ต้องเปิดสวิตช์นี้ก่อนถึงจะทดสอบด้วยบัญชีนี้ได้ (ลูกค้าจริงคนอื่นในห้องที่ "ตอบอัตโนมัติ"
+								เปิดไว้ด้านล่างจะได้รับคำตอบตามปกติอยู่แล้ว ไม่ต้องเปิดสวิตช์นี้)
 							</p>
 						</div>
 						<button
@@ -125,11 +151,16 @@ export function RulesPage({
 
 					{selectedBot.status === "online" ? (
 						<>
-							<ChatList botId={selectedBot.id} chats={chats} selectedMids={selectedMids} onSelect={onSelectMids} onToggleEnabled={onToggleChatEnabled} onToggleAdminOnly={onToggleChatAdminOnly} hasSiblings={hasSiblings} />
-							<TestSendPanel
+							<ChatList
 								botId={selectedBot.id}
-								selectedChats={chats.filter((c) => selectedMids.includes(c.mid))}
+								chats={chats}
+								selectedMids={selectedMids}
+								onSelect={onSelectMids}
+								onToggleEnabled={onToggleChatEnabled}
+								onToggleAdminOnly={onToggleChatAdminOnly}
+								hasSiblings={hasSiblings}
 							/>
+							<TestSendPanel botId={selectedBot.id} selectedChats={chats.filter((c) => selectedMids.includes(c.mid))} />
 							<ScheduledPostEditor
 								chats={chats}
 								posts={scheduledPosts}
@@ -140,7 +171,10 @@ export function RulesPage({
 							/>
 						</>
 					) : (
-						<section className="panel" style={{ padding: "var(--space-lg)", textAlign: "center", color: "var(--text-secondary)", fontSize: "var(--text-sm)" }}>
+						<section
+							className="panel"
+							style={{ padding: "var(--space-lg)", textAlign: "center", color: "var(--text-secondary)", fontSize: "var(--text-sm)" }}
+						>
 							ต้องเข้าสู่ระบบสำเร็จก่อนจึงจะดูห้องแชทและทดสอบส่งข้อความได้ — ไปที่ "บอททั้งหมด" แล้วกด "เริ่ม"
 						</section>
 					)}

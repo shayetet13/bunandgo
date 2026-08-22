@@ -7,16 +7,10 @@ const { botEvents } = await import("../bot/session-manager.ts");
 const { relayedLatencySamples, workerEventsRoute } = await import("./worker-events.ts");
 const { CONTROL_TOKEN_HEADER } = await import("./worker-proxy.ts");
 
-const ENV_KEYS = [
-	"WORKER_OWNER_SCOPE",
-	"WORKER_OWNER_EXCLUDE",
-	"WORKER_OWNER_ROUTES",
-	"CONTROL_PLANE_URL",
-	"CONTROL_PLANE_TOKEN",
-] as const;
+const ENV_KEYS = ["WORKER_OWNER_SCOPE", "WORKER_OWNER_EXCLUDE", "WORKER_OWNER_ROUTES", "CONTROL_PLANE_URL", "CONTROL_PLANE_TOKEN"] as const;
 const original = new Map<string, string | undefined>();
 
-function setEnv(values: Partial<Record<typeof ENV_KEYS[number], string>>): void {
+function setEnv(values: Partial<Record<(typeof ENV_KEYS)[number], string>>): void {
 	for (const key of ENV_KEYS) {
 		if (!original.has(key)) original.set(key, process.env[key]);
 		const value = values[key];
@@ -62,7 +56,18 @@ describe("worker event fan-in", () => {
 					{
 						id: "shard-b:4",
 						type: "send_result",
-						data: { last: { botId: remoteBot.id, ts: 1234, surface: "square", targetMid: null, latencyMs: 21, ok: true, source: "auto", textPreview: null } },
+						data: {
+							last: {
+								botId: remoteBot.id,
+								ts: 1234,
+								surface: "square",
+								targetMid: null,
+								latencyMs: 21,
+								ok: true,
+								source: "auto",
+								textPreview: null,
+							},
+						},
 					},
 				],
 			};

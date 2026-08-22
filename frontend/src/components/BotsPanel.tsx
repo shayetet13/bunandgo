@@ -53,7 +53,20 @@ const actionBtnStyle = {
 	cursor: "pointer",
 };
 
-export function BotsPanel({ bots, role, selectedBotId, onSelect, qrByBot, confirmByBot, onCreateBot, onStart, onStop, onDelete, onResetIdLock, onForceRelogin }: BotsPanelProps) {
+export function BotsPanel({
+	bots,
+	role,
+	selectedBotId,
+	onSelect,
+	qrByBot,
+	confirmByBot,
+	onCreateBot,
+	onStart,
+	onStop,
+	onDelete,
+	onResetIdLock,
+	onForceRelogin,
+}: BotsPanelProps) {
 	const [showForm, setShowForm] = useState(false);
 	const [name, setName] = useState("");
 	const [confirmDeleteId, setConfirmDeleteId] = useState<number>();
@@ -95,7 +108,11 @@ export function BotsPanel({ bots, role, selectedBotId, onSelect, qrByBot, confir
 			</p>
 
 			{showForm && (
-				<form className="bot-create-form" onSubmit={submit} style={{ display: "flex", gap: "var(--space-xs)", marginBottom: "var(--space-md)" }}>
+				<form
+					className="bot-create-form"
+					onSubmit={submit}
+					style={{ display: "flex", gap: "var(--space-xs)", marginBottom: "var(--space-md)" }}
+				>
 					<input
 						autoFocus
 						placeholder="ชื่อบอท (เช่น กลุ่มหวย 1)"
@@ -130,17 +147,13 @@ export function BotsPanel({ bots, role, selectedBotId, onSelect, qrByBot, confir
 			)}
 
 			{bots.length === 0 && !showForm && (
-				<div style={{ color: "var(--text-dim)", fontSize: "var(--text-sm)" }}>
-					ยังไม่มีบอท — สร้างบอทเพื่อรับ QR สำหรับเข้าสู่ระบบ LINE
-				</div>
+				<div style={{ color: "var(--text-dim)", fontSize: "var(--text-sm)" }}>ยังไม่มีบอท — สร้างบอทเพื่อรับ QR สำหรับเข้าสู่ระบบ LINE</div>
 			)}
 			{groups.map((group) => (
 				<div key={group.key} style={{ marginBottom: "var(--space-md)" }}>
 					{groups.length > 1 && (
 						<div className="label" style={{ margin: "0 0 var(--space-xs)", color: "var(--text-dim)" }}>
-							{group.ownerUserId === null
-								? "ไม่มีเจ้าของ"
-								: ownerNames[group.ownerUserId] ?? `ผู้ใช้ #${group.ownerUserId}`}
+							{group.ownerUserId === null ? "ไม่มีเจ้าของ" : (ownerNames[group.ownerUserId] ?? `ผู้ใช้ #${group.ownerUserId}`)}
 							{group.bots.length > 1 ? ` · บอทพี่น้อง ${group.bots.length} ตัว` : ""}
 						</div>
 					)}
@@ -148,161 +161,179 @@ export function BotsPanel({ bots, role, selectedBotId, onSelect, qrByBot, confir
 						{group.bots.map((bot) => {
 							const pendingConfirm = confirmByBot[bot.id];
 							return (
-							<div
-								key={bot.id}
-								style={{
-									display: "flex",
-									flexDirection: "column",
-									gap: "var(--space-xs)",
-									background: bot.id === selectedBotId ? "var(--bg-panel-raised)" : "var(--bg-inset)",
-									border: `1px solid ${bot.id === selectedBotId ? "var(--signal-go-dim)" : "var(--border-hair)"}`,
-									borderRadius: "var(--radius-sm)",
-									padding: "0.55rem 0.7rem",
-								}}
-							>
-								<button
-									onClick={() => onSelect(bot)}
+								<div
+									key={bot.id}
 									style={{
 										display: "flex",
-										alignItems: "center",
-										gap: "var(--space-sm)",
-										textAlign: "left",
-										background: "transparent",
-										border: "none",
-										padding: 0,
-										cursor: "pointer",
-										color: "var(--text-primary)",
+										flexDirection: "column",
+										gap: "var(--space-xs)",
+										background: bot.id === selectedBotId ? "var(--bg-panel-raised)" : "var(--bg-inset)",
+										border: `1px solid ${bot.id === selectedBotId ? "var(--signal-go-dim)" : "var(--border-hair)"}`,
+										borderRadius: "var(--radius-sm)",
+										padding: "0.55rem 0.7rem",
 									}}
 								>
-									<span
+									<button
+										onClick={() => onSelect(bot)}
 										style={{
-											width: 8,
-											height: 8,
-											borderRadius: 999,
-											background: STATUS_COLOR[bot.status],
-											boxShadow: bot.status !== "offline" ? `0 0 8px ${STATUS_COLOR[bot.status]}` : undefined,
-											flexShrink: 0,
+											display: "flex",
+											alignItems: "center",
+											gap: "var(--space-sm)",
+											textAlign: "left",
+											background: "transparent",
+											border: "none",
+											padding: 0,
+											cursor: "pointer",
+											color: "var(--text-primary)",
 										}}
-									/>
-									<span style={{ fontSize: "var(--text-sm)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-										bot{bot.slot} · {bot.name}
-									</span>
-									<span className="label">{STATUS_LABEL[bot.status]}</span>
-								</button>
+									>
+										<span
+											style={{
+												width: 8,
+												height: 8,
+												borderRadius: 999,
+												background: STATUS_COLOR[bot.status],
+												boxShadow: bot.status !== "offline" ? `0 0 8px ${STATUS_COLOR[bot.status]}` : undefined,
+												flexShrink: 0,
+											}}
+										/>
+										<span
+											style={{ fontSize: "var(--text-sm)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+										>
+											bot{bot.slot} · {bot.name}
+										</span>
+										<span className="label">{STATUS_LABEL[bot.status]}</span>
+									</button>
 
-								{role === "admin" && bot.lockedLineMid && (
-									<div className="label" style={{ color: "var(--text-dim)", fontSize: "var(--text-xs)" }}>
-										ล็อกกับ: {bot.lockedLineDisplayName ?? "(ยังไม่มีชื่อบันทึก — รอสแกน QR ใหม่)"}
+									{role === "admin" && bot.lockedLineMid && (
+										<div className="label" style={{ color: "var(--text-dim)", fontSize: "var(--text-xs)" }}>
+											ล็อกกับ: {bot.lockedLineDisplayName ?? "(ยังไม่มีชื่อบันทึก — รอสแกน QR ใหม่)"}
+										</div>
+									)}
+
+									<div className="bot-card-actions" style={{ display: "flex", gap: "var(--space-xs)" }}>
+										{bot.status === "offline" ? (
+											pendingConfirm ? (
+												<button disabled style={{ ...actionBtnStyle, cursor: "default" }}>
+													รอการยืนยัน…
+												</button>
+											) : (
+												<button
+													onClick={() => onStart(bot.id)}
+													style={{ ...actionBtnStyle, color: "var(--signal-go)", borderColor: "var(--signal-go-dim)" }}
+												>
+													▶ เริ่ม
+												</button>
+											)
+										) : (
+											<button
+												onClick={() => onStop(bot.id)}
+												style={{ ...actionBtnStyle, color: "var(--signal-warn)", borderColor: "var(--signal-warn-dim)" }}
+											>
+												■ หยุด
+											</button>
+										)}
+
+										{confirmDeleteId === bot.id ? (
+											<>
+												<button
+													onClick={() => {
+														onDelete(bot.id);
+														setConfirmDeleteId(undefined);
+													}}
+													style={{ ...actionBtnStyle, color: "var(--signal-bad)", borderColor: "var(--signal-bad-dim)", fontWeight: 700 }}
+												>
+													ยืนยันลบ?
+												</button>
+												<button onClick={() => setConfirmDeleteId(undefined)} style={actionBtnStyle}>
+													ยกเลิก
+												</button>
+											</>
+										) : (
+											<button onClick={() => setConfirmDeleteId(bot.id)} style={actionBtnStyle}>
+												ลบ
+											</button>
+										)}
+
+										{role === "admin" &&
+											bot.lockedLineMid &&
+											(confirmResetIdLockId === bot.id ? (
+												<>
+													<button
+														onClick={() => {
+															onResetIdLock(bot.id);
+															setConfirmResetIdLockId(undefined);
+														}}
+														style={{
+															...actionBtnStyle,
+															color: "var(--signal-warn)",
+															borderColor: "var(--signal-warn-dim)",
+															fontWeight: 700,
+														}}
+													>
+														ยืนยันรีเซ็ตล็อก?
+													</button>
+													<button onClick={() => setConfirmResetIdLockId(undefined)} style={actionBtnStyle}>
+														ยกเลิก
+													</button>
+												</>
+											) : (
+												<button
+													onClick={() => setConfirmResetIdLockId(bot.id)}
+													style={actionBtnStyle}
+													title="ปลดล็อกบัญชี LINE และชื่อบัญชีของบอทนี้ — จะหยุดบอทและออกจากระบบ session เดิมด้วย ใช้เมื่อบัญชีเดิมโดนแบน/ต้องเปลี่ยนบัญชีใหม่ หรือชื่อบัญชีเปลี่ยนไปจริงๆ"
+												>
+													รีเซ็ตล็อกบัญชี
+												</button>
+											))}
+
+										{role === "admin" &&
+											bot.lockedLineMid &&
+											(confirmForceReloginId === bot.id ? (
+												<>
+													<button
+														onClick={() => {
+															onForceRelogin(bot.id);
+															setConfirmForceReloginId(undefined);
+														}}
+														style={{
+															...actionBtnStyle,
+															color: "var(--signal-warn)",
+															borderColor: "var(--signal-warn-dim)",
+															fontWeight: 700,
+														}}
+													>
+														ยืนยันบังคับสแกนใหม่?
+													</button>
+													<button onClick={() => setConfirmForceReloginId(undefined)} style={actionBtnStyle}>
+														ยกเลิก
+													</button>
+												</>
+											) : (
+												<button
+													onClick={() => setConfirmForceReloginId(bot.id)}
+													style={actionBtnStyle}
+													title="หยุดบอทและออกจากระบบ session เดิม แต่ยังล็อกบัญชี LINE เดิมไว้ — สแกนครั้งถัดไปต้องเป็นบัญชีเดิมเท่านั้น มิฉะนั้นจะถูกปฏิเสธและแจ้งเตือน (ต่างจากรีเซ็ตล็อกที่ปลดล็อกให้บัญชีอื่นเข้าได้)"
+												>
+													บังคับสแกนใหม่
+												</button>
+											))}
 									</div>
-								)}
 
-								<div className="bot-card-actions" style={{ display: "flex", gap: "var(--space-xs)" }}>
-									{bot.status === "offline" ? (
-										pendingConfirm ? (
-											<button disabled style={{ ...actionBtnStyle, cursor: "default" }}>
-												รอการยืนยัน…
-											</button>
-										) : (
-											<button onClick={() => onStart(bot.id)} style={{ ...actionBtnStyle, color: "var(--signal-go)", borderColor: "var(--signal-go-dim)" }}>
-												▶ เริ่ม
-											</button>
-										)
-									) : (
-										<button onClick={() => onStop(bot.id)} style={{ ...actionBtnStyle, color: "var(--signal-warn)", borderColor: "var(--signal-warn-dim)" }}>
-											■ หยุด
-										</button>
+									{bot.status === "offline" && pendingConfirm && (
+										<StartConfirmPanel botName={`bot${bot.slot} · ${bot.name}`} confirmUrl={pendingConfirm.url} />
 									)}
 
-									{confirmDeleteId === bot.id ? (
-										<>
-											<button
-												onClick={() => {
-													onDelete(bot.id);
-													setConfirmDeleteId(undefined);
-												}}
-												style={{ ...actionBtnStyle, color: "var(--signal-bad)", borderColor: "var(--signal-bad-dim)", fontWeight: 700 }}
-											>
-												ยืนยันลบ?
-											</button>
-											<button onClick={() => setConfirmDeleteId(undefined)} style={actionBtnStyle}>
-												ยกเลิก
-											</button>
-										</>
-									) : (
-										<button onClick={() => setConfirmDeleteId(bot.id)} style={actionBtnStyle}>
-											ลบ
-										</button>
-									)}
-
-									{role === "admin" && bot.lockedLineMid && (
-										confirmResetIdLockId === bot.id ? (
-											<>
-												<button
-													onClick={() => {
-														onResetIdLock(bot.id);
-														setConfirmResetIdLockId(undefined);
-													}}
-													style={{ ...actionBtnStyle, color: "var(--signal-warn)", borderColor: "var(--signal-warn-dim)", fontWeight: 700 }}
-												>
-													ยืนยันรีเซ็ตล็อก?
-												</button>
-												<button onClick={() => setConfirmResetIdLockId(undefined)} style={actionBtnStyle}>
-													ยกเลิก
-												</button>
-											</>
-										) : (
-											<button
-												onClick={() => setConfirmResetIdLockId(bot.id)}
-												style={actionBtnStyle}
-												title="ปลดล็อกบัญชี LINE และชื่อบัญชีของบอทนี้ — จะหยุดบอทและออกจากระบบ session เดิมด้วย ใช้เมื่อบัญชีเดิมโดนแบน/ต้องเปลี่ยนบัญชีใหม่ หรือชื่อบัญชีเปลี่ยนไปจริงๆ"
-											>
-												รีเซ็ตล็อกบัญชี
-											</button>
-										)
-									)}
-
-									{role === "admin" && bot.lockedLineMid && (
-										confirmForceReloginId === bot.id ? (
-											<>
-												<button
-													onClick={() => {
-														onForceRelogin(bot.id);
-														setConfirmForceReloginId(undefined);
-													}}
-													style={{ ...actionBtnStyle, color: "var(--signal-warn)", borderColor: "var(--signal-warn-dim)", fontWeight: 700 }}
-												>
-													ยืนยันบังคับสแกนใหม่?
-												</button>
-												<button onClick={() => setConfirmForceReloginId(undefined)} style={actionBtnStyle}>
-													ยกเลิก
-												</button>
-											</>
-										) : (
-											<button
-												onClick={() => setConfirmForceReloginId(bot.id)}
-												style={actionBtnStyle}
-												title="หยุดบอทและออกจากระบบ session เดิม แต่ยังล็อกบัญชี LINE เดิมไว้ — สแกนครั้งถัดไปต้องเป็นบัญชีเดิมเท่านั้น มิฉะนั้นจะถูกปฏิเสธและแจ้งเตือน (ต่างจากรีเซ็ตล็อกที่ปลดล็อกให้บัญชีอื่นเข้าได้)"
-											>
-												บังคับสแกนใหม่
-											</button>
-										)
+									{bot.status === "connecting" && (
+										<QrPanel
+											botName={`bot${bot.slot} · ${bot.name}`}
+											qrUrl={qrByBot[bot.id]?.url}
+											pincode={qrByBot[bot.id]?.pincode}
+											phase={qrByBot[bot.id]?.phase}
+											onCancel={() => onStop(bot.id)}
+										/>
 									)}
 								</div>
-
-								{bot.status === "offline" && pendingConfirm && (
-									<StartConfirmPanel botName={`bot${bot.slot} · ${bot.name}`} confirmUrl={pendingConfirm.url} />
-								)}
-
-								{bot.status === "connecting" && (
-									<QrPanel
-										botName={`bot${bot.slot} · ${bot.name}`}
-										qrUrl={qrByBot[bot.id]?.url}
-										pincode={qrByBot[bot.id]?.pincode}
-										phase={qrByBot[bot.id]?.phase}
-										onCancel={() => onStop(bot.id)}
-									/>
-								)}
-							</div>
 							);
 						})}
 					</div>

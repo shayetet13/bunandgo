@@ -25,10 +25,7 @@ function encoded(value: string): Uint8Array {
 export function encodeDispatchRequest(request: BinaryDispatchRequest): Uint8Array {
 	const method = encoded(request.method);
 	const url = encoded(request.url);
-	const headers = Object.entries(request.headers).map(([key, value]) => [
-		encoded(key),
-		encoded(value),
-	] as const);
+	const headers = Object.entries(request.headers).map(([key, value]) => [encoded(key), encoded(value)] as const);
 	let size = 4 + 2 + method.length + 4 + url.length + 2 + 4 + request.body.length;
 	for (const [key, value] of headers) size += 2 + key.length + 4 + value.length;
 

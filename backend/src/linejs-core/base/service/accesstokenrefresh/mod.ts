@@ -18,16 +18,8 @@ export class AccessTokenRefreshService implements BaseService {
 		this.client = client;
 	}
 
-	async refresh(
-		...param: Parameters<typeof LINEStruct.refresh_args>
-	): Promise<LINETypes.refresh_result["success"]> {
-		return await this.client.request.request(
-			LINEStruct.refresh_args(...param),
-			"refresh",
-			this.protocolType,
-			true,
-			this.requestPath,
-		);
+	async refresh(...param: Parameters<typeof LINEStruct.refresh_args>): Promise<LINETypes.refresh_result["success"]> {
+		return await this.client.request.request(LINEStruct.refresh_args(...param), "refresh", this.protocolType, true, this.requestPath);
 	}
 
 	async reportRefreshedAccessToken(

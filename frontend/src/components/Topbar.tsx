@@ -38,7 +38,11 @@ function ServerChip({ server }: { server?: ServerStatus }) {
 	const summary = summarizeServer(server);
 	const color = SERVER_STATUS_COLORS[summary.tone];
 	return (
-		<span className="chip" style={{ color, borderColor: color, whiteSpace: "nowrap" }} title={`${server?.role ?? "สถานะเซิร์ฟเวอร์"}\n${summary.detail}`}>
+		<span
+			className="chip"
+			style={{ color, borderColor: color, whiteSpace: "nowrap" }}
+			title={`${server?.role ?? "สถานะเซิร์ฟเวอร์"}\n${summary.detail}`}
+		>
 			<span className="chip-dot" />
 			<span style={{ fontWeight: 800 }}>{server?.label ?? "Server"}</span>
 			<span style={{ color: "var(--text-secondary)" }}>·</span>
@@ -53,9 +57,7 @@ export function Topbar({ title, subtitle, bots, health, notifications, onSelectB
 	const [showNotifications, setShowNotifications] = useState(false);
 	const [confirmStop, setConfirmStop] = useState(false);
 
-	const matches = query.trim()
-		? bots.filter((b) => b.name.toLowerCase().includes(query.trim().toLowerCase())).slice(0, 6)
-		: [];
+	const matches = query.trim() ? bots.filter((b) => b.name.toLowerCase().includes(query.trim().toLowerCase())).slice(0, 6) : [];
 
 	const activeBots = bots.filter((b) => b.status !== "offline");
 	// `servers` is optional-chained separately from `health`: a backend older
@@ -114,7 +116,15 @@ export function Topbar({ title, subtitle, bots, health, notifications, onSelectB
 					{searchFocused && matches.length > 0 && (
 						<div
 							className="panel"
-							style={{ position: "absolute", top: "110%", left: 0, right: 0, zIndex: 20, padding: "var(--space-xs)", background: "var(--bg-panel-raised)" }}
+							style={{
+								position: "absolute",
+								top: "110%",
+								left: 0,
+								right: 0,
+								zIndex: 20,
+								padding: "var(--space-xs)",
+								background: "var(--bg-panel-raised)",
+							}}
 						>
 							{matches.map((bot) => (
 								<button
@@ -179,17 +189,34 @@ export function Topbar({ title, subtitle, bots, health, notifications, onSelectB
 					{showNotifications && (
 						<div
 							className="panel"
-							style={{ position: "absolute", top: "110%", right: 0, width: 300, zIndex: 20, padding: "var(--space-sm)", background: "var(--bg-panel-raised)" }}
+							style={{
+								position: "absolute",
+								top: "110%",
+								right: 0,
+								width: 300,
+								zIndex: 20,
+								padding: "var(--space-sm)",
+								background: "var(--bg-panel-raised)",
+							}}
 						>
-							<div className="label" style={{ marginBottom: "var(--space-xs)" }}>แจ้งเตือนล่าสุด</div>
+							<div className="label" style={{ marginBottom: "var(--space-xs)" }}>
+								แจ้งเตือนล่าสุด
+							</div>
 							{notifications.length === 0 ? (
-								<p className="hint" style={{ margin: 0 }}>ไม่มีแจ้งเตือน</p>
+								<p className="hint" style={{ margin: 0 }}>
+									ไม่มีแจ้งเตือน
+								</p>
 							) : (
 								<div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", maxHeight: 260, overflowY: "auto" }}>
 									{[...notifications].reverse().map((n) => (
-										<div key={n.id} style={{ fontSize: "var(--text-sm)", borderBottom: "1px solid var(--border-hair)", paddingBottom: "0.4rem" }}>
+										<div
+											key={n.id}
+											style={{ fontSize: "var(--text-sm)", borderBottom: "1px solid var(--border-hair)", paddingBottom: "0.4rem" }}
+										>
 											<div>{n.message}</div>
-											<div className="hint" style={{ fontSize: "0.6875rem", margin: 0 }}>{timeAgo(n.ts)}</div>
+											<div className="hint" style={{ fontSize: "0.6875rem", margin: 0 }}>
+												{timeAgo(n.ts)}
+											</div>
 										</div>
 									))}
 								</div>
@@ -198,16 +225,32 @@ export function Topbar({ title, subtitle, bots, health, notifications, onSelectB
 					)}
 				</div>
 
-				<div style={{ display: "flex", alignItems: "center", gap: "0.35rem", flexWrap: "wrap", justifyContent: "center" }} aria-label="สถานะการเชื่อมต่อระหว่าง Server 1 และ Server 2">
+				<div
+					style={{ display: "flex", alignItems: "center", gap: "0.35rem", flexWrap: "wrap", justifyContent: "center" }}
+					aria-label="สถานะการเชื่อมต่อระหว่าง Server 1 และ Server 2"
+				>
 					<ServerChip server={server1} />
-					<span title="การเชื่อมต่อส่วนตัวระหว่างสองเซิร์ฟเวอร์" style={{ color: connectorColor, fontSize: "1.1rem", fontWeight: 900, lineHeight: 1 }}>⟷</span>
+					<span
+						title="การเชื่อมต่อส่วนตัวระหว่างสองเซิร์ฟเวอร์"
+						style={{ color: connectorColor, fontSize: "1.1rem", fontWeight: 900, lineHeight: 1 }}
+					>
+						⟷
+					</span>
 					<ServerChip server={server2} />
 				</div>
 
 				<button
 					onClick={onShowHelp}
 					title="วิธีใช้งาน"
-					style={{ background: "var(--bg-inset)", border: "1px solid var(--border-hair)", borderRadius: "var(--radius-sm)", padding: "0.5rem 0.7rem", color: "var(--text-secondary)", cursor: "pointer", fontWeight: 700 }}
+					style={{
+						background: "var(--bg-inset)",
+						border: "1px solid var(--border-hair)",
+						borderRadius: "var(--radius-sm)",
+						padding: "0.5rem 0.7rem",
+						color: "var(--text-secondary)",
+						cursor: "pointer",
+						fontWeight: 700,
+					}}
 				>
 					?
 				</button>
@@ -219,13 +262,28 @@ export function Topbar({ title, subtitle, bots, health, notifications, onSelectB
 								onStopAll();
 								setConfirmStop(false);
 							}}
-							style={{ background: "var(--signal-bad)", color: "#fff", border: "none", borderRadius: "var(--radius-sm)", padding: "0.5rem 0.9rem", fontWeight: 700, cursor: "pointer" }}
+							style={{
+								background: "var(--signal-bad)",
+								color: "#fff",
+								border: "none",
+								borderRadius: "var(--radius-sm)",
+								padding: "0.5rem 0.9rem",
+								fontWeight: 700,
+								cursor: "pointer",
+							}}
 						>
 							ยืนยันหยุดทั้งหมด
 						</button>
 						<button
 							onClick={() => setConfirmStop(false)}
-							style={{ background: "transparent", border: "1px solid var(--border-strong)", color: "var(--text-secondary)", borderRadius: "var(--radius-sm)", padding: "0.5rem 0.9rem", cursor: "pointer" }}
+							style={{
+								background: "transparent",
+								border: "1px solid var(--border-strong)",
+								color: "var(--text-secondary)",
+								borderRadius: "var(--radius-sm)",
+								padding: "0.5rem 0.9rem",
+								cursor: "pointer",
+							}}
 						>
 							ยกเลิก
 						</button>

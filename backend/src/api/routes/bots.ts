@@ -37,12 +37,15 @@ botsRoute.post("/", async (c) => {
 	// Admins are uncapped; everyone else is held to the quota an admin set
 	// for them, which starts at one and is raised per user once they pay.
 	if (user.role !== "admin" && listBotsForUser(user, { includeAllWorkers: true }).length >= user.botQuota) {
-		return c.json({
-			error: `บอทของคุณเต็มโควตาแล้ว (${user.botQuota} ตัว) — ติดต่อผู้ดูแลระบบเพื่อเพิ่มบอท ค่าบริการ ${BOT_PRICE_THB_PER_MONTH} บาท/เดือน ต่อ 1 ตัว`,
-			quota: user.botQuota,
-			maxQuota: MAX_BOT_QUOTA,
-			pricePerMonthThb: BOT_PRICE_THB_PER_MONTH,
-		}, 403);
+		return c.json(
+			{
+				error: `บอทของคุณเต็มโควตาแล้ว (${user.botQuota} ตัว) — ติดต่อผู้ดูแลระบบเพื่อเพิ่มบอท ค่าบริการ ${BOT_PRICE_THB_PER_MONTH} บาท/เดือน ต่อ 1 ตัว`,
+				quota: user.botQuota,
+				maxQuota: MAX_BOT_QUOTA,
+				pricePerMonthThb: BOT_PRICE_THB_PER_MONTH,
+			},
+			403,
+		);
 	}
 	// A new sibling starts as the newest bot for this owner, so the oldest
 	// one found now is always some *other* bot — never the one just created.

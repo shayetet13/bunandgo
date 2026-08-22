@@ -18,9 +18,7 @@ export class SecondaryPwlessLoginService implements BaseService {
 		this.client = client;
 	}
 
-	async createSession(
-		...param: Parameters<typeof LINEStruct.createSession_args>
-	): Promise<LINETypes.createSession_result["success"]> {
+	async createSession(...param: Parameters<typeof LINEStruct.createSession_args>): Promise<LINETypes.createSession_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.createSession_args(...param),
 			"createSession",

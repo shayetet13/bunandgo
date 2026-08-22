@@ -32,13 +32,7 @@ import {
 	routeUserMutationOwner,
 	requireControlPlaneForwardOnShard,
 } from "./worker-proxy.ts";
-import {
-	eventBotId,
-	FORWARDED_EVENTS,
-	startWorkerEventRelay,
-	type ForwardedEventName,
-	workerEventsRoute,
-} from "./worker-events.ts";
+import { eventBotId, FORWARDED_EVENTS, startWorkerEventRelay, type ForwardedEventName, workerEventsRoute } from "./worker-events.ts";
 import { laneRelayEventsRoute } from "./lane-relay-events.ts";
 
 const { upgradeWebSocket, websocket } = createBunWebSocket<ServerWebSocket>();
@@ -146,7 +140,7 @@ function scopedEventData(user: AuthUser, type: ForwardedEventName, data: unknown
 	if ((type === "send_result" || type === "fast_path") && data && typeof data === "object") {
 		const last = (data as { last?: { latencyMs?: number; internalMs?: number; ok?: boolean } }).last;
 		if (!last) return undefined;
-		const value = type === "send_result" ? last.latencyMs ?? 0 : last.internalMs ?? 0;
+		const value = type === "send_result" ? (last.latencyMs ?? 0) : (last.internalMs ?? 0);
 		return type === "send_result"
 			? { p50: value, p95: value, p99: value, okRate: last.ok === false ? 0 : 100, count: 1, windowSize: 1, last }
 			: { p50: value, p95: value, p99: value, max: value, count: 1, last };

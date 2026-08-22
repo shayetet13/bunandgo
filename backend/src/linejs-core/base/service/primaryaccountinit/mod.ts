@@ -18,9 +18,7 @@ export class PrimaryAccountInitService implements BaseService {
 		this.client = client;
 	}
 
-	async openSession(
-		...param: Parameters<typeof LINEStruct.openSession_args>
-	): Promise<LINETypes.openSession_result["success"]> {
+	async openSession(...param: Parameters<typeof LINEStruct.openSession_args>): Promise<LINETypes.openSession_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.openSession_args(...param),
 			"openSession",
@@ -30,9 +28,7 @@ export class PrimaryAccountInitService implements BaseService {
 		);
 	}
 
-	async getCountryInfo(
-		...param: Parameters<typeof LINEStruct.getCountryInfo_args>
-	): Promise<LINETypes.getCountryInfo_result["success"]> {
+	async getCountryInfo(...param: Parameters<typeof LINEStruct.getCountryInfo_args>): Promise<LINETypes.getCountryInfo_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.getCountryInfo_args(...param),
 			"getCountryInfo",
@@ -54,9 +50,7 @@ export class PrimaryAccountInitService implements BaseService {
 		);
 	}
 
-	async setPassword(
-		...param: Parameters<typeof LINEStruct.setPassword_args>
-	): Promise<LINETypes.setPassword_result["success"]> {
+	async setPassword(...param: Parameters<typeof LINEStruct.setPassword_args>): Promise<LINETypes.setPassword_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.setPassword_args(...param),
 			"setPassword",
@@ -103,9 +97,7 @@ export class PrimaryAccountInitService implements BaseService {
 	}
 
 	async registerPrimaryUsingPhoneWithTokenV3(
-		...param: Parameters<
-			typeof LINEStruct.registerPrimaryUsingPhoneWithTokenV3_args
-		>
+		...param: Parameters<typeof LINEStruct.registerPrimaryUsingPhoneWithTokenV3_args>
 	): Promise<LINETypes.registerPrimaryUsingPhoneWithTokenV3_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.registerPrimaryUsingPhoneWithTokenV3_args(...param),
@@ -165,9 +157,7 @@ export class PrimaryAccountInitService implements BaseService {
 	}
 
 	async getPhoneVerifMethodForRegistration(
-		...param: Parameters<
-			typeof LINEStruct.getPhoneVerifMethodForRegistration_args
-		>
+		...param: Parameters<typeof LINEStruct.getPhoneVerifMethodForRegistration_args>
 	): Promise<LINETypes.getPhoneVerifMethodForRegistration_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.getPhoneVerifMethodForRegistration_args(...param),
@@ -191,12 +181,8 @@ export class PrimaryAccountInitService implements BaseService {
 	}
 
 	async getPasswordHashingParametersForPwdReg(
-		...param: Parameters<
-			typeof LINEStruct.getPasswordHashingParametersForPwdReg_args
-		>
-	): Promise<
-		LINETypes.getPasswordHashingParametersForPwdReg_result["success"]
-	> {
+		...param: Parameters<typeof LINEStruct.getPasswordHashingParametersForPwdReg_args>
+	): Promise<LINETypes.getPasswordHashingParametersForPwdReg_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.getPasswordHashingParametersForPwdReg_args(...param),
 			"getPasswordHashingParametersForPwdReg",

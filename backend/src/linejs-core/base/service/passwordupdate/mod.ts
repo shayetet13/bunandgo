@@ -18,9 +18,7 @@ export class PasswordUpdateService implements BaseService {
 		this.client = client;
 	}
 
-	async createSession(
-		...param: Parameters<typeof LINEStruct.createSession_args>
-	): Promise<LINETypes.createSession_result["success"]> {
+	async createSession(...param: Parameters<typeof LINEStruct.createSession_args>): Promise<LINETypes.createSession_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.createSession_args(...param),
 			"createSession",
@@ -42,9 +40,7 @@ export class PasswordUpdateService implements BaseService {
 		);
 	}
 
-	async setPassword(
-		...param: Parameters<typeof LINEStruct.setPassword_args>
-	): Promise<LINETypes.setPassword_result["success"]> {
+	async setPassword(...param: Parameters<typeof LINEStruct.setPassword_args>): Promise<LINETypes.setPassword_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.setPassword_args(...param),
 			"setPassword",
@@ -54,9 +50,7 @@ export class PasswordUpdateService implements BaseService {
 		);
 	}
 
-	async updatePassword(
-		...param: Parameters<typeof LINEStruct.updatePassword_args>
-	): Promise<LINETypes.updatePassword_result["success"]> {
+	async updatePassword(...param: Parameters<typeof LINEStruct.updatePassword_args>): Promise<LINETypes.updatePassword_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.updatePassword_args(...param),
 			"updatePassword",

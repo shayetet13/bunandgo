@@ -23,11 +23,7 @@ describe("AsyncQueue", () => {
 
 		// Task 1 is the slowest; if the queue let 2 and 3 run alongside it,
 		// they would finish first and `order` would come out wrong.
-		const results = [
-			queue.run(() => task(1, 30)),
-			queue.run(() => task(2, 10)),
-			queue.run(() => task(3, 5)),
-		];
+		const results = [queue.run(() => task(1, 30)), queue.run(() => task(2, 10)), queue.run(() => task(3, 5))];
 		await Promise.all(results);
 
 		expect(order).toEqual([1, 2, 3]);

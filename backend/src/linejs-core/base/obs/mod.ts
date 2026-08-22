@@ -58,14 +58,8 @@ export class LineObs {
 	 * @param {boolean} [isPreview=false] - Whether to append '/preview' to the URL.
 	 * @return {string} The getted message image
 	 */
-	public getMessageDataUrl(
-		messageId: string,
-		isPreview: boolean = false,
-		square: boolean = false,
-	): string {
-		return `${this.prefix}r/${square ? "g2" : "talk"}/m/${messageId}${
-			isPreview ? "/preview" : ""
-		}`;
+	public getMessageDataUrl(messageId: string, isPreview: boolean = false, square: boolean = false): string {
+		return `${this.prefix}r/${square ? "g2" : "talk"}/m/${messageId}${isPreview ? "/preview" : ""}`;
 	}
 
 	/**
@@ -73,44 +67,31 @@ export class LineObs {
 	 * @param {string} [messageId] - The message ID to use in the URLSticker
 	 * @return {string} The getted message image
 	 */
-	public getMessageMetadataUrl(
-		messageId: string,
-		square: boolean = false,
-	): string {
-		return `${this.prefix}r/${
-			square ? "g2" : "talk"
-		}/m/${messageId}/object_info.obs`;
+	public getMessageMetadataUrl(messageId: string, square: boolean = false): string {
+		return `${this.prefix}r/${square ? "g2" : "talk"}/m/${messageId}/object_info.obs`;
 	}
 
 	/**
 	 * @description Gets the message's data from LINE Obs.
 	 */
-	public async downloadMessageData(options: {
-		messageId: string;
-		isPreview?: boolean;
-		isSquare?: boolean;
-	}): Promise<File> {
+	public async downloadMessageData(options: { messageId: string; isPreview?: boolean; isSquare?: boolean }): Promise<File> {
 		if (!this.client.authToken) {
-			throw new InternalError(
-				"Not setup yet",
-				"Please call 'login()' first",
-			);
+			throw new InternalError("Not setup yet", "Please call 'login()' first");
 		}
 		const { messageId, isPreview, isSquare } = {
 			isPreview: false,
 			isSquare: false,
 			...options,
 		};
-		const blob = await (await this.client.fetch(
-			this.getMessageDataUrl(messageId, isPreview, isSquare),
-			{
+		const blob = await (
+			await this.client.fetch(this.getMessageDataUrl(messageId, isPreview, isSquare), {
 				headers: {
 					accept: "application/json, text/plain, */*",
 					"x-line-application": this.client.request.systemType,
 					"x-Line-access": this.client.authToken,
 				},
-			},
-		)).blob();
+			})
+		).blob();
 		const fileInfo = await this.getMessageObsMetadata({
 			messageId,
 			isSquare,
@@ -121,30 +102,21 @@ export class LineObs {
 	/**
 	 * @description Gets the message's data from LINE Obs.
 	 */
-	public async getMessageObsMetadata(options: {
-		messageId: string;
-		isSquare?: boolean;
-	}): Promise<ObsMetadata> {
+	public async getMessageObsMetadata(options: { messageId: string; isSquare?: boolean }): Promise<ObsMetadata> {
 		if (!this.client.authToken) {
-			throw new InternalError(
-				"Not setup yet",
-				"Please call 'login()' first",
-			);
+			throw new InternalError("Not setup yet", "Please call 'login()' first");
 		}
 		const { messageId, isSquare } = {
 			isSquare: false,
 			...options,
 		};
-		const r = await this.client.fetch(
-			this.getMessageMetadataUrl(messageId, isSquare),
-			{
-				headers: {
-					accept: "application/json, text/plain, */*",
-					"x-line-application": this.client.request.systemType,
-					"x-Line-access": this.client.authToken,
-				},
+		const r = await this.client.fetch(this.getMessageMetadataUrl(messageId, isSquare), {
+			headers: {
+				accept: "application/json, text/plain, */*",
+				"x-line-application": this.client.request.systemType,
+				"x-Line-access": this.client.authToken,
 			},
-		);
+		});
 		return r.json();
 	}
 
@@ -164,10 +136,7 @@ export class LineObs {
 		headers: Headers;
 	}> {
 		if (!this.client.authToken) {
-			throw new InternalError(
-				"Not setup yet",
-				"Please call 'login()' first",
-			);
+			throw new InternalError("Not setup yet", "Please call 'login()' first");
 		}
 		const ext = MimeType[data.type as keyof typeof MimeType];
 		const reqseqValue = await this.client.getReqseq("talk");
@@ -184,11 +153,13 @@ export class LineObs {
 			ver: "2.0",
 			name: filename || "linejs." + ext,
 			type,
-			...oid ? { oid: oid } : {
-				oid: "reqseq",
-				tomid: to,
-				reqseq: reqseqValue.toString(),
-			},
+			...(oid
+				? { oid: oid }
+				: {
+						oid: "reqseq",
+						tomid: to,
+						reqseq: reqseqValue.toString(),
+					}),
 		};
 		if (type === "image") {
 			param.cat = "original";
@@ -201,9 +172,7 @@ export class LineObs {
 			// must be honoured; keep the historical value as the fallback.
 			param.duration = (durationMs ?? 1919).toString();
 		}
-		const toType: "talk" | "g2" = to[0] === "m" || to[0] === "t"
-			? "g2"
-			: "talk";
+		const toType: "talk" | "g2" = to[0] === "m" || to[0] === "t" ? "g2" : "talk";
 		return await this.uploadObjectForService({
 			data,
 			oType: type,
@@ -220,18 +189,9 @@ export class LineObs {
 		params?: Record<string, string | undefined>;
 		filename?: string;
 		addHeaders?: Record<string, string>;
-	}): Promise<
-		{ objId: string; objHash: string; headers: Headers }
-	> {
+	}): Promise<{ objId: string; objHash: string; headers: Headers }> {
 		this.client.log("Obs.uploadObjectForService", options);
-		let {
-			data,
-			oType,
-			obsPath,
-			params,
-			filename,
-			addHeaders,
-		} = {
+		let { data, oType, obsPath, params, filename, addHeaders } = {
 			oType: "image",
 			obsPath: "myhome/h",
 			...options,
@@ -247,25 +207,19 @@ export class LineObs {
 		};
 
 		params = { ...baseParams, ...(params || {}) };
-		
+
 		if (!data || data.size === 0) {
 			throw new InternalError("ObsError", "No data to send.");
 		}
-		let headers: Record<string, string> = this.client.request
-			.getHeader("POST");
+		let headers: Record<string, string> = this.client.request.getHeader("POST");
 		headers["content-type"] = "application/octet-stream";
-		headers["X-Obs-Params"] = Buffer.from(JSON.stringify(params)).toString(
-			"base64",
-		);
+		headers["X-Obs-Params"] = Buffer.from(JSON.stringify(params)).toString("base64");
 
 		if (addHeaders) {
 			headers = { ...headers, ...addHeaders };
 		}
 
-		const response = await this.client.fetch(
-			this.prefix + obsPathFinal,
-			{ method: "POST", headers, body: data },
-		);
+		const response = await this.client.fetch(this.prefix + obsPathFinal, { method: "POST", headers, body: data });
 
 		const objId = response.headers.get("x-obs-oid") ?? "";
 		const objHash = response.headers.get("x-obs-hash") ?? "";
@@ -278,11 +232,7 @@ export class LineObs {
 		return { objId, objHash, headers: response.headers };
 	}
 
-	async downloadObjectForService(options: {
-		obsPath: string;
-		oid: string;
-		addHeaders?: Record<string, string>;
-	}): Promise<Blob> {
+	async downloadObjectForService(options: { obsPath: string; oid: string; addHeaders?: Record<string, string> }): Promise<Blob> {
 		let { obsPath, oid, addHeaders } = {
 			addHeaders: {},
 			...options,
@@ -292,15 +242,11 @@ export class LineObs {
 		} else {
 			obsPath += "/" + oid;
 		}
-		let headers: Record<string, string> = this.client.request
-			.getHeader("GET");
+		let headers: Record<string, string> = this.client.request.getHeader("GET");
 		headers = { ...headers, ...addHeaders };
 
 		const obsPathFinal = "r/" + obsPath;
-		const response = await this.client.fetch(
-			this.prefix + obsPathFinal,
-			{ method: "GET", headers },
-		);
+		const response = await this.client.fetch(this.prefix + obsPathFinal, { method: "GET", headers });
 		return response.blob();
 	}
 
@@ -320,19 +266,18 @@ export class LineObs {
 			file: [string, 14];
 			gif: [string, 1];
 		} = {
-			"image": ["emi", 1],
-			"video": ["emv", 2],
-			"audio": ["ema", 3],
-			"file": ["emf", 14],
-			"gif": ["emi", 1],
+			image: ["emi", 1],
+			video: ["emv", 2],
+			audio: ["ema", 3],
+			file: ["emf", 14],
+			gif: ["emi", 1],
 		};
 
-		const ext = (filename && filename.split(".").at(-1)) ||
-			MimeType[data.type];
+		const ext = (filename && filename.split(".").at(-1)) || MimeType[data.type];
 
 		const serviceName = "talk";
 		const [obsNamespace, contentType] = typeSet[oType];
-		const params: Record<string, string> = { "type": "file" };
+		const params: Record<string, string> = { type: "file" };
 
 		if (oType === "gif") {
 			params["cat"] = "original";
@@ -340,10 +285,7 @@ export class LineObs {
 		if (!(to[0] === "u" || to[0] === "c")) {
 			throw new InternalError("ObsError", "Invalid mid");
 		}
-		const { keyMaterial, encryptedData } = await this.client.e2ee
-			.encryptByKeyMaterial(
-				Buffer.from(await data.arrayBuffer()),
-			);
+		const { keyMaterial, encryptedData } = await this.client.e2ee.encryptByKeyMaterial(Buffer.from(await data.arrayBuffer()));
 		const tempId = "reqid-" + crypto.randomUUID();
 		// @ts-expect-error: will fix cuz typescript version change
 		const edata = new Blob([encryptedData]);
@@ -365,29 +307,20 @@ export class LineObs {
 			} else {
 				previewEdata = edata;
 			}
-			const { objId: objId2, headers } = await this
-				.uploadObjectForService({
-					data: previewEdata,
-					oType: "file",
-					obsPath: `${serviceName}/${obsNamespace}/${objId}__ud-preview`,
-					params,
-				});
+			const { objId: objId2, headers } = await this.uploadObjectForService({
+				data: previewEdata,
+				oType: "file",
+				obsPath: `${serviceName}/${obsNamespace}/${objId}__ud-preview`,
+				params,
+			});
 			if (objId !== objId2) {
-				throw new InternalError(
-					"ObsError",
-					"objId not match: " + JSON.stringify(Object.fromEntries(headers)),
-					{
-						headers: Object.fromEntries(headers),
-					},
-				);
+				throw new InternalError("ObsError", "objId not match: " + JSON.stringify(Object.fromEntries(headers)), {
+					headers: Object.fromEntries(headers),
+				});
 			}
 		}
 
-		const chunks = await this.client.e2ee.encryptE2EEMessage(
-			to,
-			{ keyMaterial, fileName: filename || "line." + ext },
-			contentType,
-		);
+		const chunks = await this.client.e2ee.encryptE2EEMessage(to, { keyMaterial, fileName: filename || "line." + ext }, contentType);
 
 		return await this.client.talk.sendMessage({
 			to,
@@ -398,18 +331,16 @@ export class LineObs {
 				OID: objId,
 				FILE_SIZE: edata.size.toString(),
 				e2eeVersion: "2",
-				...(oType === "image" || oType === "gif" || oType === "video")
+				...(oType === "image" || oType === "gif" || oType === "video"
 					? {
-						MEDIA_CONTENT_INFO: JSON.stringify(
-							{
+							MEDIA_CONTENT_INFO: JSON.stringify({
 								category: "original",
 								fileSize: edata.size,
 								extension: ext,
 								animated: oType == "gif",
-							},
-						),
-					}
-					: {},
+							}),
+						}
+					: {}),
 			},
 		});
 	}
@@ -422,28 +353,32 @@ export class LineObs {
 		if (!chunks || !chunks.length) {
 			return null;
 		}
-		const { keyMaterial, fileName } = await this.client.e2ee
-			.decryptE2EEDataMessage(message);
-		const talkMeta = Buffer.from(JSON.stringify({
-			message: Buffer.from(
-				writeStruct(
-					[[11, 4, id], [15, 27, [12, []]]],
-					thrift.TBinaryProtocol,
-				),
-			).toString("base64"),
-		})).toString("base64");
+		const { keyMaterial, fileName } = await this.client.e2ee.decryptE2EEDataMessage(message);
+		const talkMeta = Buffer.from(
+			JSON.stringify({
+				message: Buffer.from(
+					writeStruct(
+						[
+							[11, 4, id],
+							[15, 27, [12, []]],
+						],
+						thrift.TBinaryProtocol,
+					),
+				).toString("base64"),
+			}),
+		).toString("base64");
 		const data = await this.downloadObjectForService({
 			oid: contentMetadata.OID,
 			obsPath: "talk/" + contentMetadata.SID,
 			addHeaders: { "X-Talk-Meta": talkMeta },
 		});
-		const fileData = new File([
-			// @ts-expect-error: will fix cuz typescript version change
-			await this.client.e2ee.decryptByKeyMaterial(
-				Buffer.from(await data.arrayBuffer()),
-				keyMaterial,
-			),
-		], fileName);
+		const fileData = new File(
+			[
+				// @ts-expect-error: will fix cuz typescript version change
+				await this.client.e2ee.decryptByKeyMaterial(Buffer.from(await data.arrayBuffer()), keyMaterial),
+			],
+			fileName,
+		);
 		return fileData;
 	}
 }

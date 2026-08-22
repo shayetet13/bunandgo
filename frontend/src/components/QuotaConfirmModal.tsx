@@ -21,14 +21,7 @@ interface QuotaConfirmModalProps {
 	onCancel: () => void;
 }
 
-export function QuotaConfirmModal({
-	username,
-	preview,
-	pricePerMonthThb,
-	busy,
-	onConfirm,
-	onCancel,
-}: QuotaConfirmModalProps) {
+export function QuotaConfirmModal({ username, preview, pricePerMonthThb, busy, onConfirm, onCancel }: QuotaConfirmModalProps) {
 	const raising = preview.nextQuota > preview.currentQuota;
 	const delta = Math.abs(preview.nextQuota - preview.currentQuota);
 	const stopping = preview.willStop.length;
@@ -45,25 +38,19 @@ export function QuotaConfirmModal({
 
 				{raising ? (
 					<p className="quota-modal-line">
-						เพิ่มขึ้น <strong>{delta} ตัว</strong> — คิดค่าบริการ{" "}
-						<strong>{delta * pricePerMonthThb} บาท/เดือน</strong> เพิ่มจากเดิม
+						เพิ่มขึ้น <strong>{delta} ตัว</strong> — คิดค่าบริการ <strong>{delta * pricePerMonthThb} บาท/เดือน</strong> เพิ่มจากเดิม
 						<br />
-						<span className="quota-modal-dim">
-							({pricePerMonthThb} บาท/เดือน ต่อบอท 1 ตัว) ผู้ใช้จะสร้างบอทเพิ่มเองได้ทันที
-						</span>
+						<span className="quota-modal-dim">({pricePerMonthThb} บาท/เดือน ต่อบอท 1 ตัว) ผู้ใช้จะสร้างบอทเพิ่มเองได้ทันที</span>
 					</p>
 				) : (
 					<p className="quota-modal-line">
-						ลดลง <strong>{delta} ตัว</strong> — ค่าบริการลดลง{" "}
-						<strong>{delta * pricePerMonthThb} บาท/เดือน</strong>
+						ลดลง <strong>{delta} ตัว</strong> — ค่าบริการลดลง <strong>{delta * pricePerMonthThb} บาท/เดือน</strong>
 					</p>
 				)}
 
 				{stopping > 0 && (
 					<div className="quota-modal-warn">
-						<div className="quota-modal-warn-head">
-							⚠ บอท {stopping} ตัวนี้จะถูกปิดทันที
-						</div>
+						<div className="quota-modal-warn-head">⚠ บอท {stopping} ตัวนี้จะถูกปิดทันที</div>
 						<ul className="quota-modal-list">
 							{preview.willStop.map((bot) => (
 								<li key={bot.id}>
@@ -75,25 +62,20 @@ export function QuotaConfirmModal({
 							))}
 						</ul>
 						<p className="quota-modal-line quota-modal-dim" style={{ margin: 0 }}>
-							ไม่ได้ลบทิ้ง — ข้อมูล กฎ และเซสชัน LINE ยังอยู่ครบ
-							ถ้าเพิ่มโควตากลับ บอทจะเปิดใช้ได้เหมือนเดิมโดยไม่ต้องสแกน QR ใหม่
+							ไม่ได้ลบทิ้ง — ข้อมูล กฎ และเซสชัน LINE ยังอยู่ครบ ถ้าเพิ่มโควตากลับ บอทจะเปิดใช้ได้เหมือนเดิมโดยไม่ต้องสแกน QR ใหม่
 						</p>
 					</div>
 				)}
 
 				{!raising && stopping === 0 && (
-					<p className="quota-modal-line quota-modal-dim">
-						ผู้ใช้มีบอท {preview.botCount} ตัว ยังไม่เกินโควตาใหม่ — ไม่มีบอทตัวไหนถูกปิด
-					</p>
+					<p className="quota-modal-line quota-modal-dim">ผู้ใช้มีบอท {preview.botCount} ตัว ยังไม่เกินโควตาใหม่ — ไม่มีบอทตัวไหนถูกปิด</p>
 				)}
 
 				<div className="quota-modal-actions">
-					<button className="ghost-button" onClick={onCancel} disabled={busy}>ยกเลิก</button>
-					<button
-						className={stopping > 0 ? "danger-button" : "primary-button"}
-						onClick={onConfirm}
-						disabled={busy}
-					>
+					<button className="ghost-button" onClick={onCancel} disabled={busy}>
+						ยกเลิก
+					</button>
+					<button className={stopping > 0 ? "danger-button" : "primary-button"} onClick={onConfirm} disabled={busy}>
 						{busy ? "กำลังบันทึก…" : stopping > 0 ? `ยืนยัน — ปิดบอท ${stopping} ตัว` : "ยืนยัน"}
 					</button>
 				</div>

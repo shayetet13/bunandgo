@@ -4,7 +4,9 @@ import type { DecorationsData } from "./types.ts";
 /**
  * Build text decorations (emoji,mention)
  */
-export const buildTextDecorations = (decorationText: DecorationsData[]): [
+export const buildTextDecorations = (
+	decorationText: DecorationsData[],
+): [
 	string,
 	{
 		REPLACE?: string;
@@ -32,9 +34,7 @@ export const buildTextDecorations = (decorationText: DecorationsData[]): [
 				e.text = "(linejs)";
 			}
 			hasEmoji = true;
-			const replace = JSON.parse(
-				_contentMetadata.REPLACE!,
-			) as EmojiMeta["REPLACE"];
+			const replace = JSON.parse(_contentMetadata.REPLACE!) as EmojiMeta["REPLACE"];
 			replace.sticon.resources.push({
 				S: text.length,
 				E: text.length + e.text.length,
@@ -44,14 +44,8 @@ export const buildTextDecorations = (decorationText: DecorationsData[]): [
 				resourceType: e.emoji.resourceType || "STATIC",
 			});
 			_contentMetadata.REPLACE = JSON.stringify(replace);
-			const sticon = JSON.parse(
-				_contentMetadata.STICON_OWNERSHIP!,
-			) as EmojiMeta["STICON_OWNERSHIP"];
-			if (
-				!sticon.includes(
-					e.emoji.productId,
-				)
-			) {
+			const sticon = JSON.parse(_contentMetadata.STICON_OWNERSHIP!) as EmojiMeta["STICON_OWNERSHIP"];
+			if (!sticon.includes(e.emoji.productId)) {
 				sticon!.push(e.emoji.productId);
 			}
 			_contentMetadata.STICON_OWNERSHIP = JSON.stringify(sticon);
@@ -61,9 +55,7 @@ export const buildTextDecorations = (decorationText: DecorationsData[]): [
 			}
 			hasMention = true;
 			if (e.mention.all) {
-				const mention = JSON.parse(
-					_contentMetadata.MENTION!,
-				) as MentionMeta["MENTION"];
+				const mention = JSON.parse(_contentMetadata.MENTION!) as MentionMeta["MENTION"];
 
 				mention.MENTIONEES ??= [];
 				mention.MENTIONEES.push({
@@ -74,9 +66,7 @@ export const buildTextDecorations = (decorationText: DecorationsData[]): [
 
 				_contentMetadata.MENTION = JSON.stringify(mention);
 			} else {
-				const mention = JSON.parse(
-					_contentMetadata.MENTION!,
-				) as MentionMeta["MENTION"];
+				const mention = JSON.parse(_contentMetadata.MENTION!) as MentionMeta["MENTION"];
 
 				mention.MENTIONEES ??= [];
 				mention.MENTIONEES.push({

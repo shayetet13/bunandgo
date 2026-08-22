@@ -31,9 +31,7 @@ export const createMessageFetcher = async (client: Client, chat: Chat) => {
 				messageId: parseInt(lastMessage.id),
 			};
 
-			return await Promise.all(
-				messages.map((message) => TalkMessage.fromRawTalk(message, client)),
-			);
+			return await Promise.all(messages.map((message) => TalkMessage.fromRawTalk(message, client)));
 		},
 	};
 };

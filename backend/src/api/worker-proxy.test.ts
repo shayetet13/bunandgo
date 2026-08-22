@@ -16,7 +16,7 @@ const ENV_KEYS = [
 ] as const;
 const original = new Map<string, string | undefined>();
 
-function setEnv(values: Partial<Record<typeof ENV_KEYS[number], string>>): void {
+function setEnv(values: Partial<Record<(typeof ENV_KEYS)[number], string>>): void {
 	for (const key of ENV_KEYS) {
 		if (!original.has(key)) original.set(key, process.env[key]);
 		const value = values[key];
@@ -44,14 +44,17 @@ describe("owner worker proxy", () => {
 			async fetch(request) {
 				peerHits++;
 				const url = new URL(request.url);
-				return Response.json({
-					method: request.method,
-					path: url.pathname,
-					query: url.search,
-					body: await request.text(),
-					cookie: request.headers.get("cookie"),
-					forwarded: request.headers.get("x-linebot-worker-forwarded"),
-				}, { status: 207, headers: { "set-cookie": "peer=yes; Path=/", "x-peer": "shard-b" } });
+				return Response.json(
+					{
+						method: request.method,
+						path: url.pathname,
+						query: url.search,
+						body: await request.text(),
+						cookie: request.headers.get("cookie"),
+						forwarded: request.headers.get("x-linebot-worker-forwarded"),
+					},
+					{ status: 207, headers: { "set-cookie": "peer=yes; Path=/", "x-peer": "shard-b" } },
+				);
 			},
 		});
 		try {
@@ -121,10 +124,16 @@ describe("owner worker proxy", () => {
 		app.use("/api/*", requireControlPlaneForwardOnShard);
 		app.get("/api/ping", (c) => c.json({ ok: true }));
 		expect((await app.request("/api/ping")).status).toBe(421);
-		expect((await app.request("/api/ping", { headers: {
-			"x-linebot-worker-forwarded": "1",
-			[CONTROL_TOKEN_HEADER]: token,
-		} })).status).toBe(200);
+		expect(
+			(
+				await app.request("/api/ping", {
+					headers: {
+						"x-linebot-worker-forwarded": "1",
+						[CONTROL_TOKEN_HEADER]: token,
+					},
+				})
+			).status,
+		).toBe(200);
 	});
 
 	test("returns 503 without falling back locally when the assigned shard is down", async () => {

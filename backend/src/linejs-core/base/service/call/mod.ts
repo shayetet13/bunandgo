@@ -37,9 +37,7 @@ export class CallService implements BaseService {
 		);
 	}
 
-	async lookupPaidCall(
-		...param: Parameters<typeof LINEStruct.lookupPaidCall_args>
-	): Promise<LINETypes.lookupPaidCall_result["success"]> {
+	async lookupPaidCall(...param: Parameters<typeof LINEStruct.lookupPaidCall_args>): Promise<LINETypes.lookupPaidCall_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.lookupPaidCall_args(...param),
 			"lookupPaidCall",
@@ -73,9 +71,7 @@ export class CallService implements BaseService {
 		);
 	}
 
-	async getGroupCall(
-		...param: Parameters<typeof LINEStruct.getGroupCall_args>
-	): Promise<LINETypes.getGroupCall_result["success"]> {
+	async getGroupCall(...param: Parameters<typeof LINEStruct.getGroupCall_args>): Promise<LINETypes.getGroupCall_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.getGroupCall_args(...param),
 			"getGroupCall",
@@ -85,9 +81,7 @@ export class CallService implements BaseService {
 		);
 	}
 
-	async inviteIntoGroupCall(
-		...param: Parameters<typeof LINEStruct.inviteIntoGroupCall_args>
-	): Promise<void> {
+	async inviteIntoGroupCall(...param: Parameters<typeof LINEStruct.inviteIntoGroupCall_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.inviteIntoGroupCall_args(...param),
 			"inviteIntoGroupCall",
@@ -217,9 +211,7 @@ export class CallService implements BaseService {
 		);
 	}
 
-	async getCallStatus(
-		...param: Parameters<typeof LINEStruct.getCallStatus_args>
-	): Promise<LINETypes.getCallStatus_result["success"]> {
+	async getCallStatus(...param: Parameters<typeof LINEStruct.getCallStatus_args>): Promise<LINETypes.getCallStatus_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.getCallStatus_args(...param),
 			"getCallStatus",

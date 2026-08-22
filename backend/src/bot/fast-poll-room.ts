@@ -44,11 +44,7 @@ export interface FastPollCandidate {
  *
  * Returns at most `limit` rooms, best first.
  */
-export function selectFastPollRooms(
-	candidates: readonly FastPollCandidate[],
-	current: readonly string[],
-	limit = 1,
-): string[] {
+export function selectFastPollRooms(candidates: readonly FastPollCandidate[], current: readonly string[], limit = 1): string[] {
 	if (limit <= 0 || candidates.length === 0) return [];
 
 	const currentSet = new Set(current);

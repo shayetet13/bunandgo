@@ -3,6 +3,7 @@ import type { BotRow, BotStatus } from "../db/schema.ts";
 import { getUser, type AuthUser } from "../auth/users.ts";
 import { invalidateRules } from "./rules.ts";
 import { inWorkerScope } from "./worker-scope.ts";
+import { ensureOwnerWorkerAssignment } from "./worker-assignment.ts";
 
 export interface Bot {
 	id: number;
@@ -119,9 +120,7 @@ export function setBotLockedLineMid(botId: number, lineMid: string, displayName:
 	setLockedLineMidStmt.run(lineMid, displayName || null, botId);
 }
 
-const setLockedLineDisplayNameStmt = db.prepare<null, [string, number]>(
-	"UPDATE bots SET locked_line_display_name = ? WHERE id = ?",
-);
+const setLockedLineDisplayNameStmt = db.prepare<null, [string, number]>("UPDATE bots SET locked_line_display_name = ? WHERE id = ?");
 
 /**
  * Backfills only the display-name half of an existing mid lock — for a bot
@@ -164,7 +163,10 @@ const needingNameReverificationStmt = db.prepare<BotRow, []>(
  * the bots it actually owns the runtime for (stopBot() throws otherwise).
  */
 export function listBotsNeedingNameReverification(): Bot[] {
-	return needingNameReverificationStmt.all().map(fromRow).filter((bot) => inWorkerScope(bot.ownerUserId));
+	return needingNameReverificationStmt
+		.all()
+		.map(fromRow)
+		.filter((bot) => inWorkerScope(bot.ownerUserId));
 }
 
 const OWNER_TESTING_KEY = "allowOwnerTesting";
@@ -245,7 +247,10 @@ export function deleteBot(id: number): void {
  * runtime for, so "start" would throw the moment it's clicked.
  */
 export function listBots(): Bot[] {
-	return listStmt.all().map(fromRow).filter((bot) => inWorkerScope(bot.ownerUserId));
+	return listStmt
+		.all()
+		.map(fromRow)
+		.filter((bot) => inWorkerScope(bot.ownerUserId));
 }
 
 export interface ListBotsOptions {
@@ -321,6 +326,7 @@ const insertAndResequence = db.transaction((name: string, device: string, ownerU
 });
 
 export function createBot(name: string, device = "DESKTOPWIN", ownerUserId: number | null = null): Bot {
+	if (ownerUserId !== null) ensureOwnerWorkerAssignment(ownerUserId);
 	return fromRow(insertAndResequence(name, device, ownerUserId));
 }
 
@@ -340,9 +346,7 @@ export function updateOwnerTesting(id: number, enabled: boolean): Bot | undefine
 	return getBot(id);
 }
 
-const resetOneStatusStmt = db.prepare<null, [number]>(
-	"UPDATE bots SET status = 'offline' WHERE id = ?",
-);
+const resetOneStatusStmt = db.prepare<null, [number]>("UPDATE bots SET status = 'offline' WHERE id = ?");
 
 const previouslyRunningStmt = db.prepare<{ id: number; owner_user_id: number | null }, []>(
 	"SELECT id, owner_user_id FROM bots WHERE status != 'offline'",

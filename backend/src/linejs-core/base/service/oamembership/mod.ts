@@ -18,9 +18,7 @@ export class OaMembershipService implements BaseService {
 		this.client = client;
 	}
 
-	async activateSubscription(
-		...param: Parameters<typeof LINEStruct.activateSubscription_args>
-	): Promise<void> {
+	async activateSubscription(...param: Parameters<typeof LINEStruct.activateSubscription_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.activateSubscription_args(...param),
 			"activateSubscription",

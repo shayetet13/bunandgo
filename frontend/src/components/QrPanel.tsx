@@ -45,7 +45,9 @@ export function QrPanel({ botName, qrUrl, pincode, phase, onCancel }: QrPanelPro
 	if (phase === "preparing") {
 		return (
 			<div style={panelStyle}>
-				<div className="label" style={{ color: "var(--signal-go)" }}>เชื่อมต่อ LINE สำเร็จแล้ว</div>
+				<div className="label" style={{ color: "var(--signal-go)" }}>
+					เชื่อมต่อ LINE สำเร็จแล้ว
+				</div>
 				<p className="hint" style={{ margin: 0 }}>
 					กำลังเตรียมบอท "{botName}" ให้พร้อมตอบ — ใช้เวลาสักครู่ ไม่ต้องสแกนซ้ำ
 				</p>
@@ -58,7 +60,9 @@ export function QrPanel({ botName, qrUrl, pincode, phase, onCancel }: QrPanelPro
 	if (phase === "resuming" || (!qrUrl && !pincode && phase === undefined)) {
 		return (
 			<div style={panelStyle}>
-				<div className="label" style={{ color: "var(--signal-warn)" }}>กำลังเชื่อมต่อ LINE</div>
+				<div className="label" style={{ color: "var(--signal-warn)" }}>
+					กำลังเชื่อมต่อ LINE
+				</div>
 				<p className="hint" style={{ margin: 0 }}>
 					กำลังกู้คืนเซสชันเดิมของบอท "{botName}" — ถ้าใช้ไม่ได้ ระบบจะแสดง QR ให้สแกนโดยอัตโนมัติ
 				</p>
@@ -75,13 +79,33 @@ export function QrPanel({ botName, qrUrl, pincode, phase, onCancel }: QrPanelPro
 
 	return (
 		<div style={panelStyle}>
-			<div className="label" style={{ color: "var(--signal-go)" }}>สแกนเพื่อเชื่อมต่อบอท "{botName}"</div>
-			<p className="hint" style={{ margin: 0 }}>เปิดแอป LINE แล้วสแกน QR นี้เพื่อผูกบัญชี</p>
+			<div className="label" style={{ color: "var(--signal-go)" }}>
+				สแกนเพื่อเชื่อมต่อบอท "{botName}"
+			</div>
+			<p className="hint" style={{ margin: 0 }}>
+				เปิดแอป LINE แล้วสแกน QR นี้เพื่อผูกบัญชี
+			</p>
 
 			{dataUrl ? (
-				<img src={dataUrl} width={180} height={180} alt="QR สำหรับเข้าสู่ระบบ LINE" style={{ display: "block", borderRadius: "var(--radius-sm)" }} />
+				<img
+					src={dataUrl}
+					width={180}
+					height={180}
+					alt="QR สำหรับเข้าสู่ระบบ LINE"
+					style={{ display: "block", borderRadius: "var(--radius-sm)" }}
+				/>
 			) : (
-				<div style={{ width: 180, height: 180, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: "var(--text-sm)" }}>
+				<div
+					style={{
+						width: 180,
+						height: 180,
+						display: "flex",
+						alignItems: "center",
+						justifyContent: "center",
+						color: "var(--text-dim)",
+						fontSize: "var(--text-sm)",
+					}}
+				>
 					กำลังสร้าง QR โค้ด…
 				</div>
 			)}

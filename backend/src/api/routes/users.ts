@@ -50,13 +50,15 @@ usersRoute.post("/", async (c) => {
 	}
 });
 
-const patchUserBodySchema = z.object({
-	active: z.boolean().optional(),
-	botQuota: z.number().int().min(1).max(MAX_BOT_QUOTA).optional(),
-	exemptIdLock: z.boolean().optional(),
-}).refine((data) => data.active !== undefined || data.botQuota !== undefined || data.exemptIdLock !== undefined, {
-	message: "at least one field is required",
-});
+const patchUserBodySchema = z
+	.object({
+		active: z.boolean().optional(),
+		botQuota: z.number().int().min(1).max(MAX_BOT_QUOTA).optional(),
+		exemptIdLock: z.boolean().optional(),
+	})
+	.refine((data) => data.active !== undefined || data.botQuota !== undefined || data.exemptIdLock !== undefined, {
+		message: "at least one field is required",
+	});
 
 usersRoute.patch("/:id", async (c) => {
 	const id = Number(c.req.param("id"));
@@ -77,7 +79,10 @@ usersRoute.patch("/:id", async (c) => {
 			// a quota of zero, i.e. "every bot this user owns."
 			const allBots = overQuotaBots(id, 0);
 			if (allBots.some((bot) => !inWorkerScope(bot.ownerUserId))) {
-				return c.json({ error: "บอทบางตัวของผู้ใช้นี้อยู่ภายใต้ worker อื่น กรุณาปิดการใช้งานจากหน้าควบคุมของ worker ที่ดูแลบอทของผู้ใช้คนนี้" }, 409);
+				return c.json(
+					{ error: "บอทบางตัวของผู้ใช้นี้อยู่ภายใต้ worker อื่น กรุณาปิดการใช้งานจากหน้าควบคุมของ worker ที่ดูแลบอทของผู้ใช้คนนี้" },
+					409,
+				);
 			}
 			allBots.forEach((bot) => stopBot(bot.id));
 		}
@@ -152,7 +157,10 @@ usersRoute.delete("/:id", (c) => {
 	// bots. The admin can retry through the worker that owns the account.
 	const allBots = overQuotaBots(id, 0);
 	if (allBots.some((bot) => !inWorkerScope(bot.ownerUserId))) {
-		return c.json({ error: "บอทบางตัวของผู้ใช้นี้อยู่ภายใต้ worker อื่น กรุณาลบบัญชีจากหน้าควบคุมของ worker ที่ดูแลบอทของผู้ใช้คนนี้" }, 409);
+		return c.json(
+			{ error: "บอทบางตัวของผู้ใช้นี้อยู่ภายใต้ worker อื่น กรุณาลบบัญชีจากหน้าควบคุมของ worker ที่ดูแลบอทของผู้ใช้คนนี้" },
+			409,
+		);
 	}
 	allBots.forEach((bot) => {
 		deleteBotSession(bot.id);

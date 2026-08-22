@@ -30,12 +30,24 @@ const ANOMALY_LABELS: Record<string, { label: string; hint: string }> = {
 	send_dropped: { label: "ลิมิตเราเองบล็อก", hint: "ลิมิตการส่งของเราเองไม่ยอมให้ตอบ — ถ้าเจอบ่อยแปลว่าโดนยิงถี่จนเราเงียบเอง" },
 	send_failed: { label: "ส่งไม่สำเร็จ", hint: "การส่งไปยัง LINE เกิดข้อผิดพลาด" },
 	duplicate_incoming: { label: "ข้อความเข้าซ้ำ", hint: "ข้อความเดิมถูกส่งเข้ามาซ้ำ อาจเป็นการยิงถี่เพื่อกวน" },
-	inbound_slow: { label: "LINE ส่งถึงเราช้า", hint: "LINE ใช้เวลานานกว่าจะส่งข้อความถึงบอทเรา — เวลานี้หมดไปก่อนบอทจะเริ่มทำงาน จึงแพ้ได้ทั้งที่บอทเราเร็ว" },
+	inbound_slow: {
+		label: "LINE ส่งถึงเราช้า",
+		hint: "LINE ใช้เวลานานกว่าจะส่งข้อความถึงบอทเรา — เวลานี้หมดไปก่อนบอทจะเริ่มทำงาน จึงแพ้ได้ทั้งที่บอทเราเร็ว",
+	},
 	members_unreadable: { label: "อ่านสมาชิกห้องไม่ได้", hint: "ดึงรายชื่อ/สิทธิ์ในห้องไม่สำเร็จ อาจเป็นสัญญาณว่าถูกจำกัดสิทธิ์" },
 	listener_stopped: { label: "สตรีมรับข้อความหยุด", hint: "บอทหยุดได้ยินข้อความใหม่ กำลังเชื่อมต่อใหม่" },
-	square_access_denied: { label: "LINE ปฏิเสธสิทธิ์ห้อง", hint: "บัญชีนี้อ่าน OpenChat ห้องนั้นไม่ได้แล้ว ระบบหยุด poll ซ้ำเพื่อไม่ให้เกิด retry flood — ตรวจสมาชิกห้อง แล้วกดเริ่ม/สแกน QR ใหม่" },
-	id_lock_mismatch: { label: "บัญชี LINE ไม่ตรงกับที่ผูกไว้", hint: "มีคนพยายามสแกน QR บอทนี้ด้วยบัญชี LINE อื่นที่ไม่ใช่บัญชีแรกที่เคยเข้าสู่ระบบสำเร็จ ระบบปฏิเสธอัตโนมัติ" },
-	id_lock_name_mismatch: { label: "ชื่อบัญชี LINE ไม่ตรงกับที่ผูกไว้", hint: "บัญชี LINE (mid) ตรงกัน แต่ชื่อบัญชีที่ล็อกอินไม่ตรงกับชื่อที่บันทึกไว้ตอนล็อกครั้งแรก — สัญญาณว่าอาจมีการโอน/แชร์บัญชีให้คนอื่นใช้งานต่อ" },
+	square_access_denied: {
+		label: "LINE ปฏิเสธสิทธิ์ห้อง",
+		hint: "บัญชีนี้อ่าน OpenChat ห้องนั้นไม่ได้แล้ว ระบบหยุด poll ซ้ำเพื่อไม่ให้เกิด retry flood — ตรวจสมาชิกห้อง แล้วกดเริ่ม/สแกน QR ใหม่",
+	},
+	id_lock_mismatch: {
+		label: "บัญชี LINE ไม่ตรงกับที่ผูกไว้",
+		hint: "มีคนพยายามสแกน QR บอทนี้ด้วยบัญชี LINE อื่นที่ไม่ใช่บัญชีแรกที่เคยเข้าสู่ระบบสำเร็จ ระบบปฏิเสธอัตโนมัติ",
+	},
+	id_lock_name_mismatch: {
+		label: "ชื่อบัญชี LINE ไม่ตรงกับที่ผูกไว้",
+		hint: "บัญชี LINE (mid) ตรงกัน แต่ชื่อบัญชีที่ล็อกอินไม่ตรงกับชื่อที่บันทึกไว้ตอนล็อกครั้งแรก — สัญญาณว่าอาจมีการโอน/แชร์บัญชีให้คนอื่นใช้งานต่อ",
+	},
 };
 
 const SEVERITY_CHIP: Record<string, string> = {
@@ -142,7 +154,11 @@ export function LogsPage({ bots, onNotify }: LogsPageProps) {
 				]);
 				// Best effort: a room whose name will not load still shows a
 				// shortened mid, which is enough to correlate rows.
-				const botIds = allBots ? [...new Set(rows.map((row) => row.bot_id).filter((id): id is number => id !== null))] : botFilter === undefined ? [] : [botFilter];
+				const botIds = allBots
+					? [...new Set(rows.map((row) => row.bot_id).filter((id): id is number => id !== null))]
+					: botFilter === undefined
+						? []
+						: [botFilter];
 				const chatLists = await Promise.all(botIds.map((id) => api.listChats(id).catch(() => [])));
 				if (token !== loadTokenRef.current) return;
 				setAnomalies(rows.filter((row) => row.ts <= toMs));
@@ -181,18 +197,25 @@ export function LogsPage({ bots, onNotify }: LogsPageProps) {
 
 	return (
 		<div style={{ display: "flex", flexDirection: "column", gap: "var(--space-md)" }}>
-			<section className="panel responsive-toolbar" style={{ padding: "var(--space-md)", display: "flex", flexWrap: "wrap", alignItems: "center", gap: "var(--space-sm)" }}>
+			<section
+				className="panel responsive-toolbar"
+				style={{ padding: "var(--space-md)", display: "flex", flexWrap: "wrap", alignItems: "center", gap: "var(--space-sm)" }}
+			>
 				<div className="chat-filter-tabs">
 					{TABS.map(({ key, label }) => (
-						<button key={key} className={tab === key ? "active" : ""} onClick={() => setTab(key)}>{label}</button>
+						<button key={key} className={tab === key ? "active" : ""} onClick={() => setTab(key)}>
+							{label}
+						</button>
 					))}
 				</div>
 
 				{tab !== "userActions" && (
 					<>
-						<label className="label" style={{ marginLeft: "var(--space-sm)" }}>บอท</label>
+						<label className="label" style={{ marginLeft: "var(--space-sm)" }}>
+							บอท
+						</label>
 						<select
-							value={allBots && tab === "anomalies" ? "" : selectedBotId ?? ""}
+							value={allBots && tab === "anomalies" ? "" : (selectedBotId ?? "")}
 							onChange={(e) => {
 								if (e.target.value === "") {
 									setAllBots(true);
@@ -204,7 +227,11 @@ export function LogsPage({ bots, onNotify }: LogsPageProps) {
 							style={selectStyle}
 						>
 							{tab === "anomalies" && <option value="">ทุกบอท</option>}
-							{bots.map((bot) => <option key={bot.id} value={bot.id}>{bot.name}</option>)}
+							{bots.map((bot) => (
+								<option key={bot.id} value={bot.id}>
+									{bot.name}
+								</option>
+							))}
 						</select>
 					</>
 				)}
@@ -215,7 +242,9 @@ export function LogsPage({ bots, onNotify }: LogsPageProps) {
 						<select value={anomalyKind} onChange={(e) => setAnomalyKind(e.target.value)} style={selectStyle}>
 							<option value="">ทั้งหมด</option>
 							{Object.entries(ANOMALY_LABELS).map(([kind, { label }]) => (
-								<option key={kind} value={kind}>{label}</option>
+								<option key={kind} value={kind}>
+									{label}
+								</option>
 							))}
 						</select>
 					</>
@@ -225,7 +254,9 @@ export function LogsPage({ bots, onNotify }: LogsPageProps) {
 				<input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={selectStyle} max={to} />
 				<label className="label">ถึง</label>
 				<input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={selectStyle} min={from} />
-				<button className="ghost-button" onClick={() => void load()} disabled={loading}>{loading ? "กำลังโหลด…" : "ดูข้อมูล"}</button>
+				<button className="ghost-button" onClick={() => void load()} disabled={loading}>
+					{loading ? "กำลังโหลด…" : "ดูข้อมูล"}
+				</button>
 
 				<p className="hint" style={{ margin: 0, width: "100%" }}>
 					เหตุการณ์บอท/ข้อความเข้าล้างทุกวัน 23:00 น. · Latency และ Lane เก็บ 30 วัน · บันทึกผู้ใช้/ความปลอดภัยเก็บ 90 วัน
@@ -235,27 +266,33 @@ export function LogsPage({ bots, onNotify }: LogsPageProps) {
 			{tab === "anomalies" && (
 				<>
 					<section className="panel" style={{ padding: "var(--space-md)" }}>
-						<div className="label" style={{ marginBottom: "var(--space-xs)" }}>สรุป 24 ชั่วโมงล่าสุด</div>
-						{anomalySummary.length === 0
-							? <p className="hint" style={{ margin: 0 }}>ไม่พบการรบกวนใน 24 ชั่วโมงที่ผ่านมา — บอทตอบได้ตามปกติทุกครั้ง</p>
-							: (
-								<div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-xs)" }}>
-									{anomalySummary.map((row) => (
-										<span
-											key={`${row.kind}:${row.severity}`}
-											className={`chip ${SEVERITY_CHIP[row.severity] ?? "chip--idle"}`}
-											style={{ fontSize: "var(--text-xs)" }}
-											title={ANOMALY_LABELS[row.kind]?.hint ?? row.kind}
-										>
-											{ANOMALY_LABELS[row.kind]?.label ?? row.kind} · {row.count}
-										</span>
-									))}
-								</div>
-							)}
+						<div className="label" style={{ marginBottom: "var(--space-xs)" }}>
+							สรุป 24 ชั่วโมงล่าสุด
+						</div>
+						{anomalySummary.length === 0 ? (
+							<p className="hint" style={{ margin: 0 }}>
+								ไม่พบการรบกวนใน 24 ชั่วโมงที่ผ่านมา — บอทตอบได้ตามปกติทุกครั้ง
+							</p>
+						) : (
+							<div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-xs)" }}>
+								{anomalySummary.map((row) => (
+									<span
+										key={`${row.kind}:${row.severity}`}
+										className={`chip ${SEVERITY_CHIP[row.severity] ?? "chip--idle"}`}
+										style={{ fontSize: "var(--text-xs)" }}
+										title={ANOMALY_LABELS[row.kind]?.hint ?? row.kind}
+									>
+										{ANOMALY_LABELS[row.kind]?.label ?? row.kind} · {row.count}
+									</span>
+								))}
+							</div>
+						)}
 					</section>
 
 					<section className="panel" style={{ padding: "var(--space-md)" }}>
-						<div className="label" style={{ marginBottom: "var(--space-xs)" }}>บันทึกการรบกวน · {anomalies.length}</div>
+						<div className="label" style={{ marginBottom: "var(--space-xs)" }}>
+							บันทึกการรบกวน · {anomalies.length}
+						</div>
 						<p className="hint" style={{ margin: "0 0 var(--space-sm)" }}>
 							ทุกอย่างที่ขวางไม่ให้บอทตอบได้ตามที่ควรจะเป็น — ถูกลบ, ส่งแล้วไม่ขึ้น, ลิมิตเราเองบล็อก, สตรีมหยุด
 						</p>
@@ -278,8 +315,14 @@ export function LogsPage({ bots, onNotify }: LogsPageProps) {
 											borderRadius: "var(--radius-sm)",
 										}}
 									>
-										<span className="mono" style={{ fontSize: "var(--text-xs)", color: "var(--text-dim)", whiteSpace: "nowrap" }}>{formatTs(row.ts)}</span>
-										<span className={`chip ${SEVERITY_CHIP[row.severity] ?? "chip--idle"}`} style={{ fontSize: "var(--text-xs)" }} title={meta?.hint ?? row.kind}>
+										<span className="mono" style={{ fontSize: "var(--text-xs)", color: "var(--text-dim)", whiteSpace: "nowrap" }}>
+											{formatTs(row.ts)}
+										</span>
+										<span
+											className={`chip ${SEVERITY_CHIP[row.severity] ?? "chip--idle"}`}
+											style={{ fontSize: "var(--text-xs)" }}
+											title={meta?.hint ?? row.kind}
+										>
 											{meta?.label ?? row.kind}
 										</span>
 										{allBots && row.bot_id !== null && (
@@ -303,13 +346,30 @@ export function LogsPage({ bots, onNotify }: LogsPageProps) {
 
 			{tab === "botEvents" && (
 				<section className="panel" style={{ padding: "var(--space-md)" }}>
-					<div className="label" style={{ marginBottom: "var(--space-xs)" }}>เหตุการณ์บอท · {botEvents.length}</div>
+					<div className="label" style={{ marginBottom: "var(--space-xs)" }}>
+						เหตุการณ์บอท · {botEvents.length}
+					</div>
 					<div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)", maxHeight: 480, overflowY: "auto" }}>
 						{botEvents.length === 0 && <p className="hint">ไม่มีข้อมูลในช่วงที่เลือก</p>}
 						{botEvents.map((event) => (
-							<div key={event.id} className="rule-row" style={{ display: "flex", gap: "var(--space-sm)", padding: "0.5rem 0.7rem", background: "var(--bg-inset)", border: "1px solid var(--border-hair)", borderRadius: "var(--radius-sm)" }}>
-								<span className="mono" style={{ fontSize: "var(--text-xs)", color: "var(--text-dim)", whiteSpace: "nowrap" }}>{formatTs(event.ts)}</span>
-								<span className="chip chip--idle" style={{ fontSize: "var(--text-xs)" }}>{event.type}</span>
+							<div
+								key={event.id}
+								className="rule-row"
+								style={{
+									display: "flex",
+									gap: "var(--space-sm)",
+									padding: "0.5rem 0.7rem",
+									background: "var(--bg-inset)",
+									border: "1px solid var(--border-hair)",
+									borderRadius: "var(--radius-sm)",
+								}}
+							>
+								<span className="mono" style={{ fontSize: "var(--text-xs)", color: "var(--text-dim)", whiteSpace: "nowrap" }}>
+									{formatTs(event.ts)}
+								</span>
+								<span className="chip chip--idle" style={{ fontSize: "var(--text-xs)" }}>
+									{event.type}
+								</span>
 								<span style={{ fontSize: "var(--text-sm)", flex: 1 }}>{event.message}</span>
 							</div>
 						))}
@@ -320,34 +380,70 @@ export function LogsPage({ bots, onNotify }: LogsPageProps) {
 			{tab === "userActions" && (
 				<>
 					<section className="panel" style={{ padding: "var(--space-md)" }}>
-						<div className="label" style={{ marginBottom: "var(--space-xs)" }}>ออนไลน์ตอนนี้ · {activeSessions.length}</div>
-						{activeSessions.length === 0
-							? <p className="hint" style={{ margin: 0 }}>ไม่มีใครล็อกอินอยู่ในระบบขณะนี้</p>
-							: (
-								<div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-xs)" }}>
-									{activeSessions.map((session) => (
-										<span
-											key={`${session.userId}:${session.createdAt}`}
-											className="chip chip--go"
-											style={{ fontSize: "var(--text-xs)" }}
-											title={`เข้าสู่ระบบ ${formatTs(session.createdAt)} · ใช้งานล่าสุด ${formatTs(session.lastSeenAt)}`}
-										>
-											{session.username} ({session.role === "admin" ? "แอดมิน" : "ผู้ใช้"})
-										</span>
-									))}
-								</div>
-							)}
+						<div className="label" style={{ marginBottom: "var(--space-xs)" }}>
+							ออนไลน์ตอนนี้ · {activeSessions.length}
+						</div>
+						{activeSessions.length === 0 ? (
+							<p className="hint" style={{ margin: 0 }}>
+								ไม่มีใครล็อกอินอยู่ในระบบขณะนี้
+							</p>
+						) : (
+							<div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-xs)" }}>
+								{activeSessions.map((session) => (
+									<span
+										key={`${session.userId}:${session.createdAt}`}
+										className="chip chip--go"
+										style={{ fontSize: "var(--text-xs)" }}
+										title={`เข้าสู่ระบบ ${formatTs(session.createdAt)} · ใช้งานล่าสุด ${formatTs(session.lastSeenAt)}`}
+									>
+										{session.username} ({session.role === "admin" ? "แอดมิน" : "ผู้ใช้"})
+									</span>
+								))}
+							</div>
+						)}
 					</section>
 					<section className="panel" style={{ padding: "var(--space-md)" }}>
-						<div className="label" style={{ marginBottom: "var(--space-xs)" }}>การกระทำผู้ใช้ · {userActions.length}</div>
+						<div className="label" style={{ marginBottom: "var(--space-xs)" }}>
+							การกระทำผู้ใช้ · {userActions.length}
+						</div>
 						<div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)", maxHeight: 480, overflowY: "auto" }}>
 							{userActions.length === 0 && <p className="hint">ไม่มีข้อมูลในช่วงที่เลือก</p>}
 							{userActions.map((entry) => (
-								<div key={entry.id} className="rule-row" style={{ display: "flex", gap: "var(--space-sm)", padding: "0.5rem 0.7rem", background: "var(--bg-inset)", border: "1px solid var(--border-hair)", borderRadius: "var(--radius-sm)" }}>
-									<span className="mono" style={{ fontSize: "var(--text-xs)", color: "var(--text-dim)", whiteSpace: "nowrap" }}>{formatTs(entry.ts)}</span>
-									<span className="chip chip--go" style={{ fontSize: "var(--text-xs)" }}>{entry.username}</span>
-									<span className="mono" style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>{userActionLabel(entry.action)}</span>
-									{userActionDetail(entry.detail) && <span style={{ fontSize: "var(--text-xs)", color: "var(--text-dim)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{userActionDetail(entry.detail)}</span>}
+								<div
+									key={entry.id}
+									className="rule-row"
+									style={{
+										display: "flex",
+										gap: "var(--space-sm)",
+										padding: "0.5rem 0.7rem",
+										background: "var(--bg-inset)",
+										border: "1px solid var(--border-hair)",
+										borderRadius: "var(--radius-sm)",
+									}}
+								>
+									<span className="mono" style={{ fontSize: "var(--text-xs)", color: "var(--text-dim)", whiteSpace: "nowrap" }}>
+										{formatTs(entry.ts)}
+									</span>
+									<span className="chip chip--go" style={{ fontSize: "var(--text-xs)" }}>
+										{entry.username}
+									</span>
+									<span className="mono" style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>
+										{userActionLabel(entry.action)}
+									</span>
+									{userActionDetail(entry.detail) && (
+										<span
+											style={{
+												fontSize: "var(--text-xs)",
+												color: "var(--text-dim)",
+												flex: 1,
+												overflow: "hidden",
+												textOverflow: "ellipsis",
+												whiteSpace: "nowrap",
+											}}
+										>
+											{userActionDetail(entry.detail)}
+										</span>
+									)}
 								</div>
 							))}
 						</div>
@@ -357,15 +453,45 @@ export function LogsPage({ bots, onNotify }: LogsPageProps) {
 
 			{tab === "latency" && (
 				<section className="panel" style={{ padding: "var(--space-md)" }}>
-					<div className="label" style={{ marginBottom: "var(--space-xs)" }}>ความเร็ว (ย้อนหลัง) · {latency.length}</div>
+					<div className="label" style={{ marginBottom: "var(--space-xs)" }}>
+						ความเร็ว (ย้อนหลัง) · {latency.length}
+					</div>
 					<div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)", maxHeight: 480, overflowY: "auto" }}>
 						{latency.length === 0 && <p className="hint">ไม่มีข้อมูลในช่วงที่เลือก</p>}
 						{latency.map((sample, i) => (
-							<div key={i} className="rule-row" style={{ display: "flex", gap: "var(--space-sm)", padding: "0.5rem 0.7rem", background: "var(--bg-inset)", border: "1px solid var(--border-hair)", borderRadius: "var(--radius-sm)" }}>
-								<span className="mono" style={{ fontSize: "var(--text-xs)", color: "var(--text-dim)", whiteSpace: "nowrap" }}>{formatTs(sample.ts)}</span>
-								<span className="chip chip--idle" style={{ fontSize: "var(--text-xs)" }}>{sample.surface}</span>
-								<span className={`chip ${sample.ok ? "chip--go" : "chip--bad"}`} style={{ fontSize: "var(--text-xs)" }}>{sample.latencyMs.toFixed(1)} ms</span>
-								<span style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sample.textPreview}</span>
+							<div
+								key={i}
+								className="rule-row"
+								style={{
+									display: "flex",
+									gap: "var(--space-sm)",
+									padding: "0.5rem 0.7rem",
+									background: "var(--bg-inset)",
+									border: "1px solid var(--border-hair)",
+									borderRadius: "var(--radius-sm)",
+								}}
+							>
+								<span className="mono" style={{ fontSize: "var(--text-xs)", color: "var(--text-dim)", whiteSpace: "nowrap" }}>
+									{formatTs(sample.ts)}
+								</span>
+								<span className="chip chip--idle" style={{ fontSize: "var(--text-xs)" }}>
+									{sample.surface}
+								</span>
+								<span className={`chip ${sample.ok ? "chip--go" : "chip--bad"}`} style={{ fontSize: "var(--text-xs)" }}>
+									{sample.latencyMs.toFixed(1)} ms
+								</span>
+								<span
+									style={{
+										fontSize: "var(--text-xs)",
+										color: "var(--text-secondary)",
+										flex: 1,
+										overflow: "hidden",
+										textOverflow: "ellipsis",
+										whiteSpace: "nowrap",
+									}}
+								>
+									{sample.textPreview}
+								</span>
 							</div>
 						))}
 					</div>

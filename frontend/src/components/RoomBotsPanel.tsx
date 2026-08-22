@@ -86,7 +86,11 @@ export function RoomBotsPanel({ botId, mid }: RoomBotsPanelProps) {
 			{open && (
 				<div style={{ display: "flex", flexDirection: "column", gap: "0.3rem", marginTop: "0.35rem" }}>
 					{loading && <p className="admin-only-hint">กำลังโหลด…</p>}
-					{error && <p className="admin-only-hint" style={{ color: "var(--signal-bad)" }}>{error}</p>}
+					{error && (
+						<p className="admin-only-hint" style={{ color: "var(--signal-bad)" }}>
+							{error}
+						</p>
+					)}
 					{bots?.map((bot) => (
 						<div key={bot.botId} style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.6875rem" }}>
 							<span
@@ -99,7 +103,9 @@ export function RoomBotsPanel({ botId, mid }: RoomBotsPanelProps) {
 							</span>
 							<span style={{ color: "var(--text-dim)" }}>{STATUS_LABEL[bot.status]}</span>
 							{bot.isPrimary ? (
-								<span className="chip chip--go" style={{ fontSize: "0.625rem" }}>หลัก</span>
+								<span className="chip chip--go" style={{ fontSize: "0.625rem" }}>
+									หลัก
+								</span>
 							) : (
 								<button
 									type="button"

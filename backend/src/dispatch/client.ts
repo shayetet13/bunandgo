@@ -35,9 +35,7 @@ async function dispatchJsonHttp(
 	const wireBody = JSON.stringify({
 		method: req.method,
 		url: req.url,
-		headers: Object.fromEntries(
-			Object.entries(req.headers).map(([k, v]) => [k, [v]]),
-		),
+		headers: Object.fromEntries(Object.entries(req.headers).map(([k, v]) => [k, [v]])),
 		bodyBase64: Buffer.from(req.body).toString("base64"),
 	});
 	markRelayDispatch(performance.now() - encodeStart);
@@ -120,9 +118,7 @@ export function dispatchHttp(
 	config: DispatchConfig,
 	req: { method: string; url: string; headers: Record<string, string>; body: Uint8Array; signal?: AbortSignal },
 ): Promise<DispatchResult> {
-	return process.env.DISPATCH_BINARY === "0"
-		? dispatchJsonHttp(config, req)
-		: dispatchBinaryHttp(config, req);
+	return process.env.DISPATCH_BINARY === "0" ? dispatchJsonHttp(config, req) : dispatchBinaryHttp(config, req);
 }
 
 // LINE's push/receive stream (long-lived half-duplex POST) can't be
@@ -132,11 +128,7 @@ export function dispatchHttp(
 // through Go.
 const PUSH_STREAM_PATH = "/PUSH/1/subs";
 
-async function fetchLineDirect(
-	info: RequestInfo | URL,
-	init?: RequestInit,
-	prewarmBody?: Uint8Array,
-): Promise<Response> {
+async function fetchLineDirect(info: RequestInfo | URL, init?: RequestInit, prewarmBody?: Uint8Array): Promise<Response> {
 	// The Request is already fully encoded by linejs. Sending it from Bun
 	// avoids a second HTTP hop and a Windows process-context switch.
 	markRelayDispatch(0);
@@ -209,21 +201,20 @@ export function createDispatchFetch(config: DispatchConfig): FetchLike {
 		for (const [key, values] of Object.entries(result.headers)) {
 			for (const value of values) responseHeaders.append(key, value);
 		}
-		return attachRawDispatchBody(
-			new Response(result.body as BodyInit, { status: result.status, headers: responseHeaders }),
-			result.body,
-		);
+		return attachRawDispatchBody(new Response(result.body as BodyInit, { status: result.status, headers: responseHeaders }), result.body);
 	};
-	return attachHotLineFetch(dispatchFetch, (info, init) => {
-		// Explicit operational rollback retains the Go relay semantics.
-		if (process.env.LINE_TRANSPORT === "go") {
-			return Promise.resolve(dispatchFetch(new Request(info, init)));
-		}
-		return fetchLineDirect(info, init);
-	}, (info, init) => {
-		const body = String(info).includes("/SQ1")
-			? PREWARM_SQUARE_ACK
-			: PREWARM_TALK_ACK;
-		return fetchLineDirect(info, init, body);
-	});
+	return attachHotLineFetch(
+		dispatchFetch,
+		(info, init) => {
+			// Explicit operational rollback retains the Go relay semantics.
+			if (process.env.LINE_TRANSPORT === "go") {
+				return Promise.resolve(dispatchFetch(new Request(info, init)));
+			}
+			return fetchLineDirect(info, init);
+		},
+		(info, init) => {
+			const body = String(info).includes("/SQ1") ? PREWARM_SQUARE_ACK : PREWARM_TALK_ACK;
+			return fetchLineDirect(info, init, body);
+		},
+	);
 }

@@ -18,4 +18,3 @@ export interface SecurityAlertEvent {
 }
 
 export const securityEvents = new EventEmitter();
-

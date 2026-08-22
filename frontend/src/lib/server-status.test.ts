@@ -20,10 +20,14 @@ describe("summarizeServer", () => {
 	});
 
 	test("marks a high but valid load orange", () => {
-		expect(summarizeServer(server({ load: { cpuPercent: 70, memoryPercent: 60, capacityPercent: 85, exceeded: false, sampledAt: 1 } }))).toMatchObject({ tone: "warn" });
+		expect(
+			summarizeServer(server({ load: { cpuPercent: 70, memoryPercent: 60, capacityPercent: 85, exceeded: false, sampledAt: 1 } })),
+		).toMatchObject({ tone: "warn" });
 	});
 
 	test("marks an exceeded load red", () => {
-		expect(summarizeServer(server({ load: { cpuPercent: 90, memoryPercent: 60, capacityPercent: 113, exceeded: true, sampledAt: 1 } }))).toMatchObject({ tone: "bad" });
+		expect(
+			summarizeServer(server({ load: { cpuPercent: 90, memoryPercent: 60, capacityPercent: 113, exceeded: true, sampledAt: 1 } })),
+		).toMatchObject({ tone: "bad" });
 	});
 });

@@ -20,7 +20,10 @@ export function UsersPage({ onNotify }: UsersPageProps) {
 	const [botPrice, setBotPrice] = useState(100);
 
 	useEffect(() => {
-		void api.me().then((me) => setBotPrice(me.botPricePerMonthThb)).catch(() => {});
+		void api
+			.me()
+			.then((me) => setBotPrice(me.botPricePerMonthThb))
+			.catch(() => {});
 	}, []);
 
 	const normalizedQuery = query.trim().toLowerCase();
@@ -127,20 +130,39 @@ export function UsersPage({ onNotify }: UsersPageProps) {
 			)}
 			<section className="panel user-create-card">
 				<div>
-					<div className="label" style={{ color: "var(--signal-go)" }}>เพิ่มผู้ใช้งาน</div>
+					<div className="label" style={{ color: "var(--signal-go)" }}>
+						เพิ่มผู้ใช้งาน
+					</div>
 					<h2 style={{ margin: "0.3rem 0 0", fontSize: "1.35rem" }}>สร้างพื้นที่บอทส่วนตัว</h2>
-					<p className="hint" style={{ margin: "0.4rem 0 0" }}>ผู้ใช้แต่ละคนจะเห็นและจัดการเฉพาะบอทของตัวเอง</p>
+					<p className="hint" style={{ margin: "0.4rem 0 0" }}>
+						ผู้ใช้แต่ละคนจะเห็นและจัดการเฉพาะบอทของตัวเอง
+					</p>
 				</div>
 				<form className="user-create-form" onSubmit={submit}>
 					<label>
 						<span className="label">ชื่อผู้ใช้</span>
-						<input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="off" placeholder="เช่น somchai" required />
+						<input
+							value={username}
+							onChange={(event) => setUsername(event.target.value)}
+							autoComplete="off"
+							placeholder="เช่น somchai"
+							required
+						/>
 					</label>
 					<label>
 						<span className="label">รหัสผ่านเริ่มต้น</span>
-						<input value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete="new-password" placeholder="อย่างน้อย 6 ตัว" required />
+						<input
+							value={password}
+							onChange={(event) => setPassword(event.target.value)}
+							type="password"
+							autoComplete="new-password"
+							placeholder="อย่างน้อย 6 ตัว"
+							required
+						/>
 					</label>
-					<button className="primary-button" type="submit" disabled={busy}>{busy ? "กำลังสร้าง…" : "+ สร้างผู้ใช้"}</button>
+					<button className="primary-button" type="submit" disabled={busy}>
+						{busy ? "กำลังสร้าง…" : "+ สร้างผู้ใช้"}
+					</button>
 				</form>
 			</section>
 
@@ -152,7 +174,9 @@ export function UsersPage({ onNotify }: UsersPageProps) {
 							{normalizedQuery ? `${visibleUsers.length} / ${users.length} บัญชี` : `${users.length} บัญชี`}
 						</div>
 					</div>
-					<button className="ghost-button" onClick={() => void refresh()}>รีเฟรช</button>
+					<button className="ghost-button" onClick={() => void refresh()}>
+						รีเฟรช
+					</button>
 				</div>
 				<div className="chat-search-box" style={{ margin: "0 0 var(--space-sm)" }}>
 					<span aria-hidden="true">⌕</span>
@@ -173,13 +197,13 @@ export function UsersPage({ onNotify }: UsersPageProps) {
 									<span className={`chip ${user.active ? "chip--go" : "chip--idle"}`}>{user.active ? "ใช้งาน" : "หยุดอยู่"}</span>
 								</div>
 								<div className="hint" style={{ margin: 0 }}>
-									{user.role === "admin"
-										? "ผู้ดูแลระบบ"
-										: `ผู้ใช้งาน · ${user.botCount}/${user.botQuota} บอท`}
+									{user.role === "admin" ? "ผู้ดูแลระบบ" : `ผู้ใช้งาน · ${user.botCount}/${user.botQuota} บอท`}
 								</div>
 								{user.role !== "admin" && (
 									<label style={{ display: "flex", alignItems: "center", gap: "var(--space-xs)", marginTop: "var(--space-xs)" }}>
-										<span className="label" style={{ margin: 0 }}>โควตาบอท</span>
+										<span className="label" style={{ margin: 0 }}>
+											โควตาบอท
+										</span>
 										<select
 											value={user.botQuota}
 											onChange={(event) => void askQuota(user, Number(event.target.value))}
@@ -193,7 +217,9 @@ export function UsersPage({ onNotify }: UsersPageProps) {
 											}}
 										>
 											{Array.from({ length: MAX_BOT_QUOTA }, (_unused, index) => index + 1).map((quota) => (
-												<option key={quota} value={quota}>{quota} ตัว</option>
+												<option key={quota} value={quota}>
+													{quota} ตัว
+												</option>
 											))}
 										</select>
 										{/* Only reachable if the count changed under a quota set
@@ -205,21 +231,31 @@ export function UsersPage({ onNotify }: UsersPageProps) {
 								)}
 								{user.role !== "admin" && (
 									<label style={{ display: "flex", alignItems: "center", gap: "var(--space-xs)", marginTop: "var(--space-xs)" }}>
-										<span className="label" style={{ margin: 0 }}>บัญชีทดสอบ (ยกเว้นล็อกบัญชี LINE)</span>
+										<span className="label" style={{ margin: 0 }}>
+											บัญชีทดสอบ (ยกเว้นล็อกบัญชี LINE)
+										</span>
 										<ToggleSwitch isSelected={user.exemptIdLock} onToggle={() => void toggleExemptIdLock(user)} />
 									</label>
 								)}
 							</div>
 							{user.role !== "admin" && (
 								<div className="user-actions">
-									<button className="ghost-button" onClick={() => void toggle(user)}>{user.active ? "หยุด" : "เปิดใช้งาน"}</button>
+									<button className="ghost-button" onClick={() => void toggle(user)}>
+										{user.active ? "หยุด" : "เปิดใช้งาน"}
+									</button>
 									{confirmDeleteId === user.id ? (
 										<>
-											<button className="danger-button" onClick={() => void remove(user)}>ยืนยันลบ</button>
-											<button className="ghost-button" onClick={() => setConfirmDeleteId(undefined)}>ยกเลิก</button>
+											<button className="danger-button" onClick={() => void remove(user)}>
+												ยืนยันลบ
+											</button>
+											<button className="ghost-button" onClick={() => setConfirmDeleteId(undefined)}>
+												ยกเลิก
+											</button>
 										</>
 									) : (
-										<button className="danger-button" onClick={() => setConfirmDeleteId(user.id)}>ลบ</button>
+										<button className="danger-button" onClick={() => setConfirmDeleteId(user.id)}>
+											ลบ
+										</button>
 									)}
 								</div>
 							)}

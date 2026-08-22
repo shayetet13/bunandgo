@@ -29,11 +29,7 @@ describe("claimReply", () => {
 	test("refuses every redelivery, not just the second", () => {
 		claimReply(BOT, CHAT, RULE, "msg-1");
 
-		const retries = [
-			claimReply(BOT, CHAT, RULE, "msg-1"),
-			claimReply(BOT, CHAT, RULE, "msg-1"),
-			claimReply(BOT, CHAT, RULE, "msg-1"),
-		];
+		const retries = [claimReply(BOT, CHAT, RULE, "msg-1"), claimReply(BOT, CHAT, RULE, "msg-1"), claimReply(BOT, CHAT, RULE, "msg-1")];
 
 		expect(retries).toEqual([false, false, false]);
 	});
@@ -99,10 +95,7 @@ describe("claimIncomingMessage", () => {
 	test("refuses every redelivery, not just the second — a three-way race stays answered once", () => {
 		claimIncomingMessage(BOT, SQUARE, "msg-1");
 
-		const retries = [
-			claimIncomingMessage(BOT, SQUARE, "msg-1"),
-			claimIncomingMessage(BOT, SQUARE, "msg-1"),
-		];
+		const retries = [claimIncomingMessage(BOT, SQUARE, "msg-1"), claimIncomingMessage(BOT, SQUARE, "msg-1")];
 
 		expect(retries).toEqual([false, false]);
 	});

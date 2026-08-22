@@ -49,9 +49,7 @@ export class RelationService implements BaseService {
 		);
 	}
 
-	async getContactsV3(
-		options: { mids: string[]; checkUserStatusStrictly?: boolean },
-	): Promise<LINETypes.getContactsV3_result["success"]> {
+	async getContactsV3(options: { mids: string[]; checkUserStatusStrictly?: boolean }): Promise<LINETypes.getContactsV3_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.getContactsV3_args({
 				request: {
@@ -119,11 +117,7 @@ export class RelationService implements BaseService {
 							3,
 							[
 								[11, 1, reference],
-								[12, 2, [[12, trackingMetaType, [[
-									11,
-									1,
-									trackingMetaHint,
-								]]]]],
+								[12, 2, [[12, trackingMetaType, [[11, 1, trackingMetaHint]]]]],
 							],
 						],
 					],
@@ -141,9 +135,7 @@ export class RelationService implements BaseService {
 	 * Accounts include the leading `@`, e.g. `@livecast`. Throws when nothing matches
 	 * or the id search is rate limited.
 	 */
-	public async findContactBySearchIdOrTicketV3(options: {
-		searchId: string;
-	}): Promise<LINETypes.Contact> {
+	public async findContactBySearchIdOrTicketV3(options: { searchId: string }): Promise<LINETypes.Contact> {
 		const { searchId } = options;
 		return await this.client.request.request(
 			[[12, 1, [[12, 1, [[11, 1, searchId]]]]]],
@@ -158,9 +150,7 @@ export class RelationService implements BaseService {
 	 * @description Search a user by their LINE ID and add them as a friend. Official
 	 * Account IDs include the leading `@`.
 	 */
-	public async addFriendByUserId(options: {
-		userId: string;
-	}): Promise<LINETypes.addFriendByMid_result["success"]> {
+	public async addFriendByUserId(options: { userId: string }): Promise<LINETypes.addFriendByMid_result["success"]> {
 		const contact = await this.findContactBySearchIdOrTicketV3({
 			searchId: options.userId,
 		});
@@ -176,9 +166,7 @@ export class RelationService implements BaseService {
 	 * @description Find a contact by phone number. The number is in E.164 form,
 	 * e.g. `+66814298575`. Throws when nothing matches or the lookup is rate limited.
 	 */
-	public async findContactByPhoneV3(options: {
-		phone: string;
-	}): Promise<LINETypes.Contact> {
+	public async findContactByPhoneV3(options: { phone: string }): Promise<LINETypes.Contact> {
 		return await this.client.request.request(
 			[[12, 1, [[11, 1, options.phone]]]],
 			"findContactByPhoneV3",
@@ -191,9 +179,7 @@ export class RelationService implements BaseService {
 	/**
 	 * @description Look up a user by phone number (E.164) and add them as a friend.
 	 */
-	public async addFriendByPhone(options: {
-		phone: string;
-	}): Promise<LINETypes.addFriendByMid_result["success"]> {
+	public async addFriendByPhone(options: { phone: string }): Promise<LINETypes.addFriendByMid_result["success"]> {
 		const contact = await this.findContactByPhoneV3({ phone: options.phone });
 		return await this.addFriendByMid({
 			mid: contact.mid,

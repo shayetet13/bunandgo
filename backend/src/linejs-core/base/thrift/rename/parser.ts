@@ -33,14 +33,11 @@ export class ThriftRenameParser {
 			if (typeof value === "undefined") {
 				continue;
 			}
-			if (
-				finfo.struct && (typeof value === "object" || typeof value === "number")
-			) {
+			if (finfo.struct && (typeof value === "object" || typeof value === "number")) {
 				if (isStruct(this.def[finfo.struct])) {
 					newObject[finfo.name] = this.rename_thrift(finfo.struct, value);
 				} else if (this.def[finfo.struct]) {
-					newObject[finfo.name] = (this.def[finfo.struct] as any)[value] ||
-						value;
+					newObject[finfo.name] = (this.def[finfo.struct] as any)[value] || value;
 				} else {
 					newObject[finfo.name] = value;
 				}

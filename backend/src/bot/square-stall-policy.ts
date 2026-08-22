@@ -32,10 +32,7 @@ export const SQUARE_STALL_MS = Math.max(1_000, Number(process.env.SQUARE_STALL_M
  * needs a few seconds to resubscribe and post its first fetch, and re-closing
  * it mid-reconnect only restarts that clock.
  */
-export const SQUARE_STALL_RECOVERY_COOLDOWN_MS = Math.max(
-	1_000,
-	Number(process.env.SQUARE_STALL_RECOVERY_COOLDOWN_MS ?? 15_000),
-);
+export const SQUARE_STALL_RECOVERY_COOLDOWN_MS = Math.max(1_000, Number(process.env.SQUARE_STALL_RECOVERY_COOLDOWN_MS ?? 15_000));
 
 /**
  * Consecutive close-the-connection attempts that failed to restore the chain
@@ -43,10 +40,7 @@ export const SQUARE_STALL_RECOVERY_COOLDOWN_MS = Math.max(
  * cooldown is ~45s of blindness — long, but a rebuild drops and re-establishes
  * every LINE session for the bot, so it must not fire on the first hiccup.
  */
-export const ESCALATE_AFTER_FAILED_REFRESHES = Math.max(
-	1,
-	Number(process.env.SQUARE_STALL_ESCALATE_AFTER ?? 3),
-);
+export const ESCALATE_AFTER_FAILED_REFRESHES = Math.max(1, Number(process.env.SQUARE_STALL_ESCALATE_AFTER ?? 3));
 
 export type StallAction =
 	/** Chain is alive (or too early to judge) — do nothing. */

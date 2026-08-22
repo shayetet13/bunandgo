@@ -24,10 +24,7 @@ export interface RoomCoverageUser {
 	rooms: RoomCoverageRoom[];
 }
 
-const rowsStmt = db.prepare<
-	{ user_id: number; username: string; mid: string; bot_id: number; name: string; slot: number },
-	[]
->(
+const rowsStmt = db.prepare<{ user_id: number; username: string; mid: string; bot_id: number; name: string; slot: number }, []>(
 	`SELECT u.id AS user_id, u.username, c.mid, b.id AS bot_id, b.name, b.slot
 	 FROM chats c
 	 JOIN bots b ON b.id = c.bot_id

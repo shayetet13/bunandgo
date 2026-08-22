@@ -42,9 +42,7 @@ const purgeExpiredLaneRaceStmt = db.prepare("DELETE FROM lane_race_events WHERE 
 function bangkokHour(now: Date): number {
 	// Reads the local hour in Asia/Bangkok regardless of the host's own
 	// timezone, so "23:00" means Thailand time whether the VPS is UTC or not.
-	return Number(
-		new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Bangkok", hour: "numeric", hourCycle: "h23" }).format(now),
-	);
+	return Number(new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Bangkok", hour: "numeric", hourCycle: "h23" }).format(now));
 }
 
 export function getLastPurgeAt(): number {
@@ -74,7 +72,9 @@ export function startLogPurgeScheduler(): void {
 		const now = new Date();
 		if (!shouldRunLogPurge(now, getLastPurgeAt())) return;
 		runLogPurge(now.getTime());
-		console.log(`[log-purge] cleared operational logs; retained audit=${AUDIT_RETENTION_DAYS}d lane/latency=${LANE_RACE_RETENTION_DAYS}d (daily 23:00 Asia/Bangkok)`);
+		console.log(
+			`[log-purge] cleared operational logs; retained audit=${AUDIT_RETENTION_DAYS}d lane/latency=${LANE_RACE_RETENTION_DAYS}d (daily 23:00 Asia/Bangkok)`,
+		);
 	}, CHECK_INTERVAL_MS);
 	// A pending purge check must never be what keeps the process alive.
 	timer.unref?.();

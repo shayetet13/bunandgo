@@ -18,9 +18,7 @@ export class HomeSafetyCheckService implements BaseService {
 		this.client = client;
 	}
 
-	async deleteSafetyStatus(
-		...param: Parameters<typeof LINEStruct.deleteSafetyStatus_args>
-	): Promise<void> {
+	async deleteSafetyStatus(...param: Parameters<typeof LINEStruct.deleteSafetyStatus_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.deleteSafetyStatus_args(...param),
 			"deleteSafetyStatus",
@@ -42,9 +40,7 @@ export class HomeSafetyCheckService implements BaseService {
 		);
 	}
 
-	async updateSafetyStatus(
-		...param: Parameters<typeof LINEStruct.updateSafetyStatus_args>
-	): Promise<void> {
+	async updateSafetyStatus(...param: Parameters<typeof LINEStruct.updateSafetyStatus_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.updateSafetyStatus_args(...param),
 			"updateSafetyStatus",

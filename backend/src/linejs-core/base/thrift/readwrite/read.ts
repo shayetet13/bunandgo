@@ -8,17 +8,13 @@ import type { ParsedThrift } from "./declares.ts";
 const utf8FatalDecoder = new TextDecoder("utf-8", { fatal: true });
 
 function thriftBuffer(data: Uint8Array | Buffer): Buffer {
-	return data instanceof Buffer
-		? data
-		: Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+	return data instanceof Buffer ? data : Buffer.from(data.buffer, data.byteOffset, data.byteLength);
 }
 
 /**
  * @returns {any}
  */
-function readStruct(
-	input: thrift.TCompactProtocol | thrift.TBinaryProtocol,
-): any {
+function readStruct(input: thrift.TCompactProtocol | thrift.TBinaryProtocol): any {
 	const Thrift = thrift.Thrift;
 	const returnData: Record<PropertyKey, any> = {};
 	input.readStructBegin();
@@ -52,10 +48,7 @@ function bigInt(bin: Buffer): number | bigint {
 	return value;
 }
 
-function readValue(
-	input: thrift.TCompactProtocol | thrift.TBinaryProtocol,
-	ftype: thrift.Thrift.Type,
-): any {
+function readValue(input: thrift.TCompactProtocol | thrift.TBinaryProtocol, ftype: thrift.Thrift.Type): any {
 	const Thrift = thrift.Thrift;
 	if (ftype == Thrift.Type.STRUCT) {
 		return readStruct(input);
@@ -101,11 +94,9 @@ function readValue(
 	} else if (ftype == Thrift.Type.DOUBLE) {
 		return input.readDouble();
 	} else if (ftype == 16) {
-		// @ts-expect-error: TODO
-		return input.readIString();
+		return input.readString();
 	} else if (ftype == 17) {
-		// @ts-expect-error: TODO
-		return input.readLineMid();
+		return input.readString();
 	} else {
 		input.skip(ftype);
 		return;
@@ -114,12 +105,9 @@ function readValue(
 
 function _readThrift(
 	data: Uint8Array | Buffer,
-	Protocol: typeof thrift.TCompactProtocol | typeof thrift.TBinaryProtocol =
-		thrift.TCompactProtocol,
+	Protocol: typeof thrift.TCompactProtocol | typeof thrift.TBinaryProtocol = thrift.TCompactProtocol,
 ): ParsedThrift {
-	const bufTrans = new thrift.TFramedTransport(
-		thriftBuffer(data),
-	);
+	const bufTrans = new thrift.TFramedTransport(thriftBuffer(data));
 	const proto = new Protocol(bufTrans);
 	const msg_info = proto.readMessageBegin();
 	const tdata = readStruct(proto);
@@ -129,20 +117,16 @@ function _readThrift(
 
 export function readThrift(
 	data: Uint8Array | Buffer,
-	Protocol: typeof thrift.TCompactProtocol | typeof thrift.TBinaryProtocol =
-		thrift.TCompactProtocol,
+	Protocol: typeof thrift.TCompactProtocol | typeof thrift.TBinaryProtocol = thrift.TCompactProtocol,
 ): ParsedThrift {
 	return _readThrift(data, Protocol);
 }
 
 export function readThriftStruct(
 	data: Uint8Array | Buffer,
-	Protocol: typeof thrift.TCompactProtocol | typeof thrift.TBinaryProtocol =
-		thrift.TCompactProtocol,
+	Protocol: typeof thrift.TCompactProtocol | typeof thrift.TBinaryProtocol = thrift.TCompactProtocol,
 ): any {
-	const bufTrans = new thrift.TFramedTransport(
-		thriftBuffer(data),
-	);
+	const bufTrans = new thrift.TFramedTransport(thriftBuffer(data));
 	const proto = new Protocol(bufTrans);
 	return readStruct(proto);
 }
@@ -154,8 +138,7 @@ export function readThriftStruct(
  */
 export function isSuccessfulThriftResponse(
 	data: Uint8Array | Buffer,
-	Protocol: typeof thrift.TCompactProtocol | typeof thrift.TBinaryProtocol =
-		thrift.TCompactProtocol,
+	Protocol: typeof thrift.TCompactProtocol | typeof thrift.TBinaryProtocol = thrift.TCompactProtocol,
 ): boolean {
 	// Square uses TCompactProtocol. Its reply envelope starts with the
 	// standard compact message header followed by result field 0 (success)
@@ -184,7 +167,7 @@ export function isSuccessfulThriftResponse(
 			const fieldHeader = data[offset++];
 			if (fieldHeader === undefined || (fieldHeader & 0x0f) !== 0x0c) return false;
 			// A delta in the high nibble means field id > 0, i.e. exception.
-			if ((fieldHeader >>> 4) !== 0) return false;
+			if (fieldHeader >>> 4 !== 0) return false;
 			// Delta zero is followed by the zig-zag encoded field id. Success is 0.
 			return readVarint() === 0;
 		} catch {

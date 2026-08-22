@@ -50,10 +50,7 @@ export function tryAcquireSend(botId: number, now = performance.now()): SendAdmi
 	const state = getState(botId);
 
 	let firstLive = 0;
-	while (
-		firstLive < state.sentAt.length &&
-		now - state.sentAt[firstLive]! >= WINDOW_MS
-	) {
+	while (firstLive < state.sentAt.length && now - state.sentAt[firstLive]! >= WINDOW_MS) {
 		firstLive++;
 	}
 	if (firstLive > 0) state.sentAt.splice(0, firstLive);

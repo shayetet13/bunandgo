@@ -491,7 +491,9 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 			// The backend stops the session as part of this action (see
 			// bot-detail.ts) — the WS bot_status event confirms it, but
 			// reflecting it here too avoids a stale "online" flash in between.
-			setBots((prev) => prev.map((b) => (b.id === botId ? { ...b, status: "offline", lockedLineMid: null, lockedLineDisplayName: null } : b)));
+			setBots((prev) =>
+				prev.map((b) => (b.id === botId ? { ...b, status: "offline", lockedLineMid: null, lockedLineDisplayName: null } : b)),
+			);
 			pushNotification("รีเซ็ตล็อกบัญชี LINE และออกจากระบบ session เดิมแล้ว — กดเริ่มเพื่อสแกน QR บัญชีใหม่ได้เลย");
 		} catch (err) {
 			pushNotification(err instanceof Error ? err.message : String(err));
@@ -503,7 +505,9 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 			await api.forceBotRelogin(botId);
 			// Lock stays in place — only the status changes here.
 			setBots((prev) => prev.map((b) => (b.id === botId ? { ...b, status: "offline" } : b)));
-			pushNotification("ออกจากระบบ session เดิมแล้ว — บัญชี LINE เดิมยังถูกล็อกอยู่ กดเริ่มเพื่อสแกน QR ใหม่ได้เลย (ต้องเป็นบัญชีเดิมเท่านั้น)");
+			pushNotification(
+				"ออกจากระบบ session เดิมแล้ว — บัญชี LINE เดิมยังถูกล็อกอยู่ กดเริ่มเพื่อสแกน QR ใหม่ได้เลย (ต้องเป็นบัญชีเดิมเท่านั้น)",
+			);
 		} catch (err) {
 			pushNotification(err instanceof Error ? err.message : String(err));
 		}

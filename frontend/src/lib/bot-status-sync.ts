@@ -30,8 +30,6 @@ export function reconcileFetchedBots(
 	return fetched.map((bot) => {
 		const eventAt = statusEventAt.get(bot.id);
 		const live = liveStatus.get(bot.id);
-		return live !== undefined && eventAt !== undefined && eventAt >= fetchedAt
-			? { ...bot, status: live }
-			: bot;
+		return live !== undefined && eventAt !== undefined && eventAt >= fetchedAt ? { ...bot, status: live } : bot;
 	});
 }

@@ -37,8 +37,7 @@ export type Budget = readonly [number, number];
 /** Adds the visible, mutually-exclusive phases; CODE is a subtotal only. */
 export function sumLatencyBreakdown(b: LatencyBreakdown): { codeMs: number; totalMs: number } {
 	const codeMs =
-		b.decryptMs + b.matchMs + b.limiterMs + (b.routingMs ?? 0) + b.protocolPrepMs +
-		b.relayEncodeMs + b.goPrepMs + b.relayAndParseMs;
+		b.decryptMs + b.matchMs + b.limiterMs + (b.routingMs ?? 0) + b.protocolPrepMs + b.relayEncodeMs + b.goPrepMs + b.relayAndParseMs;
 	return { codeMs, totalMs: b.lineMs + codeMs };
 }
 

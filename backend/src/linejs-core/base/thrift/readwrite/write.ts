@@ -1,12 +1,7 @@
 // @ts-types="thrift-types"
 import * as thrift from "thrift";
 import { Buffer } from "node:buffer";
-import {
-	genHeader,
-	type NestedArray,
-	type ProtocolKey,
-	type Protocols,
-} from "./declares.ts";
+import { genHeader, type NestedArray, type ProtocolKey, type Protocols } from "./declares.ts";
 import Int64 from "node-int64";
 import type { LooseType } from "@evex/loose-types";
 
@@ -14,10 +9,7 @@ const Thrift = thrift.Thrift;
 const compactHeaders = new Map<string, Buffer>();
 const binaryHeaders = new Map<string, Buffer>();
 
-function cachedHeader(
-	name: string,
-	Protocol: (typeof Protocols)[ProtocolKey],
-): Buffer {
+function cachedHeader(name: string, Protocol: (typeof Protocols)[ProtocolKey]): Buffer {
 	const protocolType = Protocol == thrift.TBinaryProtocol ? 3 : 4;
 	const cache = protocolType === 3 ? binaryHeaders : compactHeaders;
 	let header = cache.get(name);
@@ -28,30 +20,19 @@ function cachedHeader(
 	return header;
 }
 
-export function writeThrift(
-	value: NestedArray,
-	name: string,
-	Protocol: (typeof Protocols)[ProtocolKey],
-): Uint8Array {
+export function writeThrift(value: NestedArray, name: string, Protocol: (typeof Protocols)[ProtocolKey]): Uint8Array {
 	const chunks: Buffer[] = [];
 	// 初期バッファは空にして、コールバックでチャンクを集める
-	const buftra = new thrift.TBufferedTransport(
-		Buffer.from([]),
-		function (outBuf?: Buffer) {
-			if (!outBuf) return;
-			chunks.push(outBuf);
-		},
-	);
+	const buftra = new thrift.TBufferedTransport(Buffer.from([]), function (outBuf?: Buffer) {
+		if (!outBuf) return;
+		chunks.push(outBuf);
+	});
 	const myprot = new Protocol(buftra);
 	_writeStruct(myprot, value);
 	myprot.flush();
 	buftra.flush();
 
-	let myBuf = chunks.length === 1
-		? chunks[0]!
-		: chunks.length > 1
-		? Buffer.concat(chunks)
-		: Buffer.from([]);
+	let myBuf = chunks.length === 1 ? chunks[0]! : chunks.length > 1 ? Buffer.concat(chunks) : Buffer.from([]);
 	if (myBuf.length === 1 && myBuf[0] === 0) {
 		myBuf = Buffer.from([]);
 	}
@@ -65,37 +46,24 @@ export function writeThrift(
 	return writedBinary;
 }
 
-export function writeStruct(
-	value: NestedArray,
-	Protocol: (typeof Protocols)[ProtocolKey],
-): Uint8Array {
+export function writeStruct(value: NestedArray, Protocol: (typeof Protocols)[ProtocolKey]): Uint8Array {
 	const chunks: Buffer[] = [];
-	const buftra = new thrift.TBufferedTransport(
-		Buffer.from([]),
-		function (outBuf?: Buffer) {
-			if (!outBuf) return;
-			chunks.push(outBuf);
-		},
-	);
+	const buftra = new thrift.TBufferedTransport(Buffer.from([]), function (outBuf?: Buffer) {
+		if (!outBuf) return;
+		chunks.push(outBuf);
+	});
 	const myprot = new Protocol(buftra);
 	_writeStruct(myprot, value);
 	myprot.flush();
 	buftra.flush();
-	let myBuf = chunks.length === 1
-		? chunks[0]!
-		: chunks.length > 1
-		? Buffer.concat(chunks)
-		: Buffer.from([]);
+	let myBuf = chunks.length === 1 ? chunks[0]! : chunks.length > 1 ? Buffer.concat(chunks) : Buffer.from([]);
 	if (myBuf.length === 1 && myBuf[0] === 0) {
 		myBuf = Buffer.from([]);
 	}
 	return myBuf;
 }
 
-function _writeStruct(
-	output: thrift.TCompactProtocol | thrift.TCompactProtocol,
-	value: NestedArray = [],
-): void {
+function _writeStruct(output: thrift.TCompactProtocol | thrift.TCompactProtocol, value: NestedArray = []): void {
 	if (!value.length) {
 		return;
 	}
@@ -119,16 +87,7 @@ function writeValue(
 	ftype: number,
 	fid: number,
 	val:
-		| undefined
-		| null
-		| NestedArray
-		| string
-		| boolean
-		| number
-		| bigint
-		| Buffer
-		| [number, Array<LooseType>?]
-		| [number, number, object?],
+		undefined | null | NestedArray | string | boolean | number | bigint | Buffer | [number, Array<LooseType>?] | [number, number, object?],
 ): void {
 	if (val === undefined || val === null) {
 		return;
@@ -167,11 +126,7 @@ function writeValue(
 				// makes the LINE server reject message IDs (MESSAGE_NOT_FOUND).
 				// Encode the full 64-bit two's-complement value as a padded hex
 				// string instead; `asUintN` keeps negative I64 values correct.
-				output.writeI64(
-					new Int64(
-						"0x" + BigInt.asUintN(64, val).toString(16).padStart(16, "0"),
-					),
-				);
+				output.writeI64(new Int64("0x" + BigInt.asUintN(64, val).toString(16).padStart(16, "0")));
 				output.writeFieldEnd();
 			} else if (typeof val !== "number") {
 				throw new TypeError(`ftype=${ftype}: value is not number`);
@@ -257,13 +212,13 @@ function writeValue(
 			}
 			output.writeFieldBegin("", Thrift.Type.LIST, fid);
 			{
-                const arr = val[1] as LooseType[];
-                output.writeListBegin(val[0], arr.length);
-                for (let i = 0, L = arr.length; i < L; i++) {
-                    writeValue_(output, val[0], arr[i]);
-                }
-                output.writeListEnd();
-            }
+				const arr = val[1] as LooseType[];
+				output.writeListBegin(val[0], arr.length);
+				for (let i = 0, L = arr.length; i < L; i++) {
+					writeValue_(output, val[0], arr[i]);
+				}
+				output.writeListEnd();
+			}
 			output.writeFieldEnd();
 			break;
 		case Thrift.Type.SET:
@@ -273,13 +228,13 @@ function writeValue(
 			}
 			output.writeFieldBegin("", Thrift.Type.SET, fid);
 			{
-                const arr = val[1] as LooseType[];
-                output.writeSetBegin(val[0], arr.length);
-                for (let i = 0, L = arr.length; i < L; i++) {
-                    writeValue_(output, val[0], arr[i]);
-                }
-                output.writeSetEnd();
-            }
+				const arr = val[1] as LooseType[];
+				output.writeSetBegin(val[0], arr.length);
+				for (let i = 0, L = arr.length; i < L; i++) {
+					writeValue_(output, val[0], arr[i]);
+				}
+				output.writeSetEnd();
+			}
 			output.writeFieldEnd();
 			break;
 		default:
@@ -290,17 +245,7 @@ function writeValue(
 function writeValue_(
 	output: thrift.TCompactProtocol | thrift.TCompactProtocol,
 	ftype: number,
-	val:
-		| undefined
-		| null
-		| NestedArray
-		| string
-		| boolean
-		| number
-		| bigint
-		| Buffer
-		| [number, Array<LooseType>]
-		| [number, number, object],
+	val: undefined | null | NestedArray | string | boolean | number | bigint | Buffer | [number, Array<LooseType>] | [number, number, object],
 ): void {
 	if (val === undefined || val === null) {
 		return;

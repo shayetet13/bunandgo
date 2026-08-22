@@ -10,9 +10,7 @@ import { enqueueWrite } from "./write-behind.ts";
  * dedicated SQLite writer worker and never blocks the message event loop.
  */
 const caches = new Map<number, Map<string, Storage["Value"]>>();
-const loadStmt = db.prepare<{ key: string; value_json: string }, [number]>(
-	"SELECT key, value_json FROM kv WHERE bot_id = ?",
-);
+const loadStmt = db.prepare<{ key: string; value_json: string }, [number]>("SELECT key, value_json FROM kv WHERE bot_id = ?");
 
 function cacheFor(botId: number): Map<string, Storage["Value"]> {
 	let cache = caches.get(botId);

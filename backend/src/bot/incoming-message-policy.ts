@@ -3,11 +3,7 @@ import type { Surface } from "../db/schema.ts";
 import { isChatAdminAllowed, isChatAdminOnly, isChatEnabled } from "./chat-access.ts";
 import { isSquareAdmin } from "./square-roles.ts";
 
-export function shouldProcessIncomingMessage(
-	botId: number,
-	surface: Surface,
-	message: TalkMessage | SquareMessage,
-): boolean {
+export function shouldProcessIncomingMessage(botId: number, surface: Surface, message: TalkMessage | SquareMessage): boolean {
 	if (surface !== "square") {
 		// Individual 1-1 chats never auto-reply, regardless of chat settings —
 		// only groups/rooms (and, below, OpenChats) are eligible at all.
@@ -27,8 +23,7 @@ export function shouldProcessIncomingMessage(
 	// A room may narrow it further to named admins; an empty allowlist keeps
 	// the original "any admin" meaning (see chat-access.ts).
 	if (surface === "square" && isChatAdminOnly(botId, message.to.id)) {
-		return isSquareAdmin(botId, message.to.id, message.from.id) &&
-			isChatAdminAllowed(botId, message.to.id, message.from.id);
+		return isSquareAdmin(botId, message.to.id, message.from.id) && isChatAdminAllowed(botId, message.to.id, message.from.id);
 	}
 
 	return true;

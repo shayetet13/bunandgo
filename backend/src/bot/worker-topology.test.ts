@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { applyRuntimeTopologyFile, parseWorkerOwnerRoutes, shouldRunControlPlaneJobs, validateWorkerTopology } from "./worker-topology.ts";
+import { db } from "../db/sqlite.ts";
+import {
+	applyRuntimeTopologyFile,
+	parseWorkerOwnerRoutes,
+	parseWorkerRoutes,
+	shouldRunControlPlaneJobs,
+	validateWorkerTopology,
+} from "./worker-topology.ts";
 
 const ENV_KEYS = [
 	"PORT",
@@ -7,6 +14,10 @@ const ENV_KEYS = [
 	"WORKER_OWNER_SCOPE",
 	"WORKER_OWNER_EXCLUDE",
 	"WORKER_OWNER_ROUTES",
+	"WORKER_ASSIGNMENT_MODE",
+	"WORKER_ASSIGNMENT_WORKERS",
+	"WORKER_PRIMARY_ID",
+	"WORKER_ROUTES",
 	"CONTROL_PLANE_URL",
 	"CONTROL_PLANE_TOKEN",
 	"SQUARE_FAST_POLL_INTERVAL_MS",
@@ -14,7 +25,11 @@ const ENV_KEYS = [
 	"SQUARE_FAST_POLL_ALLOW_ZERO_MS",
 	"SQUARE_FAST_POLL_SLOTS",
 	"LINE_H2_LANES",
+	"LINE_EFFECTIVE_H2_LANES",
 	"LINE_H2_SEND_RESERVED_LANES",
+	"LINE_RELAY_MODE",
+	"LINE_RELAY_URL",
+	"LINE_RELAY_TOKEN",
 	"LINE_H2_POLL_EXPLORE_INTERVAL_MS",
 	"LINE_H2_POLL_CALIBRATION_SAMPLES",
 	"LINE_H2_APPLICATION_HOT_CEILING_MS",
@@ -26,7 +41,7 @@ const ENV_KEYS = [
 ] as const;
 const original = new Map<string, string | undefined>();
 
-function setTopologyEnv(values: Partial<Record<typeof ENV_KEYS[number], string>>): void {
+function setTopologyEnv(values: Partial<Record<(typeof ENV_KEYS)[number], string>>): void {
 	for (const key of ENV_KEYS) {
 		if (!original.has(key)) original.set(key, process.env[key]);
 		const value = values[key];
@@ -36,6 +51,7 @@ function setTopologyEnv(values: Partial<Record<typeof ENV_KEYS[number], string>>
 }
 
 afterEach(() => {
+	db.exec("DELETE FROM owner_worker_assignments");
 	for (const key of ENV_KEYS) {
 		const value = original.get(key);
 		if (value === undefined) delete process.env[key];
@@ -51,6 +67,13 @@ describe("worker topology", () => {
 		expect(routes.get(5)?.origin).toBe("http://localhost:8793");
 		expect(() => parseWorkerOwnerRoutes("2=https://example.com")).toThrow("loopback");
 		expect(() => parseWorkerOwnerRoutes("bad=http://127.0.0.1:8792")).toThrow("invalid owner id");
+	});
+
+	test("parses loopback worker routes without allowing duplicates or external hosts", () => {
+		const routes = parseWorkerRoutes("shard-b=http://127.0.0.1:8792");
+		expect(routes.get("shard-b")?.origin).toBe("http://127.0.0.1:8792");
+		expect(() => parseWorkerRoutes("shard-b=https://example.com")).toThrow("loopback");
+		expect(() => parseWorkerRoutes("bad id=http://127.0.0.1:8792")).toThrow("workerId");
 	});
 
 	test("accepts a primary only when exclude and routes match exactly", () => {
@@ -137,10 +160,17 @@ describe("worker topology", () => {
 		const runtimeFile = JSON.stringify({
 			version: 1,
 			primary: { workerId: "primary", port: 8791 },
-			shards: [{
-				workerId: "shard-b", port: 8792, ownerIds: [4], fastPollIntervalMs: 0,
-				h2Lanes: 12, sendReservedLanes: 4, fastPollSlots: 8,
-			}],
+			shards: [
+				{
+					workerId: "shard-b",
+					port: 8792,
+					ownerIds: [4],
+					fastPollIntervalMs: 0,
+					h2Lanes: 12,
+					sendReservedLanes: 4,
+					fastPollSlots: 8,
+				},
+			],
 			controlPlaneToken: "t".repeat(32),
 		});
 		setTopologyEnv({ PORT: "8792" });
@@ -157,13 +187,24 @@ describe("worker topology", () => {
 		const runtimeFile = JSON.stringify({
 			version: 1,
 			primary: {
-				workerId: "primary", port: 8791, fastPollIntervalMs: 0,
-				h2Lanes: 12, sendReservedLanes: 4, fastPollSlots: 8,
+				workerId: "primary",
+				port: 8791,
+				fastPollIntervalMs: 0,
+				h2Lanes: 12,
+				sendReservedLanes: 4,
+				fastPollSlots: 8,
 			},
-			shards: [{
-				workerId: "shard-b", port: 8792, ownerIds: [4], fastPollIntervalMs: 0,
-				h2Lanes: 8, sendReservedLanes: 4, fastPollSlots: 4,
-			}],
+			shards: [
+				{
+					workerId: "shard-b",
+					port: 8792,
+					ownerIds: [4],
+					fastPollIntervalMs: 0,
+					h2Lanes: 8,
+					sendReservedLanes: 4,
+					fastPollSlots: 4,
+				},
+			],
 			controlPlaneToken: "t".repeat(32),
 		});
 		setTopologyEnv({ PORT: "8791" });
@@ -208,6 +249,71 @@ describe("worker topology", () => {
 		expect(process.env.LINE_H2_DEGRADED_REPAIR_MIN_SAMPLES).toBe("3");
 	});
 
+	test("balanced-sticky topology pins primary locally and shard traffic to the relay", () => {
+		const runtimeFile = JSON.stringify({
+			version: 1,
+			assignmentMode: "balanced-sticky",
+			primary: {
+				workerId: "primary",
+				port: 8791,
+				fastPollIntervalMs: 0,
+				h2Lanes: 16,
+				laneSource: "local",
+				sendReservedLanes: 4,
+				fastPollSlots: 8,
+			},
+			shards: [
+				{
+					workerId: "shard-b",
+					port: 8792,
+					fastPollIntervalMs: 0,
+					h2Lanes: 0,
+					laneSource: "relay",
+					relayLanes: 16,
+					relayUrl: "http://10.90.0.2:8795/dispatch",
+					relayToken: "r".repeat(32),
+					sendReservedLanes: 4,
+					fastPollSlots: 8,
+				},
+			],
+			controlPlaneToken: "t".repeat(32),
+		});
+		setTopologyEnv({ PORT: "8791" });
+		expect(applyRuntimeTopologyFile(runtimeFile)).toBe(true);
+		expect(process.env.WORKER_ASSIGNMENT_WORKERS).toBe("primary,shard-b");
+		expect(process.env.WORKER_ROUTES).toBe("shard-b=http://127.0.0.1:8792");
+		expect(process.env.LINE_RELAY_MODE).toBeUndefined();
+		expect(validateWorkerTopology().assignmentMode).toBe("balanced-sticky");
+
+		setTopologyEnv({ PORT: "8792" });
+		expect(applyRuntimeTopologyFile(runtimeFile)).toBe(true);
+		expect(process.env.WORKER_ROUTES).toBeUndefined();
+		expect(process.env.LINE_H2_LANES).toBe("0");
+		expect(process.env.LINE_EFFECTIVE_H2_LANES).toBe("16");
+		expect(process.env.LINE_RELAY_MODE).toBe("always");
+		expect(validateWorkerTopology().controlPlaneUrl?.port).toBe("8791");
+	});
+
+	test("refuses a sticky assignment that names a removed worker", () => {
+		const runtimeFile = JSON.stringify({
+			version: 1,
+			assignmentMode: "balanced-sticky",
+			primary: { workerId: "primary", port: 8791 },
+			shards: [{ workerId: "shard-b", port: 8792 }],
+			controlPlaneToken: "t".repeat(32),
+		});
+		db.query("INSERT INTO owner_worker_assignments (owner_user_id, worker_id, assigned_at) VALUES (?, ?, ?)").run(
+			991_991,
+			"removed-worker",
+			Date.now(),
+		);
+		setTopologyEnv({ PORT: "8791" });
+		expect(() => {
+			applyRuntimeTopologyFile(runtimeFile);
+			validateWorkerTopology();
+		}).toThrow("assigned to unknown worker");
+	});
+
 	test("runtime topology fails closed on duplicate owners, ports, and ambiguous sub-50ms polling", () => {
 		setTopologyEnv({ PORT: "8791" });
 		const base = {
@@ -215,17 +321,46 @@ describe("worker topology", () => {
 			primary: { workerId: "primary", port: 8791 },
 			controlPlaneToken: "t".repeat(32),
 		};
-		expect(() => applyRuntimeTopologyFile(JSON.stringify({ ...base, shards: [{ workerId: "a", port: 8791, ownerIds: [4] }] }))).toThrow("port 8791");
-		expect(() => applyRuntimeTopologyFile(JSON.stringify({ ...base, shards: [
-			{ workerId: "a", port: 8792, ownerIds: [4] },
-			{ workerId: "b", port: 8793, ownerIds: [4] },
-		] }))).toThrow("owner 4");
-		expect(() => applyRuntimeTopologyFile(JSON.stringify({ ...base, shards: [{ workerId: "a", port: 8792, ownerIds: [4], fastPollIntervalMs: 49 }] }))).toThrow("zero-delay or at least 50ms");
-		expect(() => applyRuntimeTopologyFile(JSON.stringify({ ...base, shards: [{ workerId: "a", port: 8792, ownerIds: [4], fastPollIntervalMs: -1 }] }))).toThrow("non-negative integer");
-		expect(() => applyRuntimeTopologyFile(JSON.stringify({ ...base, shards: [{ workerId: "a", port: 8792, ownerIds: [4], fastPollIntervalMs: 0 }] }))).toThrow("zero-delay requires");
-		expect(() => applyRuntimeTopologyFile(JSON.stringify({ ...base, shards: [{
-			workerId: "a", port: 8792, ownerIds: [4], fastPollIntervalMs: 0,
-			h2Lanes: 8, sendReservedLanes: 4, fastPollSlots: 5,
-		}] }))).toThrow("cannot exceed");
+		expect(() => applyRuntimeTopologyFile(JSON.stringify({ ...base, shards: [{ workerId: "a", port: 8791, ownerIds: [4] }] }))).toThrow(
+			"port 8791",
+		);
+		expect(() =>
+			applyRuntimeTopologyFile(
+				JSON.stringify({
+					...base,
+					shards: [
+						{ workerId: "a", port: 8792, ownerIds: [4] },
+						{ workerId: "b", port: 8793, ownerIds: [4] },
+					],
+				}),
+			),
+		).toThrow("owner 4");
+		expect(() =>
+			applyRuntimeTopologyFile(JSON.stringify({ ...base, shards: [{ workerId: "a", port: 8792, ownerIds: [4], fastPollIntervalMs: 49 }] })),
+		).toThrow("zero-delay or at least 50ms");
+		expect(() =>
+			applyRuntimeTopologyFile(JSON.stringify({ ...base, shards: [{ workerId: "a", port: 8792, ownerIds: [4], fastPollIntervalMs: -1 }] })),
+		).toThrow("non-negative integer");
+		expect(() =>
+			applyRuntimeTopologyFile(JSON.stringify({ ...base, shards: [{ workerId: "a", port: 8792, ownerIds: [4], fastPollIntervalMs: 0 }] })),
+		).toThrow("zero-delay requires");
+		expect(() =>
+			applyRuntimeTopologyFile(
+				JSON.stringify({
+					...base,
+					shards: [
+						{
+							workerId: "a",
+							port: 8792,
+							ownerIds: [4],
+							fastPollIntervalMs: 0,
+							h2Lanes: 8,
+							sendReservedLanes: 4,
+							fastPollSlots: 5,
+						},
+					],
+				}),
+			),
+		).toThrow("cannot exceed");
 	});
 });

@@ -6,10 +6,7 @@ import { User } from "./features/user/mod.ts";
 import { TypedEventEmitter } from "../base/core/typed-event-emitter/index.ts";
 import { SquareMessage, TalkMessage } from "./features/message/mod.ts";
 import type * as LINETypes from "@evex/linejs-types";
-import type {
-	CompactMessageResponse,
-	SendCompactMessageOptions,
-} from "../base/service/talk/mod.ts";
+import type { CompactMessageResponse, SendCompactMessageOptions } from "../base/service/talk/mod.ts";
 import {
 	getMyProfile,
 	type MyProfileUpdate,
@@ -96,31 +93,25 @@ export class Client extends TypedEventEmitter<ClientEvents> {
 	 * @param opts Options
 	 * @returns TypedEventEmitter
 	 */
-	listen(
-		opts: ListenOptions = { talk: true, square: true },
-	): void {
+	listen(opts: ListenOptions = { talk: true, square: true }): void {
 		const polling = this.base.createPolling();
 		const signal = opts.signal;
-		signal && signal.addEventListener("abort", () => {
-			// Closing the two streams only ends the *consumer* side. Without
-			// stopping the poller as well, the pusher loop behind them keeps
-			// reconnecting to LINE for a session that is already gone — see
-			// `Polling.stop()` for why that actively provokes logouts.
-			polling.stop();
-			this.base.push.opStream.close();
-			this.base.push.sqStream.close();
-		});
+		signal &&
+			signal.addEventListener("abort", () => {
+				// Closing the two streams only ends the *consumer* side. Without
+				// stopping the poller as well, the pusher loop behind them keeps
+				// reconnecting to LINE for a session that is already gone — see
+				// `Polling.stop()` for why that actively provokes logouts.
+				polling.stop();
+				this.base.push.opStream.close();
+				this.base.push.sqStream.close();
+			});
 		if (opts.talk) {
 			(async () => {
-				for await (
-					const event of polling.listenTalkEvents()
-				) {
+				for await (const event of polling.listenTalkEvents()) {
 					const internalReceivedAt = performance.now();
 					this.emit("event", event);
-					if (
-						event.type === "SEND_MESSAGE" ||
-						event.type === "RECEIVE_MESSAGE"
-					) {
+					if (event.type === "SEND_MESSAGE" || event.type === "RECEIVE_MESSAGE") {
 						try {
 							let decryptMs = 0;
 							let raw = event.message;
@@ -130,10 +121,7 @@ export class Client extends TypedEventEmitter<ClientEvents> {
 							// Talk listener and turned one failed RPC into minutes offline.
 							if (event.message.chunks?.length) {
 								const decryptStart = performance.now();
-								raw = await retryTalkMessageOperation(
-									() => this.base.e2ee.decryptE2EEMessage(event.message),
-									{ signal },
-								);
+								raw = await retryTalkMessageOperation(() => this.base.e2ee.decryptE2EEMessage(event.message), { signal });
 								decryptMs = performance.now() - decryptStart;
 							}
 							const message = new TalkMessage({ raw, client: this });
@@ -167,17 +155,14 @@ export class Client extends TypedEventEmitter<ClientEvents> {
 		}
 		if (opts.square) {
 			(async () => {
-				for await (
-					const event of polling.listenSquareEvents()
-				) {
+				for await (const event of polling.listenSquareEvents()) {
 					const internalReceivedAt = performance.now();
 					this.emit("square:event", event);
 					if (event.type === "NOTIFICATION_MESSAGE") {
 						const message = new SquareMessage({
-								raw: event.payload.notificationMessage
-									.squareMessage,
-								client: this,
-							});
+							raw: event.payload.notificationMessage.squareMessage,
+							client: this,
+						});
 						Object.defineProperties(message, {
 							[Symbol.for("linebot.internalReceivedAt")]: { value: internalReceivedAt },
 							[Symbol.for("linebot.decryptMs")]: { value: 0 },
@@ -208,10 +193,7 @@ export class Client extends TypedEventEmitter<ClientEvents> {
 	 * Sends a compact talk message through `/CA5` or `/ECA5`.
 	 * When `e2ee` is omitted, LINE E2EE retry errors fall back to compact E2EE.
 	 */
-	sendCompactMessage(
-		to: string,
-		input: string | Omit<SendCompactMessageOptions, "to">,
-	): Promise<CompactMessageResponse> {
+	sendCompactMessage(to: string, input: string | Omit<SendCompactMessageOptions, "to">): Promise<CompactMessageResponse> {
 		if (typeof input === "string") {
 			return this.base.talk.sendCompactMessage({ to, text: input });
 		}
@@ -245,9 +227,7 @@ export class Client extends TypedEventEmitter<ClientEvents> {
 	 * Uploads a new profile picture for the signed-in user (the avatar
 	 * shown in chats).  Returns the OBS object id + hash.
 	 */
-	uploadMyProfileImage(
-		data: Blob,
-	): Promise<{ objId: string; objHash: string }> {
+	uploadMyProfileImage(data: Blob): Promise<{ objId: string; objHash: string }> {
 		return uploadMyProfileImage(this, data);
 	}
 
@@ -255,9 +235,7 @@ export class Client extends TypedEventEmitter<ClientEvents> {
 	 * Uploads a new profile background (the cover photo behind the
 	 * profile picture on the user's profile page).
 	 */
-	uploadMyProfileBackground(
-		data: Blob,
-	): Promise<{ objId: string; objHash: string }> {
+	uploadMyProfileBackground(data: Blob): Promise<{ objId: string; objHash: string }> {
 		return uploadMyProfileBackground(this, data);
 	}
 
@@ -313,7 +291,9 @@ export class Client extends TypedEventEmitter<ClientEvents> {
 		for (const mid of userFriendMids) {
 			try {
 				out.push(await this.getUser(mid));
-			} catch { /* skip unreachable */ }
+			} catch {
+				/* skip unreachable */
+			}
 		}
 		return out;
 	}
@@ -337,9 +317,7 @@ export class Client extends TypedEventEmitter<ClientEvents> {
 		});
 		const squareChats: SquareChat[] = [];
 		for (const event of response.events) {
-			if (
-				event.payload.notifiedCreateSquareChatMember
-			) {
+			if (event.payload.notifiedCreateSquareChatMember) {
 				squareChats.push(
 					new SquareChat({
 						client: this,

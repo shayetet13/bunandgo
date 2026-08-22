@@ -126,7 +126,8 @@ export class ConnManager {
 		// Catching and logging it here only needs to stop it from being an
 		// anonymous unhandled rejection; it does not need to raise a
 		// dashboard-visible error on every transient race.
-		const failure = text === "SignOnResponseError" ||
+		const failure =
+			text === "SignOnResponseError" ||
 			text === "PushResponseError" ||
 			text === "LegyPusherError" ||
 			text === "LegyPusherError_cannot_init";
@@ -135,7 +136,8 @@ export class ConnManager {
 		// them to journald continuously adds scheduler and disk contention to
 		// the reply process, so diagnostics are explicitly opt-in. Failures
 		// remain visible regardless of this flag.
-		const diagnostic = text === "SQ_fetchMyEvents" ||
+		const diagnostic =
+			text === "SQ_fetchMyEvents" ||
 			text === "SquareRearmSkipped" ||
 			text === "SquareRearmError" ||
 			text === "SquareRearmForced" ||
@@ -149,25 +151,28 @@ export class ConnManager {
 		let controller: ReadableStreamDefaultController<T> | null = null;
 
 		const chunks: T[] = [];
-		const stream = new ReadableStream<T>({
-			start(c) {
-				controller = c;
+		const stream = new ReadableStream<T>(
+			{
+				start(c) {
+					controller = c;
+				},
+				pull(c) {
+					if (chunks.length) {
+						c.enqueue(chunks.shift()!);
+					}
+				},
+				cancel() {
+					controller = null;
+					writer.renew();
+				},
 			},
-			pull(c) {
-				if (chunks.length) {
-					c.enqueue(chunks.shift()!);
-				}
+			{
+				highWaterMark: 200,
+				size() {
+					return 1;
+				},
 			},
-			cancel() {
-				controller = null;
-				writer.renew();
-			},
-		}, {
-			highWaterMark: 200,
-			size() {
-				return 1;
-			},
-		});
+		);
 
 		const writer = {
 			stream,
@@ -190,48 +195,47 @@ export class ConnManager {
 				this.renew();
 			},
 			renew() {
-				this.stream = new ReadableStream<T>({
-					start(c) {
-						controller = c;
+				this.stream = new ReadableStream<T>(
+					{
+						start(c) {
+							controller = c;
+						},
+						pull(c) {
+							if (chunks.length) {
+								c.enqueue(chunks.shift()!);
+							}
+						},
+						cancel() {
+							controller = null;
+						},
 					},
-					pull(c) {
-						if (chunks.length) {
-							c.enqueue(chunks.shift()!);
-						}
+					{
+						highWaterMark: 200,
+						size() {
+							return 1;
+						},
 					},
-					cancel() {
-						controller = null;
-					},
-				}, {
-					highWaterMark: 200,
-					size() {
-						return 1;
-					},
-				});
+				);
 			},
 		};
 		return writer;
 	}
 
-	async initializeConn(
-		state = 1,
-		initServices = [3, 6, 8, 9, 10],
-	): Promise<Conn> {
+	async initializeConn(state = 1, initServices = [3, 6, 8, 9, 10]): Promise<Conn> {
 		const _conn = new Conn(this);
 		this.signOnRequests = {};
 		if (state === 1) {
 			this.conns[0] = _conn;
 			this.authToken = this.client.authToken!;
 		}
-		const tosendHeaders: Record<string, string> = this.client.request
-			.getHeader();
+		const tosendHeaders: Record<string, string> = this.client.request.getHeader();
 		tosendHeaders["content-type"] = "application/octet-stream";
 		tosendHeaders["accept"] = "application/octet-stream";
 		const m = gen_m(initServices);
 		this.log(`Using \`m=${m}\` on \`/PUSH\``);
 		const host = this.client.request.endpoint;
 		const port = 443;
-		await (_conn.new(host, port, `/PUSH/1/subs?m=${m}`, tosendHeaders));
+		await _conn.new(host, port, `/PUSH/1/subs?m=${m}`, tosendHeaders);
 		return _conn;
 	}
 
@@ -249,7 +253,7 @@ export class ConnManager {
 		conn: Conn,
 		serviceType: number,
 		kwargs: Record<string, LooseType> = {},
-	): Promise<{ payload: Uint8Array<ArrayBuffer>; id: number; }> {
+	): Promise<{ payload: Uint8Array<ArrayBuffer>; id: number }> {
 		this.log("buildAndSendSignOnRequest", { serviceType, kwargs });
 		const cl = this.client;
 		this.#nextSignOnRequestId = (this.#nextSignOnRequestId % 0x7fff) + 1;
@@ -259,23 +263,17 @@ export class ConnManager {
 		idBuf[1] = id & 0xff;
 		let methodName: string | undefined;
 		// build payload body depending on serviceType
-		let req = new Uint8Array(0);
+		let req: Uint8Array = new Uint8Array(0);
 		if (serviceType === 3) {
 			// fetchMyEvents - delegate to client generator
-			// @ts-ignore: will fix
 			req = cl.thrift.writeThrift(
-				gen_SquareService_fetchMyEvents_args(kwargs),
+				gen_SquareService_fetchMyEvents_args(kwargs as PartialDeep<SquareService_fetchMyEvents_args>),
 				"fetchMyEvents",
 				TCompactProtocol,
 			);
 			methodName = "fetchMyEvents";
 		} else if ([5, 8].includes(serviceType)) {
-			// @ts-ignore: will fix
-			req = cl.thrift.writeThrift(
-				gen_sync_args(kwargs),
-				"sync",
-				TCompactProtocol,
-			);
+			req = cl.thrift.writeThrift(gen_sync_args(kwargs as PartialDeep<sync_args>), "sync", TCompactProtocol);
 			methodName = "sync";
 		}
 		const header = new Uint8Array(2 + 1 + 1 + 2 + req.length);
@@ -286,18 +284,12 @@ export class ConnManager {
 		header[5] = req.length & 0xff;
 		header.set(req, 6);
 		this.signOnRequests[id] = [serviceType, methodName, null];
-		this.log(
-			`[H2][PUSH] send sign-on-request. requestId:${id}, service:${serviceType}`,
-		);
+		this.log(`[H2][PUSH] send sign-on-request. requestId:${id}, service:${serviceType}`);
 		await conn.writeRequest(2, header);
 		return { payload: header, id };
 	}
 
-	async _OnSignOnResponse(
-		reqId: number,
-		isFin: boolean,
-		data: Uint8Array,
-	): Promise<false | undefined> {
+	async _OnSignOnResponse(reqId: number, isFin: boolean, data: Uint8Array): Promise<false | undefined> {
 		// data = data.slice(5);
 		const cl = this.client;
 		if (!(reqId in this.signOnRequests)) {
@@ -313,17 +305,12 @@ export class ConnManager {
 		// counter above wraps.
 		delete this.signOnRequests[reqId];
 
-		this.log(
-			`receives sign-on-response frame. requestId:${reqId}, service:${serviceType}, isFin:${isFin}, payload:${data.length}`,
-		);
+		this.log(`receives sign-on-response frame. requestId:${reqId}, service:${serviceType}, isFin:${isFin}, payload:${data.length}`);
 
 		try {
 			// service 3: Square.fetchMyEvents
 			if (serviceType === 3) {
-				const resp: SquareService_fetchMyEvents_result = cl.thrift.rename_data(
-					cl.thrift.readThrift(data, TCompactProtocol),
-					true,
-				).data;
+				const resp: SquareService_fetchMyEvents_result = cl.thrift.rename_data(cl.thrift.readThrift(data, TCompactProtocol), true).data;
 				// validate resp similarly to Python
 
 				if (resp.e) {
@@ -342,8 +329,11 @@ export class ConnManager {
 				// response's pre-write token and race the write below.
 				let rearm: { subscriptionId: number; syncToken: string; eventCount: number } | undefined;
 				await this.#squareFetchQueue.run(async () => {
-					const { subscription: { subscriptionId }, events, syncToken } =
-						resp.success;
+					const {
+						subscription: { subscriptionId },
+						events,
+						syncToken,
+					} = resp.success;
 
 					if (this.client.debugLogsEnabled) {
 						this.client.log("SquareService_fetchMyEvents_result", {
@@ -361,9 +351,7 @@ export class ConnManager {
 					// per second. Writing every one to journald competes with the event
 					// loop that must notice the one non-empty response immediately.
 					if (events.length > 0 || this.client.debugLogsEnabled) {
-						this.log(
-							`response fetchMyEvent(${subscriptionId}) events:${events.length}, syncToken:${syncToken}`,
-						);
+						this.log(`response fetchMyEvent(${subscriptionId}) events:${events.length}, syncToken:${syncToken}`);
 					}
 					if (typeof subscriptionId !== "number") {
 						throw new Error(`subscriptionId should be int: ${subscriptionId}`);
@@ -384,9 +372,7 @@ export class ConnManager {
 					this.subscriptionId = subscriptionId;
 
 					if (!this._eventSynced) {
-						this.log(
-							`myEvents start(${subscriptionId}) : syncToken:${syncToken}`,
-						);
+						this.log(`myEvents start(${subscriptionId}) : syncToken:${syncToken}`);
 						this._eventSynced = true;
 					}
 
@@ -452,34 +438,24 @@ export class ConnManager {
 						this.client.log("sync_result", { res });
 					}
 
-					if (
-						response.fullSyncResponse &&
-						response.fullSyncResponse.nextRevision
-					) {
-						this.client.poll.sync.talk.revision =
-							response.fullSyncResponse.nextRevision;
+					if (response.fullSyncResponse && response.fullSyncResponse.nextRevision) {
+						this.client.poll.sync.talk.revision = response.fullSyncResponse.nextRevision;
 					}
 					if (
 						response.operationResponse &&
 						response.operationResponse.globalEvents &&
 						response.operationResponse.globalEvents.lastRevision
 					) {
-						this.client.poll.sync.talk.globalRev =
-							response.operationResponse.globalEvents.lastRevision;
+						this.client.poll.sync.talk.globalRev = response.operationResponse.globalEvents.lastRevision;
 					}
 					if (
 						response.operationResponse &&
 						response.operationResponse.individualEvents &&
 						response.operationResponse.individualEvents.lastRevision
 					) {
-						this.client.poll.sync.talk.individualRev =
-							response.operationResponse.individualEvents
-								.lastRevision;
+						this.client.poll.sync.talk.individualRev = response.operationResponse.individualEvents.lastRevision;
 					}
-					if (
-						(response.operationResponse &&
-							response.operationResponse.operations)
-					) {
+					if (response.operationResponse && response.operationResponse.operations) {
 						for (const event of response.operationResponse.operations) {
 							this.client.poll.sync.talk.revision = event.revision;
 							this.opStream.enqueue(event);
@@ -550,9 +526,7 @@ export class ConnManager {
 					return;
 				}
 			} else {
-				throw new Error(
-					`[PUSH] receives invalid sign-on-response frame. requestId:${reqId}, service:${serviceType}`,
-				);
+				throw new Error(`[PUSH] receives invalid sign-on-response frame. requestId:${reqId}, service:${serviceType}`);
 			}
 		} catch (error) {
 			// Swallowing this silently leaves the bot looking online while
@@ -580,11 +554,7 @@ export class ConnManager {
 	 * `idleDelayMs` first, which is what keeps a non-blocking server from
 	 * being spun on unthrottled.
 	 */
-	async #rearmSquareFetch(
-		subscriptionId: number,
-		syncToken: string,
-		eventCount: number,
-	): Promise<void> {
+	async #rearmSquareFetch(subscriptionId: number, syncToken: string, eventCount: number): Promise<void> {
 		if (!SQUARE_REARM_ENABLED) return;
 
 		const decision = this.#squareRearm.next(eventCount);
@@ -632,10 +602,7 @@ export class ConnManager {
 		this.log("_OnPushResponse", pushFrame);
 		try {
 			if (pushFrame.serviceType === 3 && pushFrame.pushPayload) {
-				this.subscriptionId = this.client.thrift.readThriftStruct(
-					pushFrame.pushPayload,
-					TCompactProtocol,
-				)[1];
+				this.subscriptionId = this.client.thrift.readThriftStruct(pushFrame.pushPayload, TCompactProtocol)[1];
 				// Queued behind any in-flight rearm-response processing — see
 				// `#squareFetchQueue`. Reading `poll.sync.square` here
 				// before a concurrent rearm fetch has written its own result
@@ -690,7 +657,7 @@ export class ConnManager {
 		for (const k of Object.keys(this.subscriptionIds)) {
 			const id = Number(k);
 			const t2 = this.subscriptionIds[id];
-			if ((t1 - t2) >= 3000) {
+			if (t1 - t2 >= 3000) {
 				this.subscriptionIds[id] = Date.now() / 1000;
 				refreshIds.push(id);
 			}
@@ -705,20 +672,23 @@ export class ConnManager {
 			// entire backend process — every other bot with it. Reported as a
 			// push failure instead, which the session watchdog already reacts to
 			// by reconnecting (or falling back to a fresh QR).
-			this.client.talk.noop().then(() => {
-				const oldToken = this.authToken;
-				const newToken = this.client.authToken;
-				if (oldToken !== newToken && newToken) {
-					this.log("renew push conn for new authToken...");
-					this.authToken = newToken;
-					this.conns[0].close();
-				}
-			}).catch((err: LooseType) => {
-				this.log("LegyPusherError", {
-					at: "keepalive noop",
-					error: err instanceof Error ? err.message : String(err),
+			this.client.talk
+				.noop()
+				.then(() => {
+					const oldToken = this.authToken;
+					const newToken = this.client.authToken;
+					if (oldToken !== newToken && newToken) {
+						this.log("renew push conn for new authToken...");
+						this.authToken = newToken;
+						this.conns[0].close();
+					}
+				})
+				.catch((err: LooseType) => {
+					this.log("LegyPusherError", {
+						at: "keepalive noop",
+						error: err instanceof Error ? err.message : String(err),
+					});
 				});
-			});
 		}
 	}
 
@@ -778,9 +748,7 @@ export class ConnManager {
 						limit: 100,
 					},
 				};
-				this.log(
-					`request fetchMyEvent(${subscriptionId}), syncToken:${syncToken}`,
-				);
+				this.log(`request fetchMyEvent(${subscriptionId}), syncToken:${syncToken}`);
 				// clear tracked subscriptions
 				this.subscriptionIds = {};
 				await this.buildAndSendSignOnRequest(_conn, service, ex_val);

@@ -89,15 +89,10 @@ export async function getMyProfile(client: Client): Promise<line.Profile> {
  * @returns OBS object id + hash. The new picture is live after this
  *          resolves; subsequent friends' `getContacts` will see it.
  */
-export async function uploadMyProfileImage(
-	client: Client,
-	data: Blob,
-): Promise<{ objId: string; objHash: string }> {
+export async function uploadMyProfileImage(client: Client, data: Blob): Promise<{ objId: string; objHash: string }> {
 	const mid = client.base.profile?.mid;
 	if (!mid) {
-		throw new Error(
-			"uploadMyProfileImage requires client to be logged in (no profile.mid)",
-		);
+		throw new Error("uploadMyProfileImage requires client to be logged in (no profile.mid)");
 	}
 	const result = await client.base.obs.uploadObjectForService({
 		data,
@@ -117,10 +112,7 @@ export async function uploadMyProfileImage(
  * via the myhome service; the OBS object alone is enough for the
  * image to be queryable).
  */
-export async function uploadMyProfileBackground(
-	client: Client,
-	data: Blob,
-): Promise<{ objId: string; objHash: string }> {
+export async function uploadMyProfileBackground(client: Client, data: Blob): Promise<{ objId: string; objHash: string }> {
 	const result = await client.base.obs.uploadObjectForService({
 		data,
 		oType: "image",
@@ -138,10 +130,7 @@ export async function uploadMyProfileBackground(
  * @example
  *   await client.updateMyProfile({ statusMessage: "離席中" });
  */
-export async function updateMyProfile(
-	client: Client,
-	update: MyProfileUpdate,
-): Promise<void> {
+export async function updateMyProfile(client: Client, update: MyProfileUpdate): Promise<void> {
 	const profileAttributes = buildAttrMap(update);
 	if (Object.keys(profileAttributes).length === 0) return;
 	await client.base.talk.updateProfileAttributes({

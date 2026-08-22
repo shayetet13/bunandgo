@@ -119,12 +119,7 @@ function extractMessage(event: SquareEvent): { squareChatMid: string; message: O
 }
 
 /** Records one already-received event. There is no I/O in this function. */
-export function observeSquareForensicEvent(
-	botId: number,
-	event: SquareEvent,
-	source: SquareForensicSource,
-	now = Date.now(),
-): void {
+export function observeSquareForensicEvent(botId: number, event: SquareEvent, source: SquareForensicSource, now = Date.now()): void {
 	const destroyed = event.payload.notifiedDestroyMessage;
 	if (destroyed?.squareChatMid && destroyed.messageId) {
 		roomEvidence(botId, destroyed.squareChatMid).destroyedAt.set(destroyed.messageId, now);
@@ -144,28 +139,20 @@ export function observeSquareForensicEvent(
 	}
 }
 
-function buildSnapshot(
-	options: ArmSquareReplyForensicsOptions,
-	checkpointMs: number,
-	acceptedAt: number,
-): SquareForensicSnapshot {
+function buildSnapshot(options: ArmSquareReplyForensicsOptions, checkpointMs: number, acceptedAt: number): SquareForensicSnapshot {
 	const room = rooms.get(roomKey(options.botId, options.squareChatMid));
 	const observed = room?.byId.get(options.messageId);
 	const destroyedAt = room?.destroyedAt.get(options.messageId);
-	const laterEventSeen = room?.messages.some((message) => {
-		if (message.messageId === options.messageId) return false;
-		if (options.acceptedLineCreatedTime !== undefined && message.lineCreatedTime !== undefined) {
-			return message.lineCreatedTime > options.acceptedLineCreatedTime;
-		}
-		return message.seenAt > acceptedAt;
-	}) ?? false;
-	const presence: SquareForensicPresence = destroyedAt !== undefined
-		? "destroyed"
-		: observed
-		? "visible"
-		: laterEventSeen
-		? "missing_after_later_event"
-		: "pending";
+	const laterEventSeen =
+		room?.messages.some((message) => {
+			if (message.messageId === options.messageId) return false;
+			if (options.acceptedLineCreatedTime !== undefined && message.lineCreatedTime !== undefined) {
+				return message.lineCreatedTime > options.acceptedLineCreatedTime;
+			}
+			return message.seenAt > acceptedAt;
+		}) ?? false;
+	const presence: SquareForensicPresence =
+		destroyedAt !== undefined ? "destroyed" : observed ? "visible" : laterEventSeen ? "missing_after_later_event" : "pending";
 
 	const lower = (options.acceptedLineCreatedTime ?? acceptedAt) - 1_000;
 	const upper = (options.acceptedLineCreatedTime ?? acceptedAt) + Math.max(checkpointMs, 2_500);

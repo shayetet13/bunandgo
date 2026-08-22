@@ -1,9 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import {
-	clearAutomaticReplyEchoes,
-	isAutomaticReplyEcho,
-	trackAutomaticReply,
-} from "./automatic-reply-echo.ts";
+import { clearAutomaticReplyEchoes, isAutomaticReplyEcho, trackAutomaticReply } from "./automatic-reply-echo.ts";
 
 const BOT = 901;
 const TARGET = `c${"a".repeat(32)}`;

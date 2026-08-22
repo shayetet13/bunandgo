@@ -64,15 +64,11 @@ describe("planStallRecovery", () => {
 
 	test("waits while a genuine recovery is still inside its cooldown", () => {
 		expect(planStallRecovery(input({ lastRefreshAt: NOW - 1 })).action).toBe("wait");
-		expect(
-			planStallRecovery(input({ lastRefreshAt: NOW - SQUARE_STALL_RECOVERY_COOLDOWN_MS + 1 })).action,
-		).toBe("wait");
+		expect(planStallRecovery(input({ lastRefreshAt: NOW - SQUARE_STALL_RECOVERY_COOLDOWN_MS + 1 })).action).toBe("wait");
 	});
 
 	test("refreshes again once the cooldown has elapsed", () => {
-		const plan = planStallRecovery(
-			input({ lastRefreshAt: NOW - SQUARE_STALL_RECOVERY_COOLDOWN_MS, failedRefreshes: 1 }),
-		);
+		const plan = planStallRecovery(input({ lastRefreshAt: NOW - SQUARE_STALL_RECOVERY_COOLDOWN_MS, failedRefreshes: 1 }));
 		expect(plan).toMatchObject({ action: "refresh", attempt: 2 });
 	});
 
@@ -89,9 +85,7 @@ describe("planStallRecovery", () => {
 	});
 
 	test("a recovered chain clears the escalation path even with failures on record", () => {
-		const plan = planStallRecovery(
-			input({ lastSquareFetchAt: NOW - 10, failedRefreshes: ESCALATE_AFTER_FAILED_REFRESHES + 5 }),
-		);
+		const plan = planStallRecovery(input({ lastSquareFetchAt: NOW - 10, failedRefreshes: ESCALATE_AFTER_FAILED_REFRESHES + 5 }));
 		expect(plan.action).toBe("healthy");
 	});
 

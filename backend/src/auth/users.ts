@@ -51,12 +51,11 @@ const createStmt = db.prepare<UserRow, [string, string, number]>(
 );
 const setActiveStmt = db.prepare<null, [number, number]>("UPDATE users SET active = ? WHERE id = ? AND role = 'user'");
 const setBotQuotaStmt = db.prepare<null, [number, number]>("UPDATE users SET bot_quota = ? WHERE id = ? AND role = 'user'");
-const setExemptIdLockStmt = db.prepare<null, [number, number]>(
-	"UPDATE users SET exempt_id_lock = ? WHERE id = ? AND role = 'user'",
-);
+const setExemptIdLockStmt = db.prepare<null, [number, number]>("UPDATE users SET exempt_id_lock = ? WHERE id = ? AND role = 'user'");
 const setPasswordStmt = db.prepare<null, [string, number]>("UPDATE users SET password_hash = ? WHERE id = ? AND active = 1");
 const deleteSessionsStmt = db.prepare<null, [number]>("DELETE FROM auth_sessions WHERE user_id = ?");
 const deleteUserStmt = db.prepare<null, [number]>("DELETE FROM users WHERE id = ? AND role = 'user'");
+const deleteWorkerAssignmentStmt = db.prepare<null, [number]>("DELETE FROM owner_worker_assignments WHERE owner_user_id = ?");
 
 function fromRow(row: UserRow): AuthUser {
 	return {
@@ -103,8 +102,11 @@ function bootstrapAdmin(): UserRow {
 		}
 		const validUsername = validateUsername(username);
 		validatePassword(password);
-		db.prepare("INSERT INTO users (username, password_hash, role, active, created_at) VALUES (?, ?, 'admin', 1, ?)")
-			.run(validUsername, hashPassword(password), Date.now());
+		db.prepare("INSERT INTO users (username, password_hash, role, active, created_at) VALUES (?, ?, 'admin', 1, ?)").run(
+			validUsername,
+			hashPassword(password),
+			Date.now(),
+		);
 	}
 	const admin = db.prepare<UserRow, []>("SELECT * FROM users WHERE role = 'admin' ORDER BY created_at ASC LIMIT 1").get()!;
 	db.prepare("UPDATE bots SET owner_user_id = ? WHERE owner_user_id IS NULL").run(admin.id);
@@ -123,9 +125,12 @@ export function findUserWithPassword(username: string): UserRow | undefined {
 }
 
 export function listUsers(): ManagedUser[] {
-	return db.query<UserRow & { bot_count: number }, []>(
-		"SELECT users.*, COUNT(bots.id) AS bot_count FROM users LEFT JOIN bots ON bots.owner_user_id = users.id GROUP BY users.id ORDER BY users.role = 'admin' DESC, users.created_at ASC",
-	).all().map((row) => ({ ...fromRow(row), createdAt: row.created_at, botCount: row.bot_count }));
+	return db
+		.query<UserRow & { bot_count: number }, []>(
+			"SELECT users.*, COUNT(bots.id) AS bot_count FROM users LEFT JOIN bots ON bots.owner_user_id = users.id GROUP BY users.id ORDER BY users.role = 'admin' DESC, users.created_at ASC",
+		)
+		.all()
+		.map((row) => ({ ...fromRow(row), createdAt: row.created_at, botCount: row.bot_count }));
 }
 
 export function createUser(username: string, password: string): ManagedUser {
@@ -187,6 +192,7 @@ export function deleteUserRecord(id: number): boolean {
 	if (!current || current.role === "admin") return false;
 	db.transaction(() => {
 		deleteSessionsStmt.run(id);
+		deleteWorkerAssignmentStmt.run(id);
 		deleteUserStmt.run(id);
 	})();
 	return true;

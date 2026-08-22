@@ -7,8 +7,12 @@ const RESULT = { sequenceId: 1, messageId: 1n, createdTime: 1 };
 function mockClient(values = new Map<string, unknown>(), onEncrypt?: (to: string) => void) {
 	return {
 		storage: {
-			async get(key: string) { return values.get(key); },
-			async set(key: string, value: unknown) { values.set(key, value); },
+			async get(key: string) {
+				return values.get(key);
+			},
+			async set(key: string, value: unknown) {
+				values.set(key, value);
+			},
 		},
 		e2ee: {
 			async encryptE2EEMessage(to: string) {

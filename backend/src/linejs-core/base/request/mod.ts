@@ -1,9 +1,4 @@
-import {
-	type NestedArray,
-	type ParsedThrift,
-	type ProtocolKey,
-	Protocols,
-} from "../thrift/mod.ts";
+import { type NestedArray, type ParsedThrift, type ProtocolKey, Protocols } from "../thrift/mod.ts";
 import { type BaseClient, InternalError } from "../core/mod.ts";
 import { shouldUseLegyEncryptedAccess } from "./auth_token.ts";
 import { LegyEncryptedTransport } from "./legy.ts";
@@ -16,10 +11,7 @@ const SENSITIVE_RESPONSE_HEADERS = /^(?:authorization|cookie|set-cookie|x-line-a
 const ERROR_BODY_PREVIEW_BYTES = 256;
 
 export function safeResponseHeaders(headers: Headers): Array<[string, string]> {
-	return [...headers.entries()].map(([name, value]) => [
-		name,
-		SENSITIVE_RESPONSE_HEADERS.test(name) ? "[REDACTED]" : value,
-	]);
+	return [...headers.entries()].map(([name, value]) => [name, SENSITIVE_RESPONSE_HEADERS.test(name) ? "[REDACTED]" : value]);
 }
 
 function hexBodyPreview(body: Uint8Array): string {
@@ -70,8 +62,7 @@ export class RequestClient {
 	constructor(client: BaseClient) {
 		const deviceDetails = client.deviceDetails;
 		this.endpoint = client.endpoint ?? "legy.line-apps.com";
-		this.systemType =
-			`${deviceDetails.device}\t${deviceDetails.appVersion}\t${deviceDetails.systemName}\t${deviceDetails.systemVersion}`;
+		this.systemType = `${deviceDetails.device}\t${deviceDetails.appVersion}\t${deviceDetails.systemName}\t${deviceDetails.systemVersion}`;
 		this.userAgent = `Line/${deviceDetails.appVersion}`;
 		this.client = client;
 	}
@@ -99,23 +90,9 @@ export class RequestClient {
 		signal?: AbortSignal,
 	): Promise<T> {
 		if (this.client?.disabled) {
-			throw new InternalError(
-				"ClientClosed",
-				"Request aborted: client has been disabled (logged out)",
-			);
+			throw new InternalError("ClientClosed", "Request aborted: client has been disabled (logged out)");
 		}
-		const res = await this.requestCore(
-			path,
-			value,
-			methodName,
-			protocolType,
-			headers,
-			undefined,
-			parse,
-			undefined,
-			timeout,
-			signal,
-		);
+		const res = await this.requestCore(path, value, methodName, protocolType, headers, undefined, parse, undefined, timeout, signal);
 		return res.data.success;
 	}
 
@@ -162,11 +139,7 @@ export class RequestClient {
 			});
 		}
 
-		const Trequest = this.client.thrift.writeThrift(
-			value,
-			methodName,
-			protocol,
-		);
+		const Trequest = this.client.thrift.writeThrift(value, methodName, protocol);
 
 		if (this.client.debugLogsEnabled) {
 			this.client.log("request", {
@@ -180,8 +153,7 @@ export class RequestClient {
 		}
 
 		const url = `https://${this.endpoint}${path}`;
-		const hotSquareRpc = path === "/SQ1" &&
-			(methodName === "sendMessage" || methodName === "fetchSquareChatEvents");
+		const hotSquareRpc = path === "/SQ1" && (methodName === "sendMessage" || methodName === "fetchSquareChatEvents");
 		if (hotSquareRpc) {
 			headers[H2_LANE_ROLE_HEADER] = methodName === "sendMessage" ? "send" : "poll";
 		}
@@ -200,21 +172,19 @@ export class RequestClient {
 		// on the hot transport while retaining full send/visibility diagnostics.
 		const response = useLegy
 			? await this.legyTransport.fetch(new Request(url, init), this.client.fetch, {
-				application: this.systemType,
-				userAgent: this.userAgent,
-				endpoint: this.client.legy.endpoint,
-			})
+					application: this.systemType,
+					userAgent: this.userAgent,
+					endpoint: this.client.legy.endpoint,
+				})
 			: parse === "ACK_ONLY" || hotSquareRpc
-			? await this.client.fetchHot(url, init)
-			: await this.client.fetch(url, init);
+				? await this.client.fetchHot(url, init)
+				: await this.client.fetch(url, init);
 		const nextToken = response.headers.get("x-line-next-access");
 		if (nextToken) {
 			this.client.emit("update:authtoken", nextToken);
 		}
 		const responseBody = readResponseBytes(response);
-		const parsedBody = responseBody instanceof Uint8Array
-			? responseBody
-			: await responseBody;
+		const parsedBody = responseBody instanceof Uint8Array ? responseBody : await responseBody;
 		if (this.client.debugLogsEnabled) {
 			this.client.log("response", {
 				status: response.status,
@@ -227,11 +197,7 @@ export class RequestClient {
 		// Send hot paths do not consume the success object. Validate the result
 		// envelope and skip its payload; if it is not a clean success, fall
 		// through to the full parser so LINE errors retain complete details.
-		if (
-			parse === "ACK_ONLY" &&
-			response.ok &&
-			this.client.thrift.isSuccessfulResponse(parsedBody, protocol)
-		) {
+		if (parse === "ACK_ONLY" && response.ok && this.client.thrift.isSuccessfulResponse(parsedBody, protocol)) {
 			return { data: { success: undefined }, _info: {} } as ParsedThrift;
 		}
 		if (parse === "ACK_ONLY") parse = false;
@@ -253,19 +219,12 @@ export class RequestClient {
 		if (parse === true) {
 			this.client.thrift.rename_data(res, square.includes(path));
 		} else if (typeof parse === "string") {
-			res.data.success = this.client.thrift.rename_thrift(
-				parse,
-				res.data[0],
-			);
+			res.data.success = this.client.thrift.rename_thrift(parse, res.data[0]);
 			delete res.data[0];
 			if (res.data[1]) {
-				const structName = RequestClient.EXCEPTION_TYPES[path] ||
-					"TalkException";
+				const structName = RequestClient.EXCEPTION_TYPES[path] || "TalkException";
 				if (structName) {
-					res.data.e = this.client.thrift.rename_thrift(
-						structName,
-						res.data[1],
-					);
+					res.data.e = this.client.thrift.rename_thrift(structName, res.data[1]);
 				} else {
 					res.data.e = res.data[1];
 				}
@@ -275,13 +234,9 @@ export class RequestClient {
 			res.data.success = res.data[0];
 			delete res.data[0];
 			if (res.data[1]) {
-				const structName = RequestClient.EXCEPTION_TYPES[path] ||
-					"TalkException";
+				const structName = RequestClient.EXCEPTION_TYPES[path] || "TalkException";
 				if (structName) {
-					res.data.e = this.client.thrift.rename_thrift(
-						structName,
-						res.data[1],
-					);
+					res.data.e = this.client.thrift.rename_thrift(structName, res.data[1]);
 				} else {
 					res.data.e = res.data[1];
 				}
@@ -295,17 +250,12 @@ export class RequestClient {
 			});
 		}
 
-		const isRefresh = Boolean(
-			res.data.e &&
-				res.data.e.code === "MUST_REFRESH_V3_TOKEN" &&
-				await this.client.storage.get("refreshToken"),
-		);
+		const isRefresh = Boolean(res.data.e && res.data.e.code === "MUST_REFRESH_V3_TOKEN" && (await this.client.storage.get("refreshToken")));
 
 		if (res.data.e && !isRefresh) {
 			throw new InternalError(
 				"RequestError",
-				`Request internal failed, ${methodName}(${path}) -> ` +
-					JSON.stringify(res.data.e),
+				`Request internal failed, ${methodName}(${path}) -> ` + JSON.stringify(res.data.e),
 				res.data.e,
 			);
 		}
@@ -314,28 +264,12 @@ export class RequestClient {
 				delete this.client.authToken;
 				this.client.emit("end", this.client.profile!);
 			}
-			throw new InternalError(
-				"RequestError",
-				`Request internal failed, ${methodName}(${path}) -> ` +
-					JSON.stringify(res.data),
-				res.data,
-			);
+			throw new InternalError("RequestError", `Request internal failed, ${methodName}(${path}) -> ` + JSON.stringify(res.data), res.data);
 		}
 
 		if (isRefresh && !isReRequest) {
 			await this.client.auth.tryRefreshToken();
-			return this.requestCore(
-				path,
-				value,
-				methodName,
-				protocolType,
-				appendHeaders,
-				overrideMethod,
-				parse,
-				true,
-				timeout,
-				signal,
-			);
+			return this.requestCore(path, value, methodName, protocolType, appendHeaders, overrideMethod, parse, true, timeout, signal);
 		}
 		return res;
 	}
@@ -345,9 +279,7 @@ export class RequestClient {
 	 * @param {string} [overrideMethod="POST"] The HTTP method to use in the `x-lhm` header.
 	 * @returns {Record<string, string>} An object with the headers as key-value pairs.
 	 */
-	public getHeader(
-		overrideMethod: string = "POST",
-	): Record<string, string> {
+	public getHeader(overrideMethod: string = "POST"): Record<string, string> {
 		const header = {
 			Host: this.endpoint,
 			accept: "application/x-thrift",
@@ -368,27 +300,31 @@ export class RequestClient {
 	}
 
 	private get legyTransport(): LegyEncryptedTransport {
-		return this.#legyTransport ??= new LegyEncryptedTransport(
-			this.client.legy.endpoint,
-		);
+		return (this.#legyTransport ??= new LegyEncryptedTransport(this.client.legy.endpoint));
 	}
 
-	private shouldUseLegyEncryptedRequest(
-		path: string,
-		headers: Record<string, string>,
-	): boolean {
+	private shouldUseLegyEncryptedRequest(path: string, headers: Record<string, string>): boolean {
 		const mode = this.client.legy.encrypted;
 		if (mode === false) return false;
 		if (!headers["x-line-access"]) return false;
 		if (mode === true) return true;
-		return isLegyTalkPath(path) &&
-			shouldUseLegyEncryptedAccess(headers["x-line-access"]);
+		return isLegyTalkPath(path) && shouldUseLegyEncryptedAccess(headers["x-line-access"]);
 	}
 }
 
 function isLegyTalkPath(path: string): boolean {
-	return path === "/S3" || path === "/S4" || path === "/V4" ||
-		path === "/SYNC3" || path === "/SYNC4" || path === "/P4" ||
-		path === "/P5" || path === "/NP4" || path === "/NP5" ||
-		path === "/C5" || path === "/CA5" || path === "/ECA5";
+	return (
+		path === "/S3" ||
+		path === "/S4" ||
+		path === "/V4" ||
+		path === "/SYNC3" ||
+		path === "/SYNC4" ||
+		path === "/P4" ||
+		path === "/P5" ||
+		path === "/NP4" ||
+		path === "/NP5" ||
+		path === "/C5" ||
+		path === "/CA5" ||
+		path === "/ECA5"
+	);
 }

@@ -31,7 +31,7 @@ export const relayConfig = {
 	 * `/internal/lane-relay-events` endpoint, reached over the tunnel. */
 	reportUrl: required("LANE_RELAY_REPORT_URL"),
 	reportToken: required("LANE_RELAY_REPORT_TOKEN"),
-	reportIntervalMs: Math.max(1_000, Number(process.env.LANE_RELAY_REPORT_INTERVAL_MS ?? 5_000)),
+	reportIntervalMs: Math.max(1_000, Number(process.env.LANE_RELAY_REPORT_INTERVAL_MS ?? 1_000)),
 	/** LINE origins to keep warm from boot, so the NETWORK/LANE RACE panels
 	 * show real RTT even before this box ever carries a real dispatch. */
 	lineOrigins: (process.env.LANE_RELAY_LINE_ORIGINS ?? "https://legy.line-apps.com")

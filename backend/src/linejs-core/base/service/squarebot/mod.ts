@@ -18,9 +18,7 @@ export class SquareBotService implements BaseService {
 		this.client = client;
 	}
 
-	async getSquareBot(
-		...param: Parameters<typeof LINEStruct.getSquareBot_args>
-	): Promise<LINETypes.getSquareBot_result["success"]> {
+	async getSquareBot(...param: Parameters<typeof LINEStruct.getSquareBot_args>): Promise<LINETypes.getSquareBot_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.getSquareBot_args(...param),
 			"getSquareBot",

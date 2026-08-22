@@ -13,7 +13,16 @@ function safeTokenEqual(left: string | undefined, right: string | undefined): bo
 
 export const relayRoute = new Hono();
 
-relayRoute.get("/healthz", (c) => c.text("ok"));
+relayRoute.get("/healthz", (c) => {
+	const lanes = laneStats();
+	const origins = relayConfig.lineOrigins.map((origin) => ({
+		origin,
+		ready: lanes.filter((lane) => lane.origin === origin && lane.state === "ready").length,
+		total: lanes.filter((lane) => lane.origin === origin).length,
+	}));
+	const healthy = origins.every((origin) => origin.ready > 0 && origin.ready === origin.total);
+	return c.json({ healthy, workerId: relayConfig.workerId, reportIntervalMs: relayConfig.reportIntervalMs, origins }, healthy ? 200 : 503);
+});
 
 /** Manual/debug read of this box's own lanes — the control plane gets the
  * same shape pushed to it periodically, see report-client.ts. */
@@ -43,6 +52,15 @@ relayRoute.post("/dispatch", async (c) => {
 	const parsed = dispatchSchema.safeParse(await c.req.json().catch(() => undefined));
 	if (!parsed.success) return c.json({ error: "invalid dispatch request" }, 400);
 	const { method, url, headers, bodyBase64, role } = parsed.data;
+	let target: URL;
+	try {
+		target = new URL(url);
+	} catch {
+		return c.json({ error: "invalid dispatch URL" }, 400);
+	}
+	if (!relayConfig.lineOrigins.includes(target.origin)) {
+		return c.json({ error: "dispatch origin is not allowed" }, 403);
+	}
 
 	const requestHeaders: Record<string, string> = { ...headers };
 	if (role) requestHeaders[H2_LANE_ROLE_HEADER] = role;
@@ -50,8 +68,8 @@ relayRoute.post("/dispatch", async (c) => {
 
 	const startedAt = performance.now();
 	try {
-		const laneResponse = await laneFetch(url, { method, headers: requestHeaders, body });
-		const response = laneResponse ?? await globalThis.fetch(url, { method, headers: requestHeaders, body });
+		const laneResponse = await laneFetch(target, { method, headers: requestHeaders, body });
+		const response = laneResponse ?? (await globalThis.fetch(target, { method, headers: requestHeaders, body }));
 		const responseBody = new Uint8Array(await response.arrayBuffer());
 		return c.json({
 			status: response.status,

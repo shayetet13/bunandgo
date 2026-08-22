@@ -34,15 +34,33 @@ export function StartConfirmPanel({ botName, confirmUrl }: StartConfirmPanelProp
 				textAlign: "center",
 			}}
 		>
-			<div className="label" style={{ color: "var(--signal-warn)" }}>ขั้นตอนที่ 1 · ยืนยันก่อนเริ่ม "{botName}"</div>
+			<div className="label" style={{ color: "var(--signal-warn)" }}>
+				ขั้นตอนที่ 1 · ยืนยันก่อนเริ่ม "{botName}"
+			</div>
 			<p className="hint" style={{ margin: 0 }}>
 				สแกน QR นี้ด้วยกล้องมือถือ (ยังไม่ใช่ QR ของ LINE) เพื่ออ่านคำเตือนและยืนยันก่อนเริ่มเชื่อมต่อจริง
 			</p>
 
 			{dataUrl ? (
-				<img src={dataUrl} width={180} height={180} alt="QR สำหรับยืนยันก่อนเริ่มบอท" style={{ display: "block", borderRadius: "var(--radius-sm)" }} />
+				<img
+					src={dataUrl}
+					width={180}
+					height={180}
+					alt="QR สำหรับยืนยันก่อนเริ่มบอท"
+					style={{ display: "block", borderRadius: "var(--radius-sm)" }}
+				/>
 			) : (
-				<div style={{ width: 180, height: 180, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: "var(--text-sm)" }}>
+				<div
+					style={{
+						width: 180,
+						height: 180,
+						display: "flex",
+						alignItems: "center",
+						justifyContent: "center",
+						color: "var(--text-dim)",
+						fontSize: "var(--text-sm)",
+					}}
+				>
 					กำลังสร้าง QR…
 				</div>
 			)}

@@ -46,15 +46,7 @@ function MaintenanceBadge() {
 					<circle className="maint-antenna-dot" cx="60" cy="17" r="4" fill="#22d3ee" />
 
 					<rect x="26" y="32" width="68" height="60" rx="20" fill="url(#maintHeadGrad)" stroke="url(#maintEdgeGrad)" strokeWidth="2" />
-					<rect
-						className="maint-scanline"
-						x="26"
-						y="58"
-						width="68"
-						height="8"
-						fill="#22d3ee"
-						clipPath="url(#maintHeadClip)"
-					/>
+					<rect className="maint-scanline" x="26" y="58" width="68" height="8" fill="#22d3ee" clipPath="url(#maintHeadClip)" />
 
 					<rect x="36" y="54" width="48" height="20" rx="10" fill="#050810" stroke="rgba(34,211,238,0.35)" />
 					<line className="maint-eye" x1="44" y1="64" x2="76" y2="64" stroke="#22d3ee" strokeWidth="4" strokeLinecap="round" />

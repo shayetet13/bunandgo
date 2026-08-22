@@ -36,11 +36,7 @@ export class TMoreCompactProtocol {
 	baseException: { [key: string]: number };
 	readWith?: string;
 
-	constructor(
-		inputData?: Buffer,
-		baseException?: { [key: string]: number },
-		readWith?: string,
-	) {
+	constructor(inputData?: Buffer, baseException?: { [key: string]: number }, readWith?: string) {
 		this.buildHuffmanNode = this.buildHuffmanNodeImpl.bind(this);
 		this.bufferToHexArray = this.convertBufferToHexArray.bind(this);
 		this.initializeHuffmanTree(); // Initialize Huffman tree
@@ -64,9 +60,7 @@ export class TMoreCompactProtocol {
 			this.currentPosition += 1;
 			result |= BigInt(byte & 127) << BigInt(shift);
 			if ((byte & 128) !== 128) {
-				return result > Number.MAX_SAFE_INTEGER
-					? <LooseType> result
-					: Number(result);
+				return result > Number.MAX_SAFE_INTEGER ? <LooseType>result : Number(result);
 			}
 			shift += 7;
 		}
@@ -112,9 +106,7 @@ export class TMoreCompactProtocol {
 		} else {
 			const fieldType = this.getNextType();
 			[result] = this.readDataByType(fieldType);
-			throw new Error(
-				`recv fid \`${fieldIdBits}\`, expected \`1\`, message: \`${result}\``,
-			);
+			throw new Error(`recv fid \`${fieldIdBits}\`, expected \`1\`, message: \`${result}\``);
 		}
 
 		this.res = result;
@@ -127,10 +119,7 @@ export class TMoreCompactProtocol {
 	}
 
 	// Read data by type
-	readDataByType(
-		typeId: number,
-		fieldId: number | null = null,
-	): [number | null, LooseType] {
+	readDataByType(typeId: number, fieldId: number | null = null): [number | null, LooseType] {
 		let value: unknown = null;
 		let temp: unknown = null;
 		let valData: unknown = null;
@@ -168,7 +157,7 @@ export class TMoreCompactProtocol {
 
 			for (const fid of fieldIds) {
 				const [_, fieldValue] = this.readDataByType(this.getNextType(), fid);
-				(<LooseType> valData)[fid] = fieldValue;
+				(<LooseType>valData)[fid] = fieldValue;
 			}
 		} else if (typeId === 13) {
 			// MAP
@@ -183,7 +172,7 @@ export class TMoreCompactProtocol {
 				for (let i = 0; i < mapSize; i++) {
 					const [, kVal] = this.readDataByType(keyType);
 					const [, vVal] = this.readDataByType(valueType);
-					(<LooseType> valData)[kVal] = vVal;
+					(<LooseType>valData)[kVal] = vVal;
 				}
 			}
 		} else if (typeId === 14 || typeId === 15) {
@@ -204,7 +193,7 @@ export class TMoreCompactProtocol {
 
 			for (let i = 0; i < count; i++) {
 				const [, val] = this.readDataByType(elementTType);
-				(<Array<LooseType>> valData).push(val);
+				(<Array<LooseType>>valData).push(val);
 			}
 		} else if (typeId === 16) {
 			// STRING (string ID delta)
@@ -239,9 +228,9 @@ export class TMoreCompactProtocol {
 		const tableSize = this.readVarint();
 
 		for (let i = 0; i < tableSize; i++) {
-			const m = String.fromCharCode(this.data[this.currentPosition]) +
-				this.data.subarray(this.currentPosition + 1, this.currentPosition + 17)
-					.toString("hex");
+			const m =
+				String.fromCharCode(this.data[this.currentPosition]) +
+				this.data.subarray(this.currentPosition + 1, this.currentPosition + 17).toString("hex");
 			this.stringTable.push(m);
 			this.currentPosition += 17;
 		}
@@ -269,19 +258,13 @@ export class TMoreCompactProtocol {
 
 	// Decode map key-value types
 	decodeMapTypes(typesByte: number): [number, number] {
-		return [
-			this.convertCompactTypeToTType(typesByte >> 4),
-			this.convertCompactTypeToTType(typesByte & 15),
-		];
+		return [this.convertCompactTypeToTType(typesByte >> 4), this.convertCompactTypeToTType(typesByte & 15)];
 	}
 
 	// Read string
 	readString(): string | Buffer {
 		const length = this.readVarint();
-		const buffer = this.data.subarray(
-			this.currentPosition,
-			this.currentPosition + length,
-		);
+		const buffer = this.data.subarray(this.currentPosition, this.currentPosition + length);
 		let result: string | Buffer;
 
 		try {
@@ -354,10 +337,7 @@ export class TMoreCompactProtocol {
 	}
 
 	// Read varint (with optional return length)
-	readVarintWithoutIncrement(
-		buffer: Buffer,
-		_returnLength: boolean = false,
-	): number {
+	readVarintWithoutIncrement(buffer: Buffer, _returnLength: boolean = false): number {
 		let result = BigInt(0);
 		let shift = 0;
 		let index = 0;

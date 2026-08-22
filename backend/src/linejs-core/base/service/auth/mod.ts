@@ -26,17 +26,14 @@ export class AuthService implements BaseService {
 			this.client.emit("update:authtoken", RATR.accessToken);
 			await this.client.storage.set(
 				"expire",
-				((RATR.tokenIssueTimeEpochSec as number) +
-					(RATR.durationUntilRefreshInSec as number)) as number,
+				((RATR.tokenIssueTimeEpochSec as number) + (RATR.durationUntilRefreshInSec as number)) as number,
 			);
 		} else {
 			throw new InternalError("RefreshError", "refreshToken not found");
 		}
 	}
 
-	async refresh(
-		...param: Parameters<typeof LINEStruct.refresh_args>
-	): Promise<LINETypes.refresh_result["success"]> {
+	async refresh(...param: Parameters<typeof LINEStruct.refresh_args>): Promise<LINETypes.refresh_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.refresh_args(...param),
 			"refresh",
@@ -82,9 +79,7 @@ export class AuthService implements BaseService {
 		);
 	}
 
-	async openSession(
-		...param: Parameters<typeof LINEStruct.openSession_args>
-	): Promise<LINETypes.openSession_result["success"]> {
+	async openSession(...param: Parameters<typeof LINEStruct.openSession_args>): Promise<LINETypes.openSession_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.openSession_args(...param),
 			"openSession",
@@ -94,9 +89,7 @@ export class AuthService implements BaseService {
 		);
 	}
 
-	async verifyEapLogin(
-		...param: Parameters<typeof LINEStruct.verifyEapLogin_args>
-	): Promise<LINETypes.verifyEapLogin_result["success"]> {
+	async verifyEapLogin(...param: Parameters<typeof LINEStruct.verifyEapLogin_args>): Promise<LINETypes.verifyEapLogin_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.verifyEapLogin_args(...param),
 			"verifyEapLogin",
@@ -106,9 +99,7 @@ export class AuthService implements BaseService {
 		);
 	}
 	//
-	async updatePassword(
-		...param: Parameters<typeof LINEStruct.updatePassword_args>
-	): Promise<LINETypes.updatePassword_result["success"]> {
+	async updatePassword(...param: Parameters<typeof LINEStruct.updatePassword_args>): Promise<LINETypes.updatePassword_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.updatePassword_args(...param),
 			"updatePassword",
@@ -131,12 +122,8 @@ export class AuthService implements BaseService {
 	}
 
 	async issueTokenForAccountMigrationSettings(
-		...param: Parameters<
-			typeof LINEStruct.issueTokenForAccountMigrationSettings_args
-		>
-	): Promise<
-		LINETypes.issueTokenForAccountMigrationSettings_result["success"]
-	> {
+		...param: Parameters<typeof LINEStruct.issueTokenForAccountMigrationSettings_args>
+	): Promise<LINETypes.issueTokenForAccountMigrationSettings_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.issueTokenForAccountMigrationSettings_args(...param),
 			"issueTokenForAccountMigrationSettings",
@@ -158,9 +145,7 @@ export class AuthService implements BaseService {
 		);
 	}
 
-	async getAuthRSAKey(
-		...param: Parameters<typeof LINEStruct.getAuthRSAKey_args>
-	): Promise<LINETypes.getAuthRSAKey_result["success"]> {
+	async getAuthRSAKey(...param: Parameters<typeof LINEStruct.getAuthRSAKey_args>): Promise<LINETypes.getAuthRSAKey_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.getAuthRSAKey_args(...param),
 			"getAuthRSAKey",
@@ -170,9 +155,7 @@ export class AuthService implements BaseService {
 		);
 	}
 
-	async setIdentifier(
-		...param: Parameters<typeof LINEStruct.setIdentifier_args>
-	): Promise<LINETypes.setIdentifier_result["success"]> {
+	async setIdentifier(...param: Parameters<typeof LINEStruct.setIdentifier_args>): Promise<LINETypes.setIdentifier_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.setIdentifier_args(...param),
 			"setIdentifier",
@@ -243,30 +226,14 @@ export class AuthService implements BaseService {
 	}
 
 	async logoutZ(..._param: any[]): Promise<any> {
-		const payload = Buffer.from([
-			0x82,
-			0x21,
-			0x00,
-			0x07,
-			0x6c,
-			0x6f,
-			0x67,
-			0x6f,
-			0x75,
-			0x74,
-			0x5a,
-			0x00,
-		]);
+		const payload = Buffer.from([0x82, 0x21, 0x00, 0x07, 0x6c, 0x6f, 0x67, 0x6f, 0x75, 0x74, 0x5a, 0x00]);
 		const reqClient = this.client.request;
 		const path = "/RS4";
-		const response = await this.client.fetch(
-			`https://${reqClient.endpoint}${path}`,
-			{
-				method: "POST",
-				headers: reqClient.getHeader("POST"),
-				body: payload,
-			},
-		);
+		const response = await this.client.fetch(`https://${reqClient.endpoint}${path}`, {
+			method: "POST",
+			headers: reqClient.getHeader("POST"),
+			body: payload,
+		});
 		const nextToken = response.headers.get("x-line-next-access");
 		if (nextToken) this.client.emit("update:authtoken", nextToken);
 		const buf = await response.arrayBuffer();
@@ -278,26 +245,15 @@ export class AuthService implements BaseService {
 		} catch (_) {
 			throw new InternalError(
 				"RequestError",
-				`Invalid response buffer for logoutZ: <${
-					[...parsedBody].map((v) => v.toString(16)).join(" ")
-				}>`,
+				`Invalid response buffer for logoutZ: <${[...parsedBody].map((v) => v.toString(16)).join(" ")}>`,
 			);
 		}
 		this.client.thrift.rename_data(res, false);
-		const isRefresh = Boolean(
-			res.data.e && res.data.e.code === "MUST_REFRESH_V3_TOKEN" &&
-				(await this.client.storage.get("refreshToken")),
-		);
+		const isRefresh = Boolean(res.data.e && res.data.e.code === "MUST_REFRESH_V3_TOKEN" && (await this.client.storage.get("refreshToken")));
 		if (res.data.e && !isRefresh) {
-			throw new InternalError(
-				"RequestError",
-				`logoutZ(${path}) -> ` + JSON.stringify(res.data.e),
-				res.data.e,
-			);
+			throw new InternalError("RequestError", `logoutZ(${path}) -> ` + JSON.stringify(res.data.e), res.data.e);
 		}
-		const result = typeof res.data.success !== "undefined"
-			? res.data.success
-			: true;
+		const result = typeof res.data.success !== "undefined" ? res.data.success : true;
 		const base = this.client;
 		if (base) {
 			base.disabled = true;

@@ -113,44 +113,113 @@ export function SettingsPage({ username, role, onLogout }: SettingsPageProps) {
 	}
 
 	return (
-		<div style={{ display: "flex", flexDirection: "column", gap: "var(--space-md)", }}>
+		<div style={{ display: "flex", flexDirection: "column", gap: "var(--space-md)" }}>
 			<section className="panel" style={{ padding: "var(--space-md)" }}>
-				<div className="label" style={{ marginBottom: "var(--space-sm)" }}>บัญชีผู้ใช้งาน</div>
+				<div className="label" style={{ marginBottom: "var(--space-sm)" }}>
+					บัญชีผู้ใช้งาน
+				</div>
 				<Row label="ชื่อผู้ใช้" value={username || "—"} />
 				<Row label="สิทธิ์การใช้งาน" value={role === "admin" ? "ผู้ดูแลระบบ" : "ผู้ใช้งาน"} />
 				<Row label="Device profile เริ่มต้นของบอทใหม่" value="DESKTOPWIN" />
-				{role === "admin" && <p className="hint" style={{ marginTop: "var(--space-sm)" }}>บัญชี admin หลักกำหนดได้จาก <code className="mono">ADMIN_USERNAME</code> / <code className="mono">ADMIN_PASSWORD</code></p>}
+				{role === "admin" && (
+					<p className="hint" style={{ marginTop: "var(--space-sm)" }}>
+						บัญชี admin หลักกำหนดได้จาก <code className="mono">ADMIN_USERNAME</code> / <code className="mono">ADMIN_PASSWORD</code>
+					</p>
+				)}
 			</section>
 
 			<section className="panel" style={{ padding: "var(--space-md)" }}>
-				<div className="label" style={{ marginBottom: "var(--space-sm)" }}>เซสชัน</div>
+				<div className="label" style={{ marginBottom: "var(--space-sm)" }}>
+					เซสชัน
+				</div>
 				<p className="hint" style={{ margin: "0 0 var(--space-sm)" }}>
 					Admin หมดอายุเมื่อไม่ใช้งาน 30 นาทีและไม่เกิน 12 ชั่วโมง ส่วนผู้ใช้ทั่วไปไม่เกิน 7 วัน
 				</p>
 				<button
 					onClick={onLogout}
-					style={{ background: "transparent", border: "1px solid var(--signal-bad-dim)", color: "var(--signal-bad)", borderRadius: "var(--radius-sm)", padding: "0.5rem 1rem", cursor: "pointer", fontWeight: 700 }}
+					style={{
+						background: "transparent",
+						border: "1px solid var(--signal-bad-dim)",
+						color: "var(--signal-bad)",
+						borderRadius: "var(--radius-sm)",
+						padding: "0.5rem 1rem",
+						cursor: "pointer",
+						fontWeight: 700,
+					}}
 				>
 					ออกจากระบบ
 				</button>
 			</section>
 
 			<section className="panel" style={{ padding: "var(--space-md)" }}>
-				<div className="label" style={{ marginBottom: "var(--space-sm)" }}>เปลี่ยนรหัสผ่าน</div>
+				<div className="label" style={{ marginBottom: "var(--space-sm)" }}>
+					เปลี่ยนรหัสผ่าน
+				</div>
 				<form onSubmit={(event) => void handleChangePassword(event)} style={{ display: "grid", gap: "var(--space-sm)", maxWidth: 480 }}>
-					<input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} placeholder="รหัสผ่านปัจจุบัน" required maxLength={200} />
-					<input type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="รหัสผ่านใหม่ (อย่างน้อย 12 ตัว)" required minLength={12} maxLength={200} />
-					<input type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="ยืนยันรหัสผ่านใหม่" required minLength={12} maxLength={200} />
-					<button type="submit" disabled={passwordState === "saving"} style={{ justifySelf: "start", background: "transparent", border: "1px solid var(--border-strong)", color: "var(--text-primary)", borderRadius: "var(--radius-sm)", padding: "0.5rem 1rem", cursor: passwordState === "saving" ? "wait" : "pointer", fontWeight: 700 }}>
+					<input
+						type="password"
+						autoComplete="current-password"
+						value={currentPassword}
+						onChange={(event) => setCurrentPassword(event.target.value)}
+						placeholder="รหัสผ่านปัจจุบัน"
+						required
+						maxLength={200}
+					/>
+					<input
+						type="password"
+						autoComplete="new-password"
+						value={newPassword}
+						onChange={(event) => setNewPassword(event.target.value)}
+						placeholder="รหัสผ่านใหม่ (อย่างน้อย 12 ตัว)"
+						required
+						minLength={12}
+						maxLength={200}
+					/>
+					<input
+						type="password"
+						autoComplete="new-password"
+						value={confirmPassword}
+						onChange={(event) => setConfirmPassword(event.target.value)}
+						placeholder="ยืนยันรหัสผ่านใหม่"
+						required
+						minLength={12}
+						maxLength={200}
+					/>
+					<button
+						type="submit"
+						disabled={passwordState === "saving"}
+						style={{
+							justifySelf: "start",
+							background: "transparent",
+							border: "1px solid var(--border-strong)",
+							color: "var(--text-primary)",
+							borderRadius: "var(--radius-sm)",
+							padding: "0.5rem 1rem",
+							cursor: passwordState === "saving" ? "wait" : "pointer",
+							fontWeight: 700,
+						}}
+					>
 						{passwordState === "saving" ? "กำลังบันทึก…" : "เปลี่ยนรหัสผ่าน"}
 					</button>
 				</form>
-				{passwordMessage && <p className="hint" style={{ margin: "var(--space-sm) 0 0", color: passwordState === "error" ? "var(--signal-bad)" : passwordState === "done" ? "var(--signal-go)" : undefined }}>{passwordMessage}</p>}
+				{passwordMessage && (
+					<p
+						className="hint"
+						style={{
+							margin: "var(--space-sm) 0 0",
+							color: passwordState === "error" ? "var(--signal-bad)" : passwordState === "done" ? "var(--signal-go)" : undefined,
+						}}
+					>
+						{passwordMessage}
+					</p>
+				)}
 			</section>
 
 			{role === "admin" && (
 				<section className="panel" style={{ padding: "var(--space-md)" }}>
-					<div className="label" style={{ marginBottom: "var(--space-sm)" }}>ควบคุมระบบ</div>
+					<div className="label" style={{ marginBottom: "var(--space-sm)" }}>
+						ควบคุมระบบ
+					</div>
 					<p className="hint" style={{ margin: "0 0 var(--space-sm)" }}>
 						รีสตาร์ทเฉพาะ <code className="mono">linebot-worker</code> บน Server 2 โดยไม่กระทบ shard worker
 						เซสชันและสถานะบอทจะถูกกู้คืนอัตโนมัติหลังระบบกลับมา
@@ -158,12 +227,27 @@ export function SettingsPage({ username, role, onLogout }: SettingsPageProps) {
 					<button
 						onClick={() => void handleRestartWorker()}
 						disabled={restartState === "requesting" || restartState === "waiting"}
-						style={{ background: "transparent", border: "1px solid var(--signal-warn)", color: "var(--signal-warn)", borderRadius: "var(--radius-sm)", padding: "0.5rem 1rem", cursor: restartState === "requesting" || restartState === "waiting" ? "wait" : "pointer", fontWeight: 700, opacity: restartState === "requesting" || restartState === "waiting" ? 0.6 : 1 }}
+						style={{
+							background: "transparent",
+							border: "1px solid var(--signal-warn)",
+							color: "var(--signal-warn)",
+							borderRadius: "var(--radius-sm)",
+							padding: "0.5rem 1rem",
+							cursor: restartState === "requesting" || restartState === "waiting" ? "wait" : "pointer",
+							fontWeight: 700,
+							opacity: restartState === "requesting" || restartState === "waiting" ? 0.6 : 1,
+						}}
 					>
 						{restartState === "requesting" || restartState === "waiting" ? "กำลังรีสตาร์ท…" : "Restart linebot-worker"}
 					</button>
 					{restartMessage && (
-						<p className="hint" style={{ margin: "var(--space-sm) 0 0", color: restartState === "error" ? "var(--signal-bad)" : restartState === "ready" ? "var(--signal-go)" : undefined }}>
+						<p
+							className="hint"
+							style={{
+								margin: "var(--space-sm) 0 0",
+								color: restartState === "error" ? "var(--signal-bad)" : restartState === "ready" ? "var(--signal-go)" : undefined,
+							}}
+						>
 							{restartMessage}
 						</p>
 					)}
@@ -172,7 +256,9 @@ export function SettingsPage({ username, role, onLogout }: SettingsPageProps) {
 
 			{role === "admin" && (
 				<section className="panel" style={{ padding: "var(--space-md)" }}>
-					<div className="label" style={{ marginBottom: "var(--space-sm)" }}>โหมดปิดปรับปรุง</div>
+					<div className="label" style={{ marginBottom: "var(--space-sm)" }}>
+						โหมดปิดปรับปรุง
+					</div>
 					<p className="hint" style={{ margin: "0 0 var(--space-sm)" }}>
 						เมื่อเปิดใช้ ผู้ใช้งานทั่วไป (ไม่ใช่ admin) จะเห็นข้อความ "ตอนนี้ระบบปิดปรับปรุง" แทนหน้าจัดการบอททั้งหมด
 						บอทของทุกคนยังทำงานตอบข้อความตามปกติ ไม่ถูกกระทบ — และหน้า Settings นี้ยังเข้าได้เสมอเพื่อปิดโหมดคืน
@@ -180,11 +266,17 @@ export function SettingsPage({ username, role, onLogout }: SettingsPageProps) {
 					<div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)" }}>
 						<ToggleSwitch isSelected={maintenanceMode} onToggle={() => void handleToggleMaintenanceMode()} />
 						<span style={{ fontSize: "var(--text-sm)", fontWeight: 700 }}>
-							{maintenanceSaving ? "กำลังบันทึก…" : maintenanceMode ? "เปิดอยู่ — ผู้ใช้งานเห็นหน้าปิดปรับปรุง" : "ปิดอยู่ — ผู้ใช้งานใช้งานได้ตามปกติ"}
+							{maintenanceSaving
+								? "กำลังบันทึก…"
+								: maintenanceMode
+									? "เปิดอยู่ — ผู้ใช้งานเห็นหน้าปิดปรับปรุง"
+									: "ปิดอยู่ — ผู้ใช้งานใช้งานได้ตามปกติ"}
 						</span>
 					</div>
 					{maintenanceError && (
-						<p className="hint" style={{ margin: "var(--space-sm) 0 0", color: "var(--signal-bad)" }}>{maintenanceError}</p>
+						<p className="hint" style={{ margin: "var(--space-sm) 0 0", color: "var(--signal-bad)" }}>
+							{maintenanceError}
+						</p>
 					)}
 				</section>
 			)}

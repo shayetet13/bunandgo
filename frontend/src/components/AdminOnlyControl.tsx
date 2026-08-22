@@ -96,11 +96,7 @@ export function AdminOnlyControl({ botId, chat, onToggleAdminOnly, onError }: Ad
 												type="checkbox"
 												checked={checked}
 												disabled={saving}
-												onChange={() => void save(
-													checked
-														? selected.filter((mid) => mid !== admin.mid)
-														: [...selected, admin.mid],
-												)}
+												onChange={() => void save(checked ? selected.filter((mid) => mid !== admin.mid) : [...selected, admin.mid])}
 											/>
 											<span>{admin.displayName}</span>
 										</label>
@@ -108,12 +104,7 @@ export function AdminOnlyControl({ botId, chat, onToggleAdminOnly, onError }: Ad
 								})}
 							</div>
 							{selected.length > 0 && (
-								<button
-									type="button"
-									className="uc-btn uc-btn--sm uc-btn--ghost"
-									disabled={saving}
-									onClick={() => void save([])}
-								>
+								<button type="button" className="uc-btn uc-btn--sm uc-btn--ghost" disabled={saving} onClick={() => void save([])}>
 									ล้างรายชื่อ (ตอบ admin ทุกคน)
 								</button>
 							)}

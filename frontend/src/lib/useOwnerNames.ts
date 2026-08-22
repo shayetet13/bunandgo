@@ -17,7 +17,8 @@ export function useOwnerNames(role: UserRole): Record<number, string> {
 			return;
 		}
 		let cancelled = false;
-		api.listUsers()
+		api
+			.listUsers()
 			.then((users) => {
 				if (cancelled) return;
 				setNames(Object.fromEntries(users.map((user) => [user.id, user.username])));

@@ -7,7 +7,9 @@ export function LatencyBreakdown({ sample }: { sample?: LatencySample }) {
 	if (!sample || !b) {
 		return (
 			<section className="panel" style={{ padding: "var(--space-md)" }}>
-				<div className="label" style={{ color: "var(--signal-go)" }}>LATENCY BREAKDOWN</div>
+				<div className="label" style={{ color: "var(--signal-go)" }}>
+					LATENCY BREAKDOWN
+				</div>
 				<p className="hint">ส่งข้อความรอบใหม่เพื่อดูว่าเวลาใช้ไปกับ LINE และโค้ดส่วนใดบ้าง</p>
 			</section>
 		);
@@ -32,16 +34,18 @@ export function LatencyBreakdown({ sample }: { sample?: LatencySample }) {
 		<section className="panel" style={{ padding: "var(--space-md)" }}>
 			<div style={{ display: "flex", justifyContent: "space-between", gap: "var(--space-md)", flexWrap: "wrap" }}>
 				<div>
-					<div className="label" style={{ color: "var(--signal-go)" }}>LATENCY BREAKDOWN · ล่าสุด</div>
-					<div style={{ fontWeight: 700 }}>{sample.surface.toUpperCase()} · {sample.source === "auto" ? "ตอบอัตโนมัติ" : "ทดสอบ"}</div>
+					<div className="label" style={{ color: "var(--signal-go)" }}>
+						LATENCY BREAKDOWN · ล่าสุด
+					</div>
+					<div style={{ fontWeight: 700 }}>
+						{sample.surface.toUpperCase()} · {sample.source === "auto" ? "ตอบอัตโนมัติ" : "ทดสอบ"}
+					</div>
 				</div>
 				<div style={{ display: "flex", gap: "var(--space-lg)", flexWrap: "wrap" }}>
 					{/* Spent before any of the numbers beside it start counting:
 					    a fast reply that was handed its trigger late still loses
 					    the race, and nothing else on this panel would show it. */}
-					{b.inboundMs !== undefined && (
-						<Metric label="LINE→เรา" value={ms(b.inboundMs)} tone="line" />
-					)}
+					{b.inboundMs !== undefined && <Metric label="LINE→เรา" value={ms(b.inboundMs)} tone="line" />}
 					<Metric label="TOTAL (Σ จริง)" value={ms(measured.totalMs)} />
 					<Metric label="LINE" value={ms(b.lineMs)} tone="line" />
 					<Metric label="CODE (ผลรวมย่อย)" value={ms(measured.codeMs)} tone="code" />
@@ -49,7 +53,16 @@ export function LatencyBreakdown({ sample }: { sample?: LatencySample }) {
 				</div>
 			</div>
 
-			<div style={{ display: "flex", height: 12, overflow: "hidden", borderRadius: 999, background: "var(--bg-inset)", margin: "var(--space-md) 0" }}>
+			<div
+				style={{
+					display: "flex",
+					height: 12,
+					overflow: "hidden",
+					borderRadius: 999,
+					background: "var(--bg-inset)",
+					margin: "var(--space-md) 0",
+				}}
+			>
 				<div title={`LINE ${ms(b.lineMs)}`} style={{ width: `${linePercent}%`, background: "var(--signal-warn)" }} />
 				<div title={`CODE ${ms(b.codeMs)}`} style={{ width: `${codePercent}%`, background: "var(--signal-go)" }} />
 			</div>
@@ -60,9 +73,20 @@ export function LatencyBreakdown({ sample }: { sample?: LatencySample }) {
 
 			<div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "var(--space-xs) var(--space-lg)" }}>
 				{rows.map(([label, value]) => (
-					<div key={label} style={{ display: "flex", justifyContent: "space-between", gap: "var(--space-sm)", padding: "0.4rem 0", borderBottom: "1px solid var(--border-hair)" }}>
+					<div
+						key={label}
+						style={{
+							display: "flex",
+							justifyContent: "space-between",
+							gap: "var(--space-sm)",
+							padding: "0.4rem 0",
+							borderBottom: "1px solid var(--border-hair)",
+						}}
+					>
 						<span className="hint">{label}</span>
-						<span className="mono" style={{ fontWeight: 700 }}>{ms(value)}</span>
+						<span className="mono" style={{ fontWeight: 700 }}>
+							{ms(value)}
+						</span>
 					</div>
 				))}
 			</div>
@@ -75,7 +99,9 @@ function Metric({ label, value, tone }: { label: string; value: string; tone?: "
 	return (
 		<div>
 			<div className="label">{label}</div>
-			<div className="mono" style={{ fontSize: "var(--text-stat)", fontWeight: 700, color }}>{value}</div>
+			<div className="mono" style={{ fontSize: "var(--text-stat)", fontWeight: 700, color }}>
+				{value}
+			</div>
 		</div>
 	);
 }

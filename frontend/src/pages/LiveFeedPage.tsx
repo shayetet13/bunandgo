@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Bot, UserRole } from "../lib/types.ts";
 import { LiveFeed } from "../components/LiveFeed.tsx";
 import type { FeedItem } from "../lib/types.ts";
@@ -25,7 +25,7 @@ const selectStyle = {
 
 export function LiveFeedPage({ bots, role, selectedGroupKey, onSelectGroupKey, feed }: LiveFeedPageProps) {
 	const ownerNames = useOwnerNames(role);
-	const groups = groupBotsByOwner(bots);
+	const groups = useMemo(() => groupBotsByOwner(bots), [bots]);
 	const selectedGroup = groups.find((g) => g.key === selectedGroupKey);
 	const botNameById = Object.fromEntries(bots.map((bot) => [bot.id, `bot${bot.slot} · ${bot.name}`]));
 
@@ -39,44 +39,52 @@ export function LiveFeedPage({ bots, role, selectedGroupKey, onSelectGroupKey, f
 			return;
 		}
 		let cancelled = false;
-		Promise.all(selectedGroup.bots.map((bot) => api.listChats(bot.id).catch(() => [])))
-			.then((chatLists) => {
-				if (cancelled) return;
-				const merged: Record<string, string> = {};
-				for (const chats of chatLists) {
-					for (const chat of chats) {
-						if (chat.name) merged[chat.mid] = chat.name;
-					}
+		Promise.all(selectedGroup.bots.map((bot) => api.listChats(bot.id).catch(() => []))).then((chatLists) => {
+			if (cancelled) return;
+			const merged: Record<string, string> = {};
+			for (const chats of chatLists) {
+				for (const chat of chats) {
+					if (chat.name) merged[chat.mid] = chat.name;
 				}
-				setChatNameByMid(merged);
-			});
+			}
+			setChatNameByMid(merged);
+		});
 		return () => {
 			cancelled = true;
 		};
-	}, [selectedGroup?.key]);
+	}, [selectedGroup]);
 
 	return (
-		<div style={{ display: "flex", flexDirection: "column", gap: "var(--space-md)", }}>
-			<section className="panel responsive-toolbar" style={{ padding: "var(--space-md)", display: "flex", alignItems: "center", gap: "var(--space-sm)" }}>
+		<div style={{ display: "flex", flexDirection: "column", gap: "var(--space-md)" }}>
+			<section
+				className="panel responsive-toolbar"
+				style={{ padding: "var(--space-md)", display: "flex", alignItems: "center", gap: "var(--space-sm)" }}
+			>
 				<label className="label">เลือกบอท</label>
-				<select
-					value={selectedGroupKey ?? ""}
-					onChange={(e) => onSelectGroupKey(e.target.value)}
-					style={selectStyle}
-				>
-					<option value="" disabled>— เลือกบอท —</option>
+				<select value={selectedGroupKey ?? ""} onChange={(e) => onSelectGroupKey(e.target.value)} style={selectStyle}>
+					<option value="" disabled>
+						— เลือกบอท —
+					</option>
 					{groups.map((group) => {
-						const label = group.ownerUserId === null
-							? group.bots[0]!.name
-							: (ownerNames[group.ownerUserId] ?? `ผู้ใช้ #${group.ownerUserId}`) +
-								(group.bots.length > 1 ? ` (${group.bots.length} บอท)` : "");
-						return <option key={group.key} value={group.key}>{label}</option>;
+						const label =
+							group.ownerUserId === null
+								? group.bots[0]!.name
+								: (ownerNames[group.ownerUserId] ?? `ผู้ใช้ #${group.ownerUserId}`) +
+									(group.bots.length > 1 ? ` (${group.bots.length} บอท)` : "");
+						return (
+							<option key={group.key} value={group.key}>
+								{label}
+							</option>
+						);
 					})}
 				</select>
 			</section>
 
 			{selectedGroup === undefined || bots.length === 0 ? (
-				<section className="panel" style={{ padding: "var(--space-lg)", textAlign: "center", color: "var(--text-secondary)", fontSize: "var(--text-sm)" }}>
+				<section
+					className="panel"
+					style={{ padding: "var(--space-lg)", textAlign: "center", color: "var(--text-secondary)", fontSize: "var(--text-sm)" }}
+				>
 					เลือกบอทด้านบนเพื่อดูบันทึกสด
 				</section>
 			) : (

@@ -29,16 +29,18 @@ export function safeTokenEqual(left: string | undefined, right: string | undefin
 
 export function isTrustedWorkerForward(c: Context): boolean {
 	const topology = readWorkerTopology();
-	return c.req.header(FORWARDED_HEADER) === "1"
-		&& safeTokenEqual(c.req.header(CONTROL_TOKEN_HEADER), topology.controlPlaneToken);
+	return c.req.header(FORWARDED_HEADER) === "1" && safeTokenEqual(c.req.header(CONTROL_TOKEN_HEADER), topology.controlPlaneToken);
 }
 
 function proxyError(c: Context, ownerUserId: number | null, status: 421 | 503, detail: string) {
-	return c.json({
-		error: status === 421 ? "request reached the wrong worker" : "owner worker unavailable",
-		ownerUserId,
-		detail,
-	}, status);
+	return c.json(
+		{
+			error: status === 421 ? "request reached the wrong worker" : "owner worker unavailable",
+			ownerUserId,
+			detail,
+		},
+		status,
+	);
 }
 
 export async function proxyRequestToWorker(c: Context, baseUrl: URL): Promise<Response> {

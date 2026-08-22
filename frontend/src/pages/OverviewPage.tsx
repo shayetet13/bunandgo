@@ -54,18 +54,28 @@ function DashboardClock({ uptimeSeconds }: { uptimeSeconds?: number }) {
 		if (typeof uptimeSeconds === "number") setUptimeBase({ seconds: uptimeSeconds, receivedAt: Date.now() });
 	}, [uptimeSeconds]);
 
-	const liveUptime = uptimeBase
-		? uptimeBase.seconds + Math.max(0, Math.floor((now - uptimeBase.receivedAt) / 1_000))
-		: undefined;
+	const liveUptime = uptimeBase ? uptimeBase.seconds + Math.max(0, Math.floor((now - uptimeBase.receivedAt) / 1_000)) : undefined;
 	const clock = new Date(now);
 	const date = new Intl.DateTimeFormat("th-TH", { timeZone: "Asia/Bangkok", day: "numeric", month: "long", year: "numeric" }).format(clock);
-	const time = new Intl.DateTimeFormat("th-TH", { timeZone: "Asia/Bangkok", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(clock);
+	const time = new Intl.DateTimeFormat("th-TH", {
+		timeZone: "Asia/Bangkok",
+		hour: "2-digit",
+		minute: "2-digit",
+		second: "2-digit",
+		hour12: false,
+	}).format(clock);
 
 	return (
 		<div className="panel" style={{ minWidth: 240, padding: "var(--space-md)", textAlign: "right" }}>
-			<div className="label" style={{ color: "var(--signal-go)", marginBottom: "var(--space-xs)" }}>SYSTEM CLOCK · BANGKOK</div>
-			<div className="mono" style={{ fontSize: "1.45rem", fontWeight: 800, lineHeight: 1.1 }}>{time}</div>
-			<div className="hint" style={{ marginTop: "0.2rem" }}>{date}</div>
+			<div className="label" style={{ color: "var(--signal-go)", marginBottom: "var(--space-xs)" }}>
+				SYSTEM CLOCK · BANGKOK
+			</div>
+			<div className="mono" style={{ fontSize: "1.45rem", fontWeight: 800, lineHeight: 1.1 }}>
+				{time}
+			</div>
+			<div className="hint" style={{ marginTop: "0.2rem" }}>
+				{date}
+			</div>
 			<div style={{ borderTop: "1px solid var(--border-hair)", marginTop: "var(--space-sm)", paddingTop: "var(--space-sm)" }}>
 				<div className="label">WORKER UPTIME</div>
 				<div style={{ color: "var(--text-secondary)", fontSize: "var(--text-sm)", fontWeight: 700, marginTop: "0.15rem" }}>
@@ -96,7 +106,14 @@ export function OverviewPage({
 		<div style={{ display: "flex", flexDirection: "column", gap: "var(--space-lg)" }}>
 			<section
 				className="panel"
-				style={{ padding: "var(--space-xl)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "var(--space-lg)", flexWrap: "wrap" }}
+				style={{
+					padding: "var(--space-xl)",
+					display: "flex",
+					justifyContent: "space-between",
+					alignItems: "center",
+					gap: "var(--space-lg)",
+					flexWrap: "wrap",
+				}}
 			>
 				<div style={{ maxWidth: 560 }}>
 					<div className="label" style={{ color: "var(--signal-go)", marginBottom: "var(--space-sm)" }}>
@@ -113,13 +130,28 @@ export function OverviewPage({
 					<div style={{ display: "flex", gap: "var(--space-sm)" }}>
 						<button
 							onClick={onCreateBot}
-							style={{ background: "var(--signal-go)", color: "#04170c", border: "none", borderRadius: "var(--radius-sm)", padding: "0.7rem 1.2rem", fontWeight: 700, cursor: "pointer" }}
+							style={{
+								background: "var(--signal-go)",
+								color: "#04170c",
+								border: "none",
+								borderRadius: "var(--radius-sm)",
+								padding: "0.7rem 1.2rem",
+								fontWeight: 700,
+								cursor: "pointer",
+							}}
 						>
 							+ สร้างบอทใหม่
 						</button>
 						<button
 							onClick={onViewFleet}
-							style={{ background: "transparent", border: "1px solid var(--border-strong)", color: "var(--text-secondary)", borderRadius: "var(--radius-sm)", padding: "0.7rem 1.2rem", cursor: "pointer" }}
+							style={{
+								background: "transparent",
+								border: "1px solid var(--border-strong)",
+								color: "var(--text-secondary)",
+								borderRadius: "var(--radius-sm)",
+								padding: "0.7rem 1.2rem",
+								cursor: "pointer",
+							}}
 						>
 							ดูบอททั้งหมด
 						</button>
@@ -138,7 +170,11 @@ export function OverviewPage({
 					label="CODE P95"
 					value={fastSnapshot.count > 0 ? fastSnapshot.p95.toFixed(2) : "—"}
 					unit={fastSnapshot.count > 0 ? "ms" : ""}
-					hint={fastSnapshot.count > 0 ? `ก่อนออกจากเครื่อง · ${fastSnapshot.count} ครั้ง · ล่าสุด: ${receiveSourceLabel(fastSnapshot.last?.receiveSource)}` : "ยังไม่มีข้อมูลรอบนี้"}
+					hint={
+						fastSnapshot.count > 0
+							? `ก่อนออกจากเครื่อง · ${fastSnapshot.count} ครั้ง · ล่าสุด: ${receiveSourceLabel(fastSnapshot.last?.receiveSource)}`
+							: "ยังไม่มีข้อมูลรอบนี้"
+					}
 				/>
 				<StatCard
 					label="LINE TOTAL P95"
@@ -160,16 +196,23 @@ export function OverviewPage({
 
 			<LaneRacePanel race={laneRace} bots={bots} />
 
-			<div className="overview-bottom-grid" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 300px", gap: "var(--space-lg)", alignItems: "start" }}>
+			<div
+				className="overview-bottom-grid"
+				style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 300px", gap: "var(--space-lg)", alignItems: "start" }}
+			>
 				<section className="panel" style={{ padding: "var(--space-md)" }}>
-					<div className="label" style={{ color: "var(--signal-go)" }}>TOTAL DISPATCH</div>
+					<div className="label" style={{ color: "var(--signal-go)" }}>
+						TOTAL DISPATCH
+					</div>
 					<div style={{ fontWeight: 700, marginBottom: "var(--space-sm)" }}>ความเร็วในการส่ง (60 นาทีล่าสุด)</div>
 					<DispatchChart samples={historySamples} rangeMinutes={60} />
 				</section>
 
 				<section className="panel" style={{ padding: "var(--space-md)" }}>
 					<div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "var(--space-sm)" }}>
-						<div className="label" style={{ color: "var(--signal-go)" }}>INFRASTRUCTURE</div>
+						<div className="label" style={{ color: "var(--signal-go)" }}>
+							INFRASTRUCTURE
+						</div>
 						<span className={`chip ${infraOk ? "chip--go" : "chip--bad"}`}>{infraOk ? "OK" : "ปัญหา"}</span>
 					</div>
 					<div style={{ fontWeight: 700, marginBottom: "var(--space-sm)" }}>สุขภาพระบบ</div>
@@ -185,7 +228,15 @@ export function OverviewPage({
 
 function InfraRow({ label, value, ok }: { label: string; value: string; ok: boolean }) {
 	return (
-		<div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.45rem 0", borderTop: "1px solid var(--border-hair)" }}>
+		<div
+			style={{
+				display: "flex",
+				alignItems: "center",
+				justifyContent: "space-between",
+				padding: "0.45rem 0",
+				borderTop: "1px solid var(--border-hair)",
+			}}
+		>
 			<span style={{ fontSize: "var(--text-sm)" }}>{label}</span>
 			<span style={{ fontSize: "var(--text-sm)", color: ok ? "var(--signal-go)" : "var(--signal-bad)", fontWeight: 700 }}>{value}</span>
 		</div>

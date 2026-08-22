@@ -18,9 +18,7 @@ export class PremiumFontService implements BaseService {
 		this.client = client;
 	}
 
-	async getAccessToken(
-		...param: Parameters<typeof LINEStruct.getAccessToken_args>
-	): Promise<LINETypes.getAccessToken_result["success"]> {
+	async getAccessToken(...param: Parameters<typeof LINEStruct.getAccessToken_args>): Promise<LINETypes.getAccessToken_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.getAccessToken_args(...param),
 			"getAccessToken",
@@ -30,9 +28,7 @@ export class PremiumFontService implements BaseService {
 		);
 	}
 
-	async getFontMetas(
-		...param: Parameters<typeof LINEStruct.getFontMetas_args>
-	): Promise<LINETypes.getFontMetas_result["success"]> {
+	async getFontMetas(...param: Parameters<typeof LINEStruct.getFontMetas_args>): Promise<LINETypes.getFontMetas_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.getFontMetas_args(...param),
 			"getFontMetas",

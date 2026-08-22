@@ -18,21 +18,11 @@ export class ChatAppService implements BaseService {
 		this.client = client;
 	}
 
-	async getChatapp(
-		...param: Parameters<typeof LINEStruct.getChatapp_args>
-	): Promise<LINETypes.getChatapp_result["success"]> {
-		return await this.client.request.request(
-			LINEStruct.getChatapp_args(...param),
-			"getChatapp",
-			this.protocolType,
-			true,
-			this.requestPath,
-		);
+	async getChatapp(...param: Parameters<typeof LINEStruct.getChatapp_args>): Promise<LINETypes.getChatapp_result["success"]> {
+		return await this.client.request.request(LINEStruct.getChatapp_args(...param), "getChatapp", this.protocolType, true, this.requestPath);
 	}
 
-	async getMyChatapps(
-		...param: Parameters<typeof LINEStruct.getMyChatapps_args>
-	): Promise<LINETypes.getMyChatapps_result["success"]> {
+	async getMyChatapps(...param: Parameters<typeof LINEStruct.getMyChatapps_args>): Promise<LINETypes.getMyChatapps_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.getMyChatapps_args(...param),
 			"getMyChatapps",

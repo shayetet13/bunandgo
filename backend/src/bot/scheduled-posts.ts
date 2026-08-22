@@ -87,12 +87,8 @@ function assertScheduledPostInput(input: ScheduledPostInput): void {
 	}
 }
 
-const listStmt = db.prepare<ScheduledPostRow, [number]>(
-	"SELECT * FROM scheduled_posts WHERE bot_id = ? ORDER BY run_at ASC, id ASC",
-);
-const getStmt = db.prepare<ScheduledPostRow, [number, number]>(
-	"SELECT * FROM scheduled_posts WHERE bot_id = ? AND id = ?",
-);
+const listStmt = db.prepare<ScheduledPostRow, [number]>("SELECT * FROM scheduled_posts WHERE bot_id = ? ORDER BY run_at ASC, id ASC");
+const getStmt = db.prepare<ScheduledPostRow, [number, number]>("SELECT * FROM scheduled_posts WHERE bot_id = ? AND id = ?");
 const insertStmt = db.prepare<ScheduledPostRow, [number, Surface, string, string, number, number, number]>(
 	"INSERT INTO scheduled_posts (bot_id, surface, target_mid, text, run_at, enabled, created_at) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *",
 );
@@ -105,9 +101,7 @@ const updateStmt = db.prepare<null, [Surface, string, string, number, number, nu
 const deleteStmt = db.prepare<null, [number, number]>("DELETE FROM scheduled_posts WHERE id = ? AND bot_id = ?");
 const markSentStmt = db.prepare<null, [number, number]>("UPDATE scheduled_posts SET sent_at = ? WHERE id = ?");
 const disableStmt = db.prepare<null, [number]>("UPDATE scheduled_posts SET enabled = 0 WHERE id = ?");
-const listPendingStmt = db.prepare<ScheduledPostRow, []>(
-	"SELECT * FROM scheduled_posts WHERE enabled = 1 AND sent_at IS NULL",
-);
+const listPendingStmt = db.prepare<ScheduledPostRow, []>("SELECT * FROM scheduled_posts WHERE enabled = 1 AND sent_at IS NULL");
 
 export function listScheduledPosts(botId: number): ScheduledPost[] {
 	return listStmt.all(botId).map(fromRow);
@@ -120,15 +114,7 @@ export function getScheduledPost(botId: number, id: number): ScheduledPost | und
 
 export function createScheduledPost(botId: number, input: ScheduledPostInput): ScheduledPost {
 	assertScheduledPostInput(input);
-	const row = insertStmt.get(
-		botId,
-		input.surface,
-		input.targetMid,
-		input.text,
-		input.runAt,
-		input.enabled ? 1 : 0,
-		Date.now(),
-	);
+	const row = insertStmt.get(botId, input.surface, input.targetMid, input.text, input.runAt, input.enabled ? 1 : 0, Date.now());
 	return fromRow(row!);
 }
 

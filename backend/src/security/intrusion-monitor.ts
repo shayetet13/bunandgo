@@ -52,16 +52,10 @@ const liveEventTimes: number[] = [];
 let lastOverflowAlertAt = 0;
 
 const SUSPICIOUS_METHODS = new Set(["CONNECT", "TRACE", "TRACK", "PROPFIND", "COPY", "MOVE"]);
-const SENSITIVE_READ_PATHS = [
-	"/api/logs",
-	"/api/metrics/history",
-	"/api/metrics/lane-race",
-	"/api/users",
-	"/api/bots",
-	"/api/confirm",
-];
+const SENSITIVE_READ_PATHS = ["/api/logs", "/api/metrics/history", "/api/metrics/lane-race", "/api/users", "/api/bots", "/api/confirm"];
 
-const SCANNER_PATH = /(?:^|\/)(?:\.env|\.git|\.svn|\.hg|wp-admin|wp-login\.php|phpmyadmin|adminer(?:\.php)?|server-status|actuator|vendor\/phpunit|cgi-bin|etc\/passwd)(?:\/|$)|(?:\.sql|\.sqlite3?|\.db|\.bak|\.pem|\.key|\.log|\.map)$|(?:\.\.|%2e%2e|%252e)/i;
+const SCANNER_PATH =
+	/(?:^|\/)(?:\.env|\.git|\.svn|\.hg|wp-admin|wp-login\.php|phpmyadmin|adminer(?:\.php)?|server-status|actuator|vendor\/phpunit|cgi-bin|etc\/passwd)(?:\/|$)|(?:\.sql|\.sqlite3?|\.db|\.bak|\.pem|\.key|\.log|\.map)$|(?:\.\.|%2e%2e|%252e)/i;
 
 const INCIDENT_LABELS: Record<SecurityIncidentKind, string> = {
 	login_failed: "เดารหัสผ่าน/ล็อกอินไม่สำเร็จซ้ำ",
@@ -133,9 +127,7 @@ function boundedSet<K, V>(map: Map<K, V>, key: K, value: V, max: number): void {
 function takeIncident(key: string, kind: SecurityIncidentKind, now: number): { count: number; alert: boolean; first: boolean } {
 	const previous = incidentBuckets.get(key);
 	const fresh = !previous || now - previous.windowStartedAt >= INCIDENT_WINDOW_MS;
-	const bucket: IncidentBucket = fresh
-		? { windowStartedAt: now, count: 1 }
-		: { ...previous, count: previous.count + 1 };
+	const bucket: IncidentBucket = fresh ? { windowStartedAt: now, count: 1 } : { ...previous, count: previous.count + 1 };
 	const thresholdReached = bucket.count >= ALERT_AFTER[kind];
 	const alert = thresholdReached && (bucket.lastAlertAt === undefined || now - bucket.lastAlertAt >= INCIDENT_WINDOW_MS);
 	if (alert) bucket.lastAlertAt = now;
@@ -236,9 +228,10 @@ export function reportSecurityIncident(c: Context, incident: SecurityIncident): 
 
 function takeRate(key: string, now: number): number {
 	const previous = requestRates.get(key);
-	const next = !previous || now - previous.startedAt >= API_RATE_WINDOW_MS
-		? { startedAt: now, count: 1 }
-		: { startedAt: previous.startedAt, count: previous.count + 1 };
+	const next =
+		!previous || now - previous.startedAt >= API_RATE_WINDOW_MS
+			? { startedAt: now, count: 1 }
+			: { startedAt: previous.startedAt, count: previous.count + 1 };
 	boundedSet(requestRates, key, next, MAX_RATE_KEYS);
 	return next.count;
 }

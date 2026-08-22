@@ -1,18 +1,7 @@
 import type { BaseClient } from "../core/mod.ts";
-import {
-	LegyH2PingFrame,
-	LegyH2PingFrameType,
-	LegyH2PushFrame,
-	LegyH2PushFrameType,
-	LegyH2SignOnResponseFrame,
-} from "./connData.ts";
+import { LegyH2PingFrame, LegyH2PingFrameType, LegyH2PushFrame, LegyH2PushFrameType, LegyH2SignOnResponseFrame } from "./connData.ts";
 import type { ConnManager } from "./connManager.ts";
-import {
-	connect as connectHttp2,
-	type ClientHttp2Session,
-	type ClientHttp2Stream,
-	type OutgoingHttpHeaders,
-} from "node:http2";
+import { connect as connectHttp2, type ClientHttp2Session, type ClientHttp2Stream, type OutgoingHttpHeaders } from "node:http2";
 
 interface PushRequestWriter {
 	enqueue(chunk: Uint8Array): void;
@@ -43,12 +32,7 @@ export class Conn {
 		return this.manager.client;
 	}
 
-	async new(
-		host: string,
-		_port: number,
-		path: string,
-		headers: Record<string, string> = {},
-	) {
+	async new(host: string, _port: number, path: string, headers: Record<string, string> = {}) {
 		// Bun fetch negotiates h2 but does not reliably expose LINE's response
 		// while this bidirectional request body remains open on Windows. The
 		// node:http2 implementation bundled by Bun does true full-duplex I/O
@@ -99,8 +83,7 @@ export class Conn {
 				rejectRead(error instanceof Error ? error : new Error(String(error)));
 			};
 			request.once("response", (responseHeaders) => {
-				this.h2Headers = Object.entries(responseHeaders)
-					.filter((entry): entry is [string, string] => typeof entry[1] === "string");
+				this.h2Headers = Object.entries(responseHeaders).filter((entry): entry is [string, string] => typeof entry[1] === "string");
 				const status = Number(responseHeaders[":status"] ?? 0);
 				if (status >= 400) fail(new Error(`LINE push HTTP ${status}`));
 			});
@@ -121,10 +104,14 @@ export class Conn {
 			});
 			request.once("error", fail);
 		});
-		abort.signal.addEventListener("abort", () => {
-			request.close();
-			session.close();
-		}, { once: true });
+		abort.signal.addEventListener(
+			"abort",
+			() => {
+				request.close();
+				session.close();
+			},
+			{ once: true },
+		);
 		this.reqStream = {
 			enqueue: (chunk) => request.write(chunk),
 			close: () => request.end(),
@@ -163,9 +150,7 @@ export class Conn {
 		return false;
 	}
 
-	readPacketHeader(
-		data: Uint8Array,
-	): { dt: number; dd: Uint8Array; dl: number } {
+	readPacketHeader(data: Uint8Array): { dt: number; dd: Uint8Array; dl: number } {
 		const dl = (data[0] << 8) | data[1];
 		const dt = data[2];
 		const dd = data.subarray(3); // WHAT:
@@ -180,10 +165,7 @@ export class Conn {
 			data = concat;
 		}
 		if (this.client.debugLogsEnabled) {
-			this.manager.log(
-				`[H2][PUSH] receives packet. raw:${bytesToHex(data)}`,
-				true,
-			);
+			this.manager.log(`[H2][PUSH] receives packet. raw:${bytesToHex(data)}`, true);
 		}
 		const { dt, dd, dl } = this.readPacketHeader(data);
 		if (dl > dd.length) {
@@ -196,10 +178,7 @@ export class Conn {
 				this.onPacketReceived(dt, dd.subarray(0, dl));
 				const rest = dd.subarray(dl);
 				if (this.client.debugLogsEnabled) {
-					this.manager.log(
-						`[PUSH] extra data ${bytesToHex(rest).slice(0, 50)}...`,
-						true,
-					);
+					this.manager.log(`[PUSH] extra data ${bytesToHex(rest).slice(0, 50)}...`, true);
 				}
 				return this.onDataReceived(rest);
 			}
@@ -213,10 +192,7 @@ export class Conn {
 			const pingType = dd[0];
 			const pingId = (dd[1] << 8) | dd[2];
 			const packet = new LegyH2PingFrame(pingType, pingId);
-			this.manager.log(
-				`[PUSH] receives ping frame. pingId:${packet.pingId}`,
-				debugOnly,
-			);
+			this.manager.log(`[PUSH] receives ping frame. pingId:${packet.pingId}`, debugOnly);
 			if (packet.pingType === LegyH2PingFrameType.ACK_REQUIRED) {
 				// Fire-and-forget from this synchronous handler — a rejection
 				// (e.g. `writeByte`'s "no reqStream" during a reconnect race)
@@ -238,11 +214,7 @@ export class Conn {
 			const requestId = req & 0x7fff;
 			const isFin = (req & 0x8000) !== 0;
 			let responsePayload = dd.subarray(2);
-			const packet = new LegyH2SignOnResponseFrame(
-				requestId,
-				isFin,
-				responsePayload,
-			);
+			const packet = new LegyH2SignOnResponseFrame(requestId, isFin, responsePayload);
 			if (packet.isFin) {
 				if (this.notFinPayloads[requestId]) {
 					const a = this.notFinPayloads[requestId];
@@ -254,10 +226,7 @@ export class Conn {
 				}
 				this.manager.onSignOnResponse(requestId, isFin, responsePayload);
 			} else {
-				this.manager.log(
-					`[PUSH] receives long data. requestId: ${requestId}, req=${req}`,
-					debugOnly,
-				);
+				this.manager.log(`[PUSH] receives long data. requestId: ${requestId}, req=${req}`, debugOnly);
 				if (!this.notFinPayloads[requestId]) {
 					this.notFinPayloads[requestId] = new Uint8Array(0);
 				}
@@ -272,21 +241,9 @@ export class Conn {
 			const serviceType = dd[1];
 			const pushId = (dd[2] << 24) | (dd[3] << 16) | (dd[4] << 8) | dd[5];
 			const pushPayload = dd.subarray(6);
-			const packet = new LegyH2PushFrame(
-				pushType,
-				serviceType,
-				pushId,
-				pushPayload,
-			);
-			this.manager.log(
-				`[PUSH] receives push frame. service:${packet.serviceType}`,
-				debugOnly,
-			);
-			if (
-				[LegyH2PushFrameType.NONE, LegyH2PushFrameType.ACK_REQUIRED].includes(
-					packet.pushType!,
-				)
-			) {
+			const packet = new LegyH2PushFrame(pushType, serviceType, pushId, pushPayload);
+			this.manager.log(`[PUSH] receives push frame. service:${packet.serviceType}`, debugOnly);
+			if ([LegyH2PushFrameType.NONE, LegyH2PushFrameType.ACK_REQUIRED].includes(packet.pushType!)) {
 				if (packet.pushType === LegyH2PushFrameType.ACK_REQUIRED) {
 					// See the matching comment on the ping-ack write above.
 					this.writeByte(packet.ackPacket()).catch((error: unknown) => {
@@ -296,21 +253,14 @@ export class Conn {
 							error: error instanceof Error ? error.message : String(error),
 						});
 					});
-					this.manager.log(
-						`[PUSH] send push ack. service:${serviceType}`,
-						debugOnly,
-					);
+					this.manager.log(`[PUSH] send push ack. service:${serviceType}`, debugOnly);
 				}
 				this.manager.onPushResponse(packet);
 			} else {
 				throw new Error(`push type not Implemented: ${pushType}`);
 			}
 		} else {
-			throw new Error(
-				`PUSH not Implemented: type:${dt}, payloads:${
-					bytesToHex(dd).slice(0, 30)
-				}, len:${dd.length}`,
-			);
+			throw new Error(`PUSH not Implemented: type:${dt}, payloads:${bytesToHex(dd).slice(0, 30)}, len:${dd.length}`);
 		}
 	}
 
@@ -330,5 +280,7 @@ export class Conn {
 
 /* helpers */
 function bytesToHex(b: Uint8Array) {
-	return Array.from(b).map((x) => x.toString(16).padStart(2, "0")).join("");
+	return Array.from(b)
+		.map((x) => x.toString(16).padStart(2, "0"))
+		.join("");
 }

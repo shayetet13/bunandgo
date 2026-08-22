@@ -54,10 +54,7 @@ export interface VoomRestResponse<T = unknown> {
 	result: T | null;
 }
 
-export async function voomRest<T = unknown>(
-	client: Client,
-	opts: VoomRestOptions,
-): Promise<VoomRestResponse<T>> {
+export async function voomRest<T = unknown>(client: Client, opts: VoomRestOptions): Promise<VoomRestResponse<T>> {
 	const host = opts.host ?? "gw.line.naver.jp";
 	const prefix = VoomRoutingPrefix[opts.routing ?? "MYHOME"];
 	const method = opts.method ?? (opts.body !== undefined ? "POST" : "GET");
@@ -72,9 +69,7 @@ export async function voomRest<T = unknown>(
 		"X-Line-BDBTemplateVersion": "v1",
 		// Channel-scoped → X-Line-ChannelToken (smali m98/v$a). Primary
 		// session → X-Line-Access. NOT Authorization: Bearer.
-		...(opts.channelToken
-			? { "X-Line-ChannelToken": opts.channelToken }
-			: { "X-Line-Access": client.authToken }),
+		...(opts.channelToken ? { "X-Line-ChannelToken": opts.channelToken } : { "X-Line-Access": client.authToken }),
 		...(opts.extraHeaders ?? {}),
 	};
 	if (opts.body !== undefined) headers["content-type"] = "application/json";
@@ -90,10 +85,7 @@ export async function voomRest<T = unknown>(
 	return JSON.parse(text) as VoomRestResponse<T>;
 }
 
-export async function getChannelToken(
-	client: Client,
-	channelId: string,
-): Promise<string> {
+export async function getChannelToken(client: Client, channelId: string): Promise<string> {
 	const r = await client.base.channel.issueChannelToken({ channelId });
 	const t = (r as unknown as { token?: string }).token;
 	if (!t) throw new Error("issueChannelToken returned no token");
@@ -139,10 +131,7 @@ export const VoomEndpoints = {
 export interface VoomClient {
 	getToken(channel: keyof typeof VoomChannelId): Promise<string>;
 	/** Low-level call. Auto-mints channel token + applies routing prefix. */
-	call<T = unknown>(
-		channel: keyof typeof VoomChannelId,
-		opts: Omit<VoomRestOptions, "channelToken">,
-	): Promise<VoomRestResponse<T>>;
+	call<T = unknown>(channel: keyof typeof VoomChannelId, opts: Omit<VoomRestOptions, "channelToken">): Promise<VoomRestResponse<T>>;
 	/** GET /mh/api/v57/post/list.json — VOOM feed. Live-verified (#151). */
 	feed(opts?: { postLimit?: number; followingMaxPage?: number }): Promise<VoomRestResponse>;
 	/** GET /tl/api/v57/timeline/tab/status.json. Live-verified. */
@@ -163,10 +152,7 @@ class ClientVoom implements VoomClient {
 		}
 		return t;
 	}
-	async call<T = unknown>(
-		channel: keyof typeof VoomChannelId,
-		opts: Omit<VoomRestOptions, "channelToken">,
-	): Promise<VoomRestResponse<T>> {
+	async call<T = unknown>(channel: keyof typeof VoomChannelId, opts: Omit<VoomRestOptions, "channelToken">): Promise<VoomRestResponse<T>> {
 		const channelToken = await this.getToken(channel);
 		return await voomRest<T>(this.#client, { ...opts, channelToken });
 	}
@@ -175,8 +161,7 @@ class ClientVoom implements VoomClient {
 		const followingMaxPage = opts.followingMaxPage ?? 2;
 		return await this.call("TIMELINE", {
 			routing: "MYHOME",
-			path:
-				`${VoomEndpoints.feed}?postLimit=${postLimit}&followingMaxPage=${followingMaxPage}`,
+			path: `${VoomEndpoints.feed}?postLimit=${postLimit}&followingMaxPage=${followingMaxPage}`,
 		});
 	}
 	async timelineStatus() {

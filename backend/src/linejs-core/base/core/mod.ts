@@ -1,8 +1,4 @@
-import {
-	type Device,
-	type DeviceDetails,
-	getDeviceDetails,
-} from "./utils/devices.ts";
+import { type Device, type DeviceDetails, getDeviceDetails } from "./utils/devices.ts";
 
 import { type BaseStorage, MemoryStorage } from "../storage/mod.ts";
 
@@ -33,20 +29,10 @@ import type { AuthTokenInput } from "../request/auth_token.ts";
 import { E2EE } from "../e2ee/mod.ts";
 import { LineObs } from "../obs/mod.ts";
 import { Timeline } from "../timeline/mod.ts";
-import {
-	getHotLineFetch,
-	getHotLinePrewarmFetch,
-	type HotLineFetch,
-} from "../../../dispatch/direct-request.ts";
+import { getHotLineFetch, getHotLinePrewarmFetch, type HotLineFetch } from "../../../dispatch/direct-request.ts";
 import { attachRawDispatchBody } from "../../../dispatch/raw-response.ts";
-import {
-	PREWARM_SQUARE_ACK,
-	PREWARM_TALK_ACK,
-} from "../../../dispatch/prewarm-ack.ts";
-import {
-	currentPrewarmScope,
-	runInPrewarmScope,
-} from "../../../dispatch/prewarm-scope.ts";
+import { PREWARM_SQUARE_ACK, PREWARM_TALK_ACK } from "../../../dispatch/prewarm-ack.ts";
+import { currentPrewarmScope, runInPrewarmScope } from "../../../dispatch/prewarm-scope.ts";
 import { Polling } from "../polling/mod.ts";
 import { ConnManager } from "../push/mod.ts";
 
@@ -150,8 +136,7 @@ export class BaseClient extends TypedEventEmitter<ClientEvents> {
 	#customFetch?: FetchLike;
 	#hotFetch?: HotLineFetch;
 	#hotPrewarmFetch?: HotLineFetch;
-	readonly debugLogsEnabled =
-		globalThis.process?.env?.LINEJS_DEBUG_LOGS === "1";
+	readonly debugLogsEnabled = globalThis.process?.env?.LINEJS_DEBUG_LOGS === "1";
 	disabled?: boolean;
 	profile?: LINETypes.Profile;
 	config: Config;
@@ -234,8 +219,7 @@ export class BaseClient extends TypedEventEmitter<ClientEvents> {
 		// failures. Full protocol and Square fetch diagnostics remain available
 		// behind their opt-in environment switches. Logging one line per empty
 		// long-poll competes with replies through stdout/journald over time.
-		const squareDiagnosticsEnabled =
-			globalThis.process?.env?.LINEJS_SQUARE_DIAGNOSTICS === "1";
+		const squareDiagnosticsEnabled = globalThis.process?.env?.LINEJS_SQUARE_DIAGNOSTICS === "1";
 		if (
 			globalThis.process?.env?.LINEJS_DEBUG_LOGS !== "1" &&
 			!type.startsWith("SignOnResponseError") &&
@@ -285,9 +269,7 @@ export class BaseClient extends TypedEventEmitter<ClientEvents> {
 	 */
 	async getReqseq(name: string = "talk"): Promise<number> {
 		if (!this.reqseqs) {
-			this.reqseqs = JSON.parse(
-				((await this.storage.get("reqseq")) ?? "{}").toString(),
-			) as Record<string, number>;
+			this.reqseqs = JSON.parse(((await this.storage.get("reqseq")) ?? "{}").toString()) as Record<string, number>;
 		}
 		return this.takeReqseq(name)!;
 	}
@@ -314,9 +296,7 @@ export class BaseClient extends TypedEventEmitter<ClientEvents> {
 			this.#reqseqPersistQueued = true;
 			queueMicrotask(() => {
 				this.#reqseqPersistQueued = false;
-				void Promise.resolve(
-					this.storage.set("reqseq", JSON.stringify(this.reqseqs)),
-				).catch(() => {});
+				void Promise.resolve(this.storage.set("reqseq", JSON.stringify(this.reqseqs))).catch(() => {});
 			});
 		}
 		return seq;
@@ -329,39 +309,24 @@ export class BaseClient extends TypedEventEmitter<ClientEvents> {
 
 	// NOTE: use allow function.
 	// `const { fetch } = base` is not working if you change to function decorations.
-	readonly fetch: Fetch = async (
-		info: RequestInfo | URL,
-		init?: RequestInit,
-	): Promise<Response> => {
+	readonly fetch: Fetch = async (info: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
 		// Most protocol callers already hand us a complete Request. Cloning it
 		// here copied headers/body again on every outbound message.
-		const req = info instanceof Request && init === undefined
-			? info
-			: new Request(info, init);
-		const res =
-			await (this.#customFetch
-				? this.#customFetch(req)
-				: globalThis.fetch(req));
+		const req = info instanceof Request && init === undefined ? info : new Request(info, init);
+		const res = await (this.#customFetch ? this.#customFetch(req) : globalThis.fetch(req));
 		return res;
 	};
 
 	/** Invokes the latency-first transport before allocating a wrapper Request. */
-	readonly fetchHot: Fetch = (
-		info: RequestInfo | URL,
-		init?: RequestInit,
-	): Promise<Response> => {
+	readonly fetchHot: Fetch = (info: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
 		// Resolve the production symbol during dry runs too, so its first
 		// lookup is never charged to the first real message.
 		const hotFetch = this.#hotFetch;
 		if (currentPrewarmScope()) {
 			const prewarmFetch = this.#hotPrewarmFetch;
 			if (prewarmFetch) return prewarmFetch(info, init);
-			const body = String(info).includes("/SQ1")
-				? PREWARM_SQUARE_ACK
-				: PREWARM_TALK_ACK;
-			return Promise.resolve(
-				attachRawDispatchBody(new Response(body as BodyInit), body),
-			);
+			const body = String(info).includes("/SQ1") ? PREWARM_SQUARE_ACK : PREWARM_TALK_ACK;
+			return Promise.resolve(attachRawDispatchBody(new Response(body as BodyInit), body));
 		}
 		return hotFetch ? hotFetch(info, init) : this.fetch(info, init);
 	};
@@ -409,18 +374,14 @@ export class BaseClient extends TypedEventEmitter<ClientEvents> {
 				return v.map((item) => BaseClient.jsonReplacer("", item));
 			}
 			if (v instanceof Uint8Array) {
-				return `Uint8Array[${v.length}]<${
-					Array.from(v)
-						.map((e) => e.toString(16).padStart(2, "0"))
-						.join(" ")
-				}>`;
+				return `Uint8Array[${v.length}]<${Array.from(v)
+					.map((e) => e.toString(16).padStart(2, "0"))
+					.join(" ")}>`;
 			}
 			if (v.type === "Buffer" && Array.isArray(v.data)) {
-				return `Buffer[${v.data.length}]<${
-					Array.from(v.data)
-						.map((e) => Number(e).toString(16).padStart(2, "0"))
-						.join(" ")
-				}>`;
+				return `Buffer[${v.data.length}]<${Array.from(v.data)
+					.map((e) => Number(e).toString(16).padStart(2, "0"))
+					.join(" ")}>`;
 			}
 			if (v instanceof Blob) {
 				return `Blob[${v.size}]@${v.type}`;

@@ -14,14 +14,7 @@ import {
 	testSend,
 } from "../../bot/session-manager.ts";
 import { clearStartConfirmationsForBot, createStartConfirmation } from "../../bot/start-confirmation.ts";
-import {
-	createRule,
-	deleteRule,
-	listRules,
-	RuleValidationError,
-	type RuleInput,
-	updateRule,
-} from "../../bot/rules.ts";
+import { createRule, deleteRule, listRules, RuleValidationError, type RuleInput, updateRule } from "../../bot/rules.ts";
 import {
 	createScheduledPost,
 	deleteScheduledPost,
@@ -102,13 +95,9 @@ function ruleIdOf(c: Context): number | undefined {
 	return Number.isInteger(id) && id > 0 ? id : undefined;
 }
 
-const chatsStmt = db.prepare<ChatRow, [number]>(
-	"SELECT * FROM chats WHERE bot_id = ? ORDER BY joined_at DESC",
-);
+const chatsStmt = db.prepare<ChatRow, [number]>("SELECT * FROM chats WHERE bot_id = ? ORDER BY joined_at DESC");
 
-const chatByMidStmt = db.prepare<ChatRow, [number, string]>(
-	"SELECT * FROM chats WHERE bot_id = ? AND mid = ?",
-);
+const chatByMidStmt = db.prepare<ChatRow, [number, string]>("SELECT * FROM chats WHERE bot_id = ? AND mid = ?");
 
 botDetailRoute.post("/start", (c) => {
 	const botId = botIdOf(c);
@@ -364,7 +353,9 @@ botDetailRoute.put("/chats/:mid/admin-allowlist", async (c) => {
 	// which reads on the dashboard exactly like a working configuration and
 	// behaves like a room that answers nobody.
 	const admins = new Set(
-		listSquareMembers(botId, mid).filter((member) => isAdminRole(member.role)).map((member) => member.mid),
+		listSquareMembers(botId, mid)
+			.filter((member) => isAdminRole(member.role))
+			.map((member) => member.mid),
 	);
 	const unknown = result.data.memberMids.filter((memberMid) => !admins.has(memberMid));
 	if (unknown.length > 0) {
@@ -504,9 +495,7 @@ botDetailRoute.post("/test-send", async (c) => {
 	const result = testSendBodySchema.safeParse(await c.req.json().catch(() => undefined));
 	if (!result.success) return c.json({ ok: false, error: "surface, targetMid, and text are required" }, 400);
 	const { surface, targetMid, text } = result.data;
-	const validTarget = surface === "talk"
-		? /^[urc][0-9a-f]{32}$/i.test(targetMid)
-		: /^m[0-9a-f]{32}$/i.test(targetMid);
+	const validTarget = surface === "talk" ? /^[urc][0-9a-f]{32}$/i.test(targetMid) : /^m[0-9a-f]{32}$/i.test(targetMid);
 	if (!validTarget) return c.json({ ok: false, error: "targetMid is invalid for surface" }, 400);
 	try {
 		await testSend(botId, surface, targetMid, text);
@@ -536,9 +525,7 @@ botDetailRoute.get("/events", (c) => {
 	return c.json(eventsStmt.all(botId, from, to, limit));
 });
 
-const feedInStmt = db.prepare<MessageInRow, [number, number]>(
-	"SELECT * FROM messages_in WHERE bot_id = ? ORDER BY id DESC LIMIT ?",
-);
+const feedInStmt = db.prepare<MessageInRow, [number, number]>("SELECT * FROM messages_in WHERE bot_id = ? ORDER BY id DESC LIMIT ?");
 const feedOutStmt = db.prepare<LatencySampleRow, [number, number]>(
 	"SELECT * FROM latency_samples WHERE bot_id = ? ORDER BY id DESC LIMIT ?",
 );

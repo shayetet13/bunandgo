@@ -24,7 +24,15 @@ function isAdminRole(role: SquareMemberInfo["role"]): boolean {
 	return role === "ADMIN" || role === 1 || role === "CO_ADMIN" || role === 2;
 }
 
-export function ChatList({ botId, chats, selectedMids = [], onSelect, onToggleEnabled, onToggleAdminOnly, hasSiblings = false }: ChatListProps) {
+export function ChatList({
+	botId,
+	chats,
+	selectedMids = [],
+	onSelect,
+	onToggleEnabled,
+	onToggleAdminOnly,
+	hasSiblings = false,
+}: ChatListProps) {
 	const [query, setQuery] = useState("");
 	const [surface, setSurface] = useState<"all" | "talk" | "square">("all");
 	const [adminsByMid, setAdminsByMid] = useState<Record<string, SquareMemberInfo[]>>({});
@@ -37,7 +45,8 @@ export function ChatList({ botId, chats, selectedMids = [], onSelect, onToggleEn
 		const squareMids = chats.filter((chat) => chat.surface === "square").map((chat) => chat.mid);
 		for (const mid of squareMids) {
 			if (mid in adminsByMid) continue;
-			api.listSquareMembers(botId, mid)
+			api
+				.listSquareMembers(botId, mid)
 				.then((members) => {
 					setAdminsByMid((prev) => ({ ...prev, [mid]: members.filter((m) => isAdminRole(m.role)) }));
 				})
@@ -48,14 +57,13 @@ export function ChatList({ botId, chats, selectedMids = [], onSelect, onToggleEn
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [botId, chats]);
 	const normalizedQuery = query.trim().toLowerCase();
-	const visibleChats = chats.filter((chat) =>
-		(surface === "all" || chat.surface === surface) &&
-		(!normalizedQuery || (chat.name ?? "").toLowerCase().includes(normalizedQuery) || chat.mid.toLowerCase().includes(normalizedQuery))
+	const visibleChats = chats.filter(
+		(chat) =>
+			(surface === "all" || chat.surface === surface) &&
+			(!normalizedQuery || (chat.name ?? "").toLowerCase().includes(normalizedQuery) || chat.mid.toLowerCase().includes(normalizedQuery)),
 	);
 	const handleToggle = (mid: string) => {
-		const newSelection = selectedMids.includes(mid)
-			? selectedMids.filter((m) => m !== mid)
-			: [...selectedMids, mid];
+		const newSelection = selectedMids.includes(mid) ? selectedMids.filter((m) => m !== mid) : [...selectedMids, mid];
 		onSelect(newSelection);
 	};
 
@@ -65,8 +73,8 @@ export function ChatList({ botId, chats, selectedMids = [], onSelect, onToggleEn
 				ห้องแชทที่เข้าร่วม · {chats.length}
 			</div>
 			<p className="hint" style={{ margin: "0 0 var(--space-sm)" }}>
-				สลับ "ตอบอัตโนมัติ" เพื่อกำหนดว่าบอทจะตอบข้อความจริงในห้องไหนได้บ้าง (ปิดอยู่ = ไม่ตอบเลย)
-				— คลิกที่การ์ดเพื่อเลือกห้องสำหรับกรอกข้อมูลในช่องทดสอบส่งข้อความด้านล่าง
+				สลับ "ตอบอัตโนมัติ" เพื่อกำหนดว่าบอทจะตอบข้อความจริงในห้องไหนได้บ้าง (ปิดอยู่ = ไม่ตอบเลย) —
+				คลิกที่การ์ดเพื่อเลือกห้องสำหรับกรอกข้อมูลในช่องทดสอบส่งข้อความด้านล่าง
 			</p>
 			<div className="chat-search-row">
 				<div className="chat-search-box">
@@ -137,16 +145,37 @@ export function ChatList({ botId, chats, selectedMids = [], onSelect, onToggleEn
 							</span>
 
 							{/* MIDDLE: Name */}
-							<span style={{ fontSize: "var(--text-sm)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", width: "100%", fontWeight: isSelected ? 600 : 400 }}>
+							<span
+								style={{
+									fontSize: "var(--text-sm)",
+									overflow: "hidden",
+									textOverflow: "ellipsis",
+									whiteSpace: "nowrap",
+									width: "100%",
+									fontWeight: isSelected ? 600 : 400,
+								}}
+							>
 								{chat.name ?? chat.mid}
 							</span>
 
-							{isSelected && <span className="chip chip--go" style={{ fontSize: "var(--text-xs)" }}>เลือกไว้ทดสอบ</span>}
+							{isSelected && (
+								<span className="chip chip--go" style={{ fontSize: "var(--text-xs)" }}>
+									เลือกไว้ทดสอบ
+								</span>
+							)}
 
 							{/* Auto-reply gate — persisted server-side, controls whether the bot ever replies here.
 							    stopPropagation so clicking the switch doesn't also toggle the card's test-selection. */}
 							<div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }} onClick={(e) => e.stopPropagation()}>
-								<span style={{ fontSize: "var(--text-xs)", fontWeight: 700, color: chat.enabled ? "var(--signal-go)" : "var(--text-secondary)" }}>ตอบอัตโนมัติ</span>
+								<span
+									style={{
+										fontSize: "var(--text-xs)",
+										fontWeight: 700,
+										color: chat.enabled ? "var(--signal-go)" : "var(--text-secondary)",
+									}}
+								>
+									ตอบอัตโนมัติ
+								</span>
 								<ToggleSwitch isSelected={!!chat.enabled} onToggle={() => onToggleEnabled(chat)} />
 							</div>
 
@@ -159,8 +188,8 @@ export function ChatList({ botId, chats, selectedMids = [], onSelect, onToggleEn
 										{adminsByMid[chat.mid] === undefined
 											? "กำลังตรวจ admin…"
 											: adminsByMid[chat.mid]!.length === 0
-											? "ยังไม่ทราบ admin ในห้องนี้"
-											: `admin: ${adminsByMid[chat.mid]!.map((m) => m.displayName).join(", ")}`}
+												? "ยังไม่ทราบ admin ในห้องนี้"
+												: `admin: ${adminsByMid[chat.mid]!.map((m) => m.displayName).join(", ")}`}
 									</div>
 									{hasSiblings && <RoomBotsPanel botId={botId} mid={chat.mid} />}
 								</>

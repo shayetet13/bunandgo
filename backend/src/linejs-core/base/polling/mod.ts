@@ -21,9 +21,7 @@ function pushErrorData(error: unknown): Record<string, unknown> {
 		return {
 			name: error.name,
 			message: error.message,
-			cause: error.cause instanceof Error
-				? { name: error.cause.name, message: error.cause.message }
-				: error.cause,
+			cause: error.cause instanceof Error ? { name: error.cause.name, message: error.cause.message } : error.cause,
 		};
 	}
 	return { message: String(error) };
@@ -81,11 +79,13 @@ export class Polling {
 	 *
 	 * @deprecated
 	 */
-	async *_listenSquareEvents(options: {
-		signal?: AbortSignal;
-		onError?: (error: unknown) => void;
-		pollingInterval?: number;
-	} = {}): AsyncGenerator<SquareEvent, void, unknown> {
+	async *_listenSquareEvents(
+		options: {
+			signal?: AbortSignal;
+			onError?: (error: unknown) => void;
+			pollingInterval?: number;
+		} = {},
+	): AsyncGenerator<SquareEvent, void, unknown> {
 		const { signal, onError, pollingInterval } = {
 			pollingInterval: 1000,
 			...options,
@@ -129,11 +129,13 @@ export class Polling {
 	 *
 	 * @deprecated
 	 */
-	async *_listenTalkEvents(options: {
-		signal?: AbortSignal;
-		onError?: (error: unknown) => void;
-		pollingInterval?: number;
-	} = {}): AsyncGenerator<Operation, void, unknown> {
+	async *_listenTalkEvents(
+		options: {
+			signal?: AbortSignal;
+			onError?: (error: unknown) => void;
+			pollingInterval?: number;
+		} = {},
+	): AsyncGenerator<Operation, void, unknown> {
 		const { signal, onError, pollingInterval } = {
 			pollingInterval: 100,
 			...options,
@@ -144,33 +146,20 @@ export class Polling {
 					...this.sync.talk,
 					limit: 100,
 				});
-				if (
-					response.fullSyncResponse &&
-					response.fullSyncResponse.nextRevision
-				) {
+				if (response.fullSyncResponse && response.fullSyncResponse.nextRevision) {
 					this.sync.talk.revision = response.fullSyncResponse.nextRevision;
 				}
-				if (
-					response.operationResponse &&
-					response.operationResponse.globalEvents &&
-					response.operationResponse.globalEvents.lastRevision
-				) {
-					this.sync.talk.globalRev =
-						response.operationResponse.globalEvents.lastRevision;
+				if (response.operationResponse && response.operationResponse.globalEvents && response.operationResponse.globalEvents.lastRevision) {
+					this.sync.talk.globalRev = response.operationResponse.globalEvents.lastRevision;
 				}
 				if (
 					response.operationResponse &&
 					response.operationResponse.individualEvents &&
 					response.operationResponse.individualEvents.lastRevision
 				) {
-					this.sync.talk.individualRev =
-						response.operationResponse.individualEvents
-							.lastRevision;
+					this.sync.talk.individualRev = response.operationResponse.individualEvents.lastRevision;
 				}
-				if (
-					!(response.operationResponse &&
-						response.operationResponse.operations)
-				) {
+				if (!(response.operationResponse && response.operationResponse.operations)) {
 					continue;
 				}
 				for (const event of response.operationResponse.operations) {
@@ -207,10 +196,10 @@ export class Polling {
 					consecutiveFailures = 0;
 				} catch (error) {
 					consecutiveFailures++;
-					this.client.log(
-						connected ? "LegyPusherError" : "LegyPusherError_cannot_init",
-						{ error: pushErrorData(error), attempt: consecutiveFailures },
-					);
+					this.client.log(connected ? "LegyPusherError" : "LegyPusherError_cannot_init", {
+						error: pushErrorData(error),
+						attempt: consecutiveFailures,
+					});
 				} finally {
 					// A failed stream must not remain as conns[0]; otherwise the next
 					// iteration writes into an already aborted request body.
@@ -227,7 +216,7 @@ export class Polling {
 				if (!this.client.authToken || this.stopped) break;
 				// Recover quickly from a one-off reset, but back off persistent
 				// failures so a broken route cannot spin or hammer LINE.
-				const retryMs = Math.min(4_000, 250 * (2 ** Math.min(consecutiveFailures, 4)));
+				const retryMs = Math.min(4_000, 250 * 2 ** Math.min(consecutiveFailures, 4));
 				await sleep(retryMs);
 			}
 		} finally {

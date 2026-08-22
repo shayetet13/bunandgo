@@ -18,9 +18,7 @@ const enabledChatsByBot = new Map<number, Set<string>>();
  */
 const adminOnlyChatsByBot = new Map<number, Set<string>>();
 
-const enabledRowsStmt = db.prepare<{ bot_id: number; mid: string }, []>(
-	"SELECT bot_id, mid FROM chats WHERE enabled = 1",
-);
+const enabledRowsStmt = db.prepare<{ bot_id: number; mid: string }, []>("SELECT bot_id, mid FROM chats WHERE enabled = 1");
 for (const row of enabledRowsStmt.all()) {
 	let set = enabledChatsByBot.get(row.bot_id);
 	if (!set) {
@@ -30,9 +28,7 @@ for (const row of enabledRowsStmt.all()) {
 	set.add(row.mid);
 }
 
-const adminOnlyRowsStmt = db.prepare<{ bot_id: number; mid: string }, []>(
-	"SELECT bot_id, mid FROM chats WHERE admin_only = 1",
-);
+const adminOnlyRowsStmt = db.prepare<{ bot_id: number; mid: string }, []>("SELECT bot_id, mid FROM chats WHERE admin_only = 1");
 for (const row of adminOnlyRowsStmt.all()) {
 	let set = adminOnlyChatsByBot.get(row.bot_id);
 	if (!set) {
@@ -42,9 +38,7 @@ for (const row of adminOnlyRowsStmt.all()) {
 	set.add(row.mid);
 }
 
-const setEnabledStmt = db.prepare<null, [number, number, string]>(
-	"UPDATE chats SET enabled = ? WHERE bot_id = ? AND mid = ?",
-);
+const setEnabledStmt = db.prepare<null, [number, number, string]>("UPDATE chats SET enabled = ? WHERE bot_id = ? AND mid = ?");
 
 /**
  * OpenChat fast-poll runs one continuous request stream per enabled room
@@ -67,16 +61,12 @@ const setEnabledStmt = db.prepare<null, [number, number, string]>(
  */
 export const MAX_SQUARE_CHATS_PER_BOT = FAST_SQUARE_POLL_MAX_ROOMS;
 
-const chatSurfaceStmt = db.prepare<{ surface: Surface }, [number, string]>(
-	"SELECT surface FROM chats WHERE bot_id = ? AND mid = ?",
-);
+const chatSurfaceStmt = db.prepare<{ surface: Surface }, [number, string]>("SELECT surface FROM chats WHERE bot_id = ? AND mid = ?");
 const enabledSquareCountStmt = db.prepare<{ n: number }, [number]>(
 	"SELECT COUNT(*) AS n FROM chats WHERE bot_id = ? AND surface = 'square' AND enabled = 1",
 );
 
-const setAdminOnlyStmt = db.prepare<null, [number, number, string]>(
-	"UPDATE chats SET admin_only = ? WHERE bot_id = ? AND mid = ?",
-);
+const setAdminOnlyStmt = db.prepare<null, [number, number, string]>("UPDATE chats SET admin_only = ? WHERE bot_id = ? AND mid = ?");
 
 /**
  * Per-room narrowing of "ตอบเฉพาะ admin": which specific ADMIN/CO_ADMIN
@@ -110,9 +100,7 @@ for (const row of adminAllowlistRowsStmt.all()) {
 	members.add(row.member_mid);
 }
 
-const clearAdminAllowlistStmt = db.prepare<null, [number, string]>(
-	"DELETE FROM chat_admin_allowlist WHERE bot_id = ? AND mid = ?",
-);
+const clearAdminAllowlistStmt = db.prepare<null, [number, string]>("DELETE FROM chat_admin_allowlist WHERE bot_id = ? AND mid = ?");
 const insertAdminAllowlistStmt = db.prepare<null, [number, string, string]>(
 	"INSERT OR IGNORE INTO chat_admin_allowlist (bot_id, mid, member_mid) VALUES (?, ?, ?)",
 );

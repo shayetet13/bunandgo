@@ -9,17 +9,20 @@ describe("direct LINE transport", () => {
 		delete process.env.LINE_TRANSPORT;
 		const server = Bun.serve({
 			port: 0,
-			fetch: async (request) => new Response(await request.arrayBuffer(), {
-				status: 201,
-				headers: { "x-test": "direct" },
-			}),
+			fetch: async (request) =>
+				new Response(await request.arrayBuffer(), {
+					status: 201,
+					headers: { "x-test": "direct" },
+				}),
 		});
 		try {
 			const fetchLine = createDispatchFetch({ url: "http://127.0.0.1:1/dispatch", token: "unused" });
-			const response = await fetchLine(new Request(`http://127.0.0.1:${server.port}/CA5`, {
-				method: "POST",
-				body: new Uint8Array([7, 8, 9]),
-			}));
+			const response = await fetchLine(
+				new Request(`http://127.0.0.1:${server.port}/CA5`, {
+					method: "POST",
+					body: new Uint8Array([7, 8, 9]),
+				}),
+			);
 			expect(response.status).toBe(201);
 			expect(response.headers.get("x-test")).toBe("direct");
 			expect(await readResponseBytes(response)).toEqual(new Uint8Array([7, 8, 9]));

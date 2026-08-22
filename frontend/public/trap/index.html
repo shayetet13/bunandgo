@@ -1,262 +1,266 @@
 <!doctype html>
 <html lang="th">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="robots" content="noindex, nofollow, noarchive" />
-<title>คำเตือน: ตรวจพบการเข้าถึงโดยไม่ได้รับอนุญาต</title>
-<style>
-  :root {
-    --bg: #0a0b0d;
-    --bg-panel: #131519;
-    --border: #2a2d33;
-    --red: #ff3b3b;
-    --red-dim: #7a1f1f;
-    --amber: #ffb020;
-    --text: #e8e9ec;
-    --text-dim: #9a9ea6;
-    --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-    --sans: -apple-system, "Segoe UI", Roboto, "Noto Sans Thai", sans-serif;
-  }
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="robots" content="noindex, nofollow, noarchive" />
+		<title>คำเตือน: ตรวจพบการเข้าถึงโดยไม่ได้รับอนุญาต</title>
+		<style>
+			:root {
+				--bg: #0a0b0d;
+				--bg-panel: #131519;
+				--border: #2a2d33;
+				--red: #ff3b3b;
+				--red-dim: #7a1f1f;
+				--amber: #ffb020;
+				--text: #e8e9ec;
+				--text-dim: #9a9ea6;
+				--mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+				--sans: -apple-system, "Segoe UI", Roboto, "Noto Sans Thai", sans-serif;
+			}
 
-  * { box-sizing: border-box; }
+			* {
+				box-sizing: border-box;
+			}
 
-  body {
-    margin: 0;
-    min-height: 100vh;
-    background:
-      radial-gradient(ellipse at top, rgba(255, 59, 59, 0.08), transparent 60%),
-      var(--bg);
-    color: var(--text);
-    font-family: var(--sans);
-    display: flex;
-    justify-content: center;
-    padding: clamp(1rem, 4vw, 4rem) 1rem;
-  }
+			body {
+				margin: 0;
+				min-height: 100vh;
+				background: radial-gradient(ellipse at top, rgba(255, 59, 59, 0.08), transparent 60%), var(--bg);
+				color: var(--text);
+				font-family: var(--sans);
+				display: flex;
+				justify-content: center;
+				padding: clamp(1rem, 4vw, 4rem) 1rem;
+			}
 
-  main {
-    width: 100%;
-    max-width: 46rem;
-  }
+			main {
+				width: 100%;
+				max-width: 46rem;
+			}
 
-  .badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-family: var(--mono);
-    font-size: 0.75rem;
-    letter-spacing: 0.08em;
-    color: var(--red);
-    border: 1px solid var(--red-dim);
-    background: rgba(255, 59, 59, 0.08);
-    padding: 0.3rem 0.7rem;
-    border-radius: 999px;
-    margin-bottom: 1.25rem;
-  }
+			.badge {
+				display: inline-flex;
+				align-items: center;
+				gap: 0.5rem;
+				font-family: var(--mono);
+				font-size: 0.75rem;
+				letter-spacing: 0.08em;
+				color: var(--red);
+				border: 1px solid var(--red-dim);
+				background: rgba(255, 59, 59, 0.08);
+				padding: 0.3rem 0.7rem;
+				border-radius: 999px;
+				margin-bottom: 1.25rem;
+			}
 
-  .badge::before {
-    content: "";
-    width: 0.5rem;
-    height: 0.5rem;
-    border-radius: 50%;
-    background: var(--red);
-    animation: pulse 1.6s ease-in-out infinite;
-  }
+			.badge::before {
+				content: "";
+				width: 0.5rem;
+				height: 0.5rem;
+				border-radius: 50%;
+				background: var(--red);
+				animation: pulse 1.6s ease-in-out infinite;
+			}
 
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.25; }
-  }
+			@keyframes pulse {
+				0%,
+				100% {
+					opacity: 1;
+				}
+				50% {
+					opacity: 0.25;
+				}
+			}
 
-  h1 {
-    font-size: clamp(1.5rem, 2.4vw + 1rem, 2.1rem);
-    line-height: 1.3;
-    margin: 0 0 1rem;
-    color: #fff;
-  }
+			h1 {
+				font-size: clamp(1.5rem, 2.4vw + 1rem, 2.1rem);
+				line-height: 1.3;
+				margin: 0 0 1rem;
+				color: #fff;
+			}
 
-  .lede {
-    font-size: 1.05rem;
-    line-height: 1.7;
-    color: var(--text);
-    margin: 0 0 1.25rem;
-  }
+			.lede {
+				font-size: 1.05rem;
+				line-height: 1.7;
+				color: var(--text);
+				margin: 0 0 1.25rem;
+			}
 
-  section.panel {
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    border-radius: 0.75rem;
-    padding: 1.25rem 1.4rem;
-    margin: 1.25rem 0;
-  }
+			section.panel {
+				background: var(--bg-panel);
+				border: 1px solid var(--border);
+				border-radius: 0.75rem;
+				padding: 1.25rem 1.4rem;
+				margin: 1.25rem 0;
+			}
 
-  section.panel h2 {
-    font-size: 0.8rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--text-dim);
-    margin: 0 0 0.75rem;
-  }
+			section.panel h2 {
+				font-size: 0.8rem;
+				text-transform: uppercase;
+				letter-spacing: 0.08em;
+				color: var(--text-dim);
+				margin: 0 0 0.75rem;
+			}
 
-  .legal {
-    font-size: 0.92rem;
-    line-height: 1.75;
-    color: var(--text-dim);
-  }
+			.legal {
+				font-size: 0.92rem;
+				line-height: 1.75;
+				color: var(--text-dim);
+			}
 
-  .legal strong { color: var(--amber); font-weight: 600; }
+			.legal strong {
+				color: var(--amber);
+				font-weight: 600;
+			}
 
-  .agencies {
-    list-style: none;
-    margin: 0.75rem 0 0;
-    padding: 0;
-    display: grid;
-    gap: 0.5rem;
-  }
+			.agencies {
+				list-style: none;
+				margin: 0.75rem 0 0;
+				padding: 0;
+				display: grid;
+				gap: 0.5rem;
+			}
 
-  .agencies li {
-    font-size: 0.92rem;
-    line-height: 1.6;
-    padding-left: 1.4rem;
-    position: relative;
-    color: var(--text);
-  }
+			.agencies li {
+				font-size: 0.92rem;
+				line-height: 1.6;
+				padding-left: 1.4rem;
+				position: relative;
+				color: var(--text);
+			}
 
-  .agencies li::before {
-    content: "▸";
-    position: absolute;
-    left: 0;
-    color: var(--red);
-  }
+			.agencies li::before {
+				content: "▸";
+				position: absolute;
+				left: 0;
+				color: var(--red);
+			}
 
-  dl.details {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 0.5rem 1rem;
-    margin: 0;
-    font-family: var(--mono);
-    font-size: 0.9rem;
-  }
+			dl.details {
+				display: grid;
+				grid-template-columns: auto 1fr;
+				gap: 0.5rem 1rem;
+				margin: 0;
+				font-family: var(--mono);
+				font-size: 0.9rem;
+			}
 
-  dl.details dt {
-    color: var(--text-dim);
-    white-space: nowrap;
-  }
+			dl.details dt {
+				color: var(--text-dim);
+				white-space: nowrap;
+			}
 
-  dl.details dd {
-    margin: 0;
-    color: var(--amber);
-    word-break: break-word;
-  }
+			dl.details dd {
+				margin: 0;
+				color: var(--amber);
+				word-break: break-word;
+			}
 
-  .map-wrap {
-    margin-top: 1rem;
-    border-radius: 0.5rem;
-    overflow: hidden;
-    border: 1px solid var(--border);
-    aspect-ratio: 16 / 9;
-    background: #05060a;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
+			.map-wrap {
+				margin-top: 1rem;
+				border-radius: 0.5rem;
+				overflow: hidden;
+				border: 1px solid var(--border);
+				aspect-ratio: 16 / 9;
+				background: #05060a;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+			}
 
-  .map-wrap iframe {
-    width: 100%;
-    height: 100%;
-    border: 0;
-    filter: grayscale(0.3) invert(0.92) hue-rotate(180deg) contrast(0.9);
-  }
+			.map-wrap iframe {
+				width: 100%;
+				height: 100%;
+				border: 0;
+				filter: grayscale(0.3) invert(0.92) hue-rotate(180deg) contrast(0.9);
+			}
 
-  .map-wrap .map-placeholder {
-    color: var(--text-dim);
-    font-family: var(--mono);
-    font-size: 0.85rem;
-  }
+			.map-wrap .map-placeholder {
+				color: var(--text-dim);
+				font-family: var(--mono);
+				font-size: 0.85rem;
+			}
 
-  .map-caption {
-    margin: 0.6rem 0 0;
-    font-size: 0.78rem;
-    line-height: 1.6;
-    color: var(--text-dim);
-  }
+			.map-caption {
+				margin: 0.6rem 0 0;
+				font-size: 0.78rem;
+				line-height: 1.6;
+				color: var(--text-dim);
+			}
 
-  .escape {
-    font-size: 0.85rem;
-    line-height: 1.7;
-    color: var(--text-dim);
-    margin-top: 1.5rem;
-    padding-top: 1.25rem;
-    border-top: 1px solid var(--border);
-  }
+			.escape {
+				font-size: 0.85rem;
+				line-height: 1.7;
+				color: var(--text-dim);
+				margin-top: 1.5rem;
+				padding-top: 1.25rem;
+				border-top: 1px solid var(--border);
+			}
 
-  .escape a {
-    color: var(--amber);
-    text-decoration: underline;
-    text-decoration-color: rgba(255, 176, 32, 0.4);
-  }
+			.escape a {
+				color: var(--amber);
+				text-decoration: underline;
+				text-decoration-color: rgba(255, 176, 32, 0.4);
+			}
 
-  .escape a:hover,
-  .escape a:focus-visible {
-    text-decoration-color: var(--amber);
-  }
-</style>
-</head>
-<body>
-  <main>
-    <span class="badge">กำลังบันทึกการเข้าถึง · LOGGED</span>
+			.escape a:hover,
+			.escape a:focus-visible {
+				text-decoration-color: var(--amber);
+			}
+		</style>
+	</head>
+	<body>
+		<main>
+			<span class="badge">กำลังบันทึกการเข้าถึง · LOGGED</span>
 
-    <h1>⚠ ตรวจพบความพยายามเข้าถึงระบบโดยไม่ได้รับอนุญาต</h1>
+			<h1>⚠ ตรวจพบความพยายามเข้าถึงระบบโดยไม่ได้รับอนุญาต</h1>
 
-    <p class="lede">
-      ระบบรักษาความปลอดภัยของเว็บไซต์นี้ตรวจพบว่าที่อยู่ IP ของท่านพยายามเข้าถึงเส้นทางที่ไม่มีอยู่จริง
-      ซึ่งตรงกับรูปแบบที่ใช้ในการสแกนช่องโหว่หรือพยายามเจาะระบบ (unauthorized access / vulnerability scanning)
-      การเข้าถึงครั้งนี้ถูกบันทึกไว้แล้วโดยอัตโนมัติ
-    </p>
+			<p class="lede">
+				ระบบรักษาความปลอดภัยของเว็บไซต์นี้ตรวจพบว่าที่อยู่ IP ของท่านพยายามเข้าถึงเส้นทางที่ไม่มีอยู่จริง
+				ซึ่งตรงกับรูปแบบที่ใช้ในการสแกนช่องโหว่หรือพยายามเจาะระบบ (unauthorized access / vulnerability scanning)
+				การเข้าถึงครั้งนี้ถูกบันทึกไว้แล้วโดยอัตโนมัติ
+			</p>
 
-    <section class="panel">
-      <h2>ข้อกฎหมายที่เกี่ยวข้อง</h2>
-      <p class="legal">
-        การกระทำในลักษณะนี้เข้าข่ายความผิดตาม<strong>พระราชบัญญัติว่าด้วยการกระทำความผิดเกี่ยวกับคอมพิวเตอร์
-        พ.ศ. 2550</strong> และที่แก้ไขเพิ่มเติม (ฉบับที่ 2) พ.ศ. 2560 มาตรา 5 และมาตรา 7
-        (เข้าถึงระบบหรือข้อมูลคอมพิวเตอร์ที่มีมาตรการป้องกันโดยมิชอบ) รวมถึงมาตราอื่นที่เกี่ยวข้อง
-        ซึ่งมีโทษทั้งจำคุกและปรับ
-      </p>
-      <p class="legal">
-        ข้อมูลการเข้าถึงของท่าน ได้แก่ หมายเลข IP เวลา และตำแหน่งโดยประมาณ จะถูกรวบรวมและรายงานไปยังหน่วยงานดังนี้
-      </p>
-      <ul class="agencies">
-        <li>กระทรวงดิจิทัลเพื่อเศรษฐกิจและสังคม (MDES)</li>
-        <li>กองบัญชาการตำรวจสืบสวนสอบสวนอาชญากรรมทางเทคโนโลยี (บช.สอท. / CCIB)</li>
-      </ul>
-    </section>
+			<section class="panel">
+				<h2>ข้อกฎหมายที่เกี่ยวข้อง</h2>
+				<p class="legal">
+					การกระทำในลักษณะนี้เข้าข่ายความผิดตาม<strong>พระราชบัญญัติว่าด้วยการกระทำความผิดเกี่ยวกับคอมพิวเตอร์ พ.ศ. 2550</strong>
+					และที่แก้ไขเพิ่มเติม (ฉบับที่ 2) พ.ศ. 2560 มาตรา 5 และมาตรา 7 (เข้าถึงระบบหรือข้อมูลคอมพิวเตอร์ที่มีมาตรการป้องกันโดยมิชอบ)
+					รวมถึงมาตราอื่นที่เกี่ยวข้อง ซึ่งมีโทษทั้งจำคุกและปรับ
+				</p>
+				<p class="legal">ข้อมูลการเข้าถึงของท่าน ได้แก่ หมายเลข IP เวลา และตำแหน่งโดยประมาณ จะถูกรวบรวมและรายงานไปยังหน่วยงานดังนี้</p>
+				<ul class="agencies">
+					<li>กระทรวงดิจิทัลเพื่อเศรษฐกิจและสังคม (MDES)</li>
+					<li>กองบัญชาการตำรวจสืบสวนสอบสวนอาชญากรรมทางเทคโนโลยี (บช.สอท. / CCIB)</li>
+				</ul>
+			</section>
 
-    <section class="panel">
-      <h2>ข้อมูลที่บันทึกไว้</h2>
-      <dl class="details">
-        <dt>IP Address</dt>
-        <dd id="visitor-ip">กำลังตรวจสอบ…</dd>
-        <dt>เวลาที่เข้าถึง (เครื่องของท่าน)</dt>
-        <dd id="visitor-time">กำลังตรวจสอบ…</dd>
-        <dt>ตำแหน่งโดยประมาณ</dt>
-        <dd id="visitor-location">กำลังตรวจสอบ…</dd>
-      </dl>
-      <div class="map-wrap" id="map-wrap">
-        <span class="map-placeholder">กำลังโหลดแผนที่…</span>
-      </div>
-      <p class="map-caption">
-        ตำแหน่งเป็นค่าประมาณจากฐานข้อมูล IP ของผู้ให้บริการอินเทอร์เน็ต ไม่ใช่ตำแหน่ง GPS จริง
-        และอาจคลาดเคลื่อนได้หลายสิบกิโลเมตร — ผู้ให้บริการหลายรายในไทยลงทะเบียนตำแหน่ง IP
-        ไว้ที่กรุงเทพฯ โดยไม่ขึ้นกับจังหวัดที่ผู้ใช้จริงเชื่อมต่ออยู่
-      </p>
-    </section>
+			<section class="panel">
+				<h2>ข้อมูลที่บันทึกไว้</h2>
+				<dl class="details">
+					<dt>IP Address</dt>
+					<dd id="visitor-ip">กำลังตรวจสอบ…</dd>
+					<dt>เวลาที่เข้าถึง (เครื่องของท่าน)</dt>
+					<dd id="visitor-time">กำลังตรวจสอบ…</dd>
+					<dt>ตำแหน่งโดยประมาณ</dt>
+					<dd id="visitor-location">กำลังตรวจสอบ…</dd>
+				</dl>
+				<div class="map-wrap" id="map-wrap">
+					<span class="map-placeholder">กำลังโหลดแผนที่…</span>
+				</div>
+				<p class="map-caption">
+					ตำแหน่งเป็นค่าประมาณจากฐานข้อมูล IP ของผู้ให้บริการอินเทอร์เน็ต ไม่ใช่ตำแหน่ง GPS จริง และอาจคลาดเคลื่อนได้หลายสิบกิโลเมตร —
+					ผู้ให้บริการหลายรายในไทยลงทะเบียนตำแหน่ง IP ไว้ที่กรุงเทพฯ โดยไม่ขึ้นกับจังหวัดที่ผู้ใช้จริงเชื่อมต่ออยู่
+				</p>
+			</section>
 
-    <p class="escape">
-      หากท่านเข้าถึงหน้านี้โดยไม่เจตนา กรุณาปิดหน้าต่างนี้ หากท่านเป็นนักวิจัยด้านความปลอดภัยที่ต้องการรายงาน
-      ช่องโหว่อย่างถูกต้องตามหลัก Responsible Disclosure กรุณาติดต่อผู้ดูแลระบบที่
-      <a href="mailto:shayetet14@protonmail.com">shayetet14@protonmail.com</a> แทนการทดสอบโดยตรง
-    </p>
-  </main>
-  <script src="/trap/honeypot.js"></script>
-</body>
+			<p class="escape">
+				หากท่านเข้าถึงหน้านี้โดยไม่เจตนา กรุณาปิดหน้าต่างนี้ หากท่านเป็นนักวิจัยด้านความปลอดภัยที่ต้องการรายงาน ช่องโหว่อย่างถูกต้องตามหลัก
+				Responsible Disclosure กรุณาติดต่อผู้ดูแลระบบที่
+				<a href="mailto:shayetet14@protonmail.com">shayetet14@protonmail.com</a> แทนการทดสอบโดยตรง
+			</p>
+		</main>
+		<script src="/trap/honeypot.js"></script>
+	</body>
 </html>

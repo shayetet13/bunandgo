@@ -12,8 +12,7 @@ import type * as LINETypes from "@evex/linejs-types";
 export class PrimaryAccountSmartSwitchRestoreService implements BaseService {
 	client: BaseClient;
 	protocolType: ProtocolKey = 4;
-	requestPath =
-		"/ext/auth/feature-guest/thrift/account/v1/restore/smart-switch";
+	requestPath = "/ext/auth/feature-guest/thrift/account/v1/restore/smart-switch";
 	errorName = "PrimaryAccountSmartSwitchRestoreServiceError";
 	constructor(client: BaseClient) {
 		this.client = client;
@@ -32,12 +31,8 @@ export class PrimaryAccountSmartSwitchRestoreService implements BaseService {
 	}
 
 	async checkIfPasswordSetVerificationEmailVerified(
-		...param: Parameters<
-			typeof LINEStruct.checkIfPasswordSetVerificationEmailVerified_args
-		>
-	): Promise<
-		LINETypes.checkIfPasswordSetVerificationEmailVerified_result["success"]
-	> {
+		...param: Parameters<typeof LINEStruct.checkIfPasswordSetVerificationEmailVerified_args>
+	): Promise<LINETypes.checkIfPasswordSetVerificationEmailVerified_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.checkIfPasswordSetVerificationEmailVerified_args(...param),
 			"checkIfPasswordSetVerificationEmailVerified",
@@ -59,9 +54,7 @@ export class PrimaryAccountSmartSwitchRestoreService implements BaseService {
 		);
 	}
 
-	async getCountryInfo(
-		...param: Parameters<typeof LINEStruct.getCountryInfo_args>
-	): Promise<LINETypes.getCountryInfo_result["success"]> {
+	async getCountryInfo(...param: Parameters<typeof LINEStruct.getCountryInfo_args>): Promise<LINETypes.getCountryInfo_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.getCountryInfo_args(...param),
 			"getCountryInfo",
@@ -71,9 +64,7 @@ export class PrimaryAccountSmartSwitchRestoreService implements BaseService {
 		);
 	}
 
-	async getMaskedEmail(
-		...param: Parameters<typeof LINEStruct.getMaskedEmail_args>
-	): Promise<LINETypes.getMaskedEmail_result["success"]> {
+	async getMaskedEmail(...param: Parameters<typeof LINEStruct.getMaskedEmail_args>): Promise<LINETypes.getMaskedEmail_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.getMaskedEmail_args(...param),
 			"getMaskedEmail",
@@ -84,12 +75,8 @@ export class PrimaryAccountSmartSwitchRestoreService implements BaseService {
 	}
 
 	async getPasswordHashingParametersForPwdReg(
-		...param: Parameters<
-			typeof LINEStruct.getPasswordHashingParametersForPwdReg_args
-		>
-	): Promise<
-		LINETypes.getPasswordHashingParametersForPwdReg_result["success"]
-	> {
+		...param: Parameters<typeof LINEStruct.getPasswordHashingParametersForPwdReg_args>
+	): Promise<LINETypes.getPasswordHashingParametersForPwdReg_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.getPasswordHashingParametersForPwdReg_args(...param),
 			"getPasswordHashingParametersForPwdReg",
@@ -100,12 +87,8 @@ export class PrimaryAccountSmartSwitchRestoreService implements BaseService {
 	}
 
 	async getPasswordHashingParametersForPwdVerif(
-		...param: Parameters<
-			typeof LINEStruct.getPasswordHashingParametersForPwdVerif_args
-		>
-	): Promise<
-		LINETypes.getPasswordHashingParametersForPwdVerif_result["success"]
-	> {
+		...param: Parameters<typeof LINEStruct.getPasswordHashingParametersForPwdVerif_args>
+	): Promise<LINETypes.getPasswordHashingParametersForPwdVerif_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.getPasswordHashingParametersForPwdVerif_args(...param),
 			"getPasswordHashingParametersForPwdVerif",
@@ -128,12 +111,8 @@ export class PrimaryAccountSmartSwitchRestoreService implements BaseService {
 	}
 
 	async requestToSendPasswordSetVerificationEmail(
-		...param: Parameters<
-			typeof LINEStruct.requestToSendPasswordSetVerificationEmail_args
-		>
-	): Promise<
-		LINETypes.requestToSendPasswordSetVerificationEmail_result["success"]
-	> {
+		...param: Parameters<typeof LINEStruct.requestToSendPasswordSetVerificationEmail_args>
+	): Promise<LINETypes.requestToSendPasswordSetVerificationEmail_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.requestToSendPasswordSetVerificationEmail_args(...param),
 			"requestToSendPasswordSetVerificationEmail",
@@ -179,9 +158,7 @@ export class PrimaryAccountSmartSwitchRestoreService implements BaseService {
 		);
 	}
 
-	async verifyEapLogin(
-		...param: Parameters<typeof LINEStruct.verifyEapLogin_args>
-	): Promise<LINETypes.verifyEapLogin_result["success"]> {
+	async verifyEapLogin(...param: Parameters<typeof LINEStruct.verifyEapLogin_args>): Promise<LINETypes.verifyEapLogin_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.verifyEapLogin_args(...param),
 			"verifyEapLogin",

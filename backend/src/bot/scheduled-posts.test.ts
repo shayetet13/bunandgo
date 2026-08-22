@@ -49,10 +49,10 @@ describe("createScheduledPost validation", () => {
 	});
 
 	test("rejects a talk mid on a square post and vice versa", () => {
-		expect(() => createScheduledPost(BOT, { ...baseInput, surface: "square", targetMid: VALID_TALK_MID }))
-			.toThrow(ScheduledPostValidationError);
-		expect(() => createScheduledPost(BOT, { ...baseInput, targetMid: VALID_SQUARE_MID }))
-			.toThrow(ScheduledPostValidationError);
+		expect(() => createScheduledPost(BOT, { ...baseInput, surface: "square", targetMid: VALID_TALK_MID })).toThrow(
+			ScheduledPostValidationError,
+		);
+		expect(() => createScheduledPost(BOT, { ...baseInput, targetMid: VALID_SQUARE_MID })).toThrow(ScheduledPostValidationError);
 	});
 
 	test("rejects empty text", () => {

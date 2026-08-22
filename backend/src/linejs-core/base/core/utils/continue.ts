@@ -2,11 +2,7 @@ import type { LooseType } from "@evex/loose-types";
 
 export type Continuable = { continuationToken?: string; [k: string]: LooseType };
 
-export async function continueRequest<
-	P extends Continuable,
-	R extends Continuable,
-	H extends (param: P) => Promise<R>,
->(options: {
+export async function continueRequest<P extends Continuable, R extends Continuable, H extends (param: P) => Promise<R>>(options: {
 	handler: H;
 	arg: P;
 }): Promise<ReturnType<H>> {
@@ -19,10 +15,7 @@ export async function continueRequest<
 						base[key] = value;
 					} else {
 						if (Array.isArray(value)) {
-							(base[key] as LooseType) = [
-								...value,
-								...base[key] as LooseType,
-							] as LooseType;
+							(base[key] as LooseType) = [...value, ...(base[key] as LooseType)] as LooseType;
 						} else {
 							base[key] = objectSum(base[key], value);
 						}

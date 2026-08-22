@@ -1,11 +1,6 @@
 // For Square (chat, etc)
 
-import {
-	LINEStruct,
-	type NestedArray,
-	type ProtocolKey,
-	Protocols,
-} from "../../thrift/mod.ts";
+import { LINEStruct, type NestedArray, type ProtocolKey, Protocols } from "../../thrift/mod.ts";
 import type * as LINETypes from "@evex/linejs-types";
 import type { BaseClient } from "../../core/mod.ts";
 import type { BaseService } from "../types.ts";
@@ -28,10 +23,7 @@ const EMPTY_CONTENT_METADATA: Record<string, string> = Object.freeze({});
  * catch-all Message builder allocates and scans every optional Message field,
  * even though a bot reply uses only four of them.
  */
-export function buildSquareSendMessageArgs(
-	reqSeq: number,
-	options: SquareSendMessageOptions,
-): NestedArray {
+export function buildSquareSendMessageArgs(reqSeq: number, options: SquareSendMessageOptions): NestedArray {
 	const message: NestedArray = [
 		[11, 2, options.squareChatMid],
 		[11, 10, options.text],
@@ -44,20 +36,26 @@ export function buildSquareSendMessageArgs(
 		[13, 18, [11, 11, options.contentMetadata ?? EMPTY_CONTENT_METADATA]],
 	);
 	if (options.relatedMessageId) {
-		message.push(
-			[11, 21, options.relatedMessageId],
-			[8, 22, LINEStruct.Pb1_EnumC13015h6("REPLY")],
-			[8, 24, LINEStruct.Pb1_E7("SQUARE")],
-		);
+		message.push([11, 21, options.relatedMessageId], [8, 22, LINEStruct.Pb1_EnumC13015h6("REPLY")], [8, 24, LINEStruct.Pb1_E7("SQUARE")]);
 	}
-	return [[12, 1, [
-		[8, 1, reqSeq],
-		[11, 2, options.squareChatMid],
-		[12, 3, [
-			[12, 1, message],
-			[10, 4, 4],
-		]],
-	]]];
+	return [
+		[
+			12,
+			1,
+			[
+				[8, 1, reqSeq],
+				[11, 2, options.squareChatMid],
+				[
+					12,
+					3,
+					[
+						[12, 1, message],
+						[10, 4, 4],
+					],
+				],
+			],
+		],
+	];
 }
 
 export class SquareService implements BaseService {
@@ -94,9 +92,7 @@ export class SquareService implements BaseService {
 		await Promise.resolve();
 	}
 	async inviteIntoSquareChat(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_inviteIntoSquareChat_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_inviteIntoSquareChat_args>
 	): Promise<LINETypes.SquareService_inviteIntoSquareChat_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_inviteIntoSquareChat_args(...param),
@@ -108,9 +104,7 @@ export class SquareService implements BaseService {
 	}
 
 	async inviteToSquare(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_inviteToSquare_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_inviteToSquare_args>
 	): Promise<LINETypes.SquareService_inviteToSquare_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_inviteToSquare_args(...param),
@@ -151,9 +145,7 @@ export class SquareService implements BaseService {
 	}
 
 	async reactToMessage(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_reactToMessage_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_reactToMessage_args>
 	): Promise<LINETypes.SquareService_reactToMessage_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_reactToMessage_args(...param),
@@ -165,16 +157,10 @@ export class SquareService implements BaseService {
 	}
 
 	async findSquareByInvitationTicket(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_findSquareByInvitationTicket_args
-		>
-	): Promise<
-		LINETypes.SquareService_findSquareByInvitationTicket_result["success"]
-	> {
+		...param: Parameters<typeof LINEStruct.SquareService_findSquareByInvitationTicket_args>
+	): Promise<LINETypes.SquareService_findSquareByInvitationTicket_result["success"]> {
 		return await this.client.request.request(
-			LINEStruct.SquareService_findSquareByInvitationTicket_args(
-				...param,
-			),
+			LINEStruct.SquareService_findSquareByInvitationTicket_args(...param),
 			"findSquareByInvitationTicket",
 			this.protocolType,
 			true,
@@ -182,14 +168,12 @@ export class SquareService implements BaseService {
 		);
 	}
 
-	async fetchMyEvents(
-		options: {
-			syncToken?: string;
-			continuationToken?: string;
-			limit?: number;
-			subscriptionId?: number;
-		},
-	): Promise<LINETypes.SquareService_fetchMyEvents_result["success"]> {
+	async fetchMyEvents(options: {
+		syncToken?: string;
+		continuationToken?: string;
+		limit?: number;
+		subscriptionId?: number;
+	}): Promise<LINETypes.SquareService_fetchMyEvents_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_fetchMyEvents_args({
 				request: {
@@ -213,9 +197,7 @@ export class SquareService implements BaseService {
 		/** Internal transport controls; never serialized into the LINE RPC. */
 		timeoutMs?: number;
 		signal?: AbortSignal;
-	}): Promise<
-		LINETypes.SquareService_fetchSquareChatEvents_result["success"]
-	> {
+	}): Promise<LINETypes.SquareService_fetchSquareChatEvents_result["success"]> {
 		const { timeoutMs, signal, ...request } = options;
 		return await this.client.request.request(
 			LINEStruct.SquareService_fetchSquareChatEvents_args({
@@ -231,17 +213,8 @@ export class SquareService implements BaseService {
 		);
 	}
 
-	/**
-	 * `timeoutMs`/`signal` exist only for the hard-drop-ceiling proof (see
-	 * bot/session-manager.ts's testHardTimeoutBurst) — every real caller omits
-	 * them and gets the client's normal configured timeout exactly as before.
-	 */
-	async sendMessage(
-		options: SquareSendMessageOptions,
-		timeoutMs?: number,
-		signal?: AbortSignal,
-	): Promise<LINETypes.SquareService_sendMessage_result["success"]> {
-		const reqSeq = this.client.takeReqseq("sq") ?? await this.client.getReqseq("sq");
+	async sendMessage(options: SquareSendMessageOptions): Promise<LINETypes.SquareService_sendMessage_result["success"]> {
+		const reqSeq = this.client.takeReqseq("sq") ?? (await this.client.getReqseq("sq"));
 		return await this.client.request.request(
 			buildSquareSendMessageArgs(reqSeq, options),
 			"sendMessage",
@@ -249,14 +222,10 @@ export class SquareService implements BaseService {
 			options.fastAck ? "ACK_ONLY" : true,
 			this.requestPath,
 			{},
-			timeoutMs,
-			signal,
 		);
 	}
 
-	async getSquare(
-		options: { squareMid: string },
-	): Promise<LINETypes.SquareService_getSquare_result["success"]> {
+	async getSquare(options: { squareMid: string }): Promise<LINETypes.SquareService_getSquare_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_getSquare_args({
 				request: { mid: options.squareMid },
@@ -269,12 +238,8 @@ export class SquareService implements BaseService {
 	}
 
 	async getJoinableSquareChats(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_getJoinableSquareChats_args
-		>
-	): Promise<
-		LINETypes.SquareService_getJoinableSquareChats_result["success"]
-	> {
+		...param: Parameters<typeof LINEStruct.SquareService_getJoinableSquareChats_args>
+	): Promise<LINETypes.SquareService_getJoinableSquareChats_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_getJoinableSquareChats_args(...param),
 			"getJoinableSquareChats",
@@ -304,8 +269,7 @@ export class SquareService implements BaseService {
 					reqSeq: await this.client.getReqseq("sq"),
 					square: {
 						name: options.squareName,
-						profileImageObsHash: options.profileImageObsHash ||
-							this.defaultSquareCoverImageObsHash,
+						profileImageObsHash: options.profileImageObsHash || this.defaultSquareCoverImageObsHash,
 						desc: options.description,
 						searchable: options.searchable,
 						type: "OPEN",
@@ -331,12 +295,8 @@ export class SquareService implements BaseService {
 	}
 
 	async getSquareChatAnnouncements(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_getSquareChatAnnouncements_args
-		>
-	): Promise<
-		LINETypes.SquareService_getSquareChatAnnouncements_result["success"]
-	> {
+		...param: Parameters<typeof LINEStruct.SquareService_getSquareChatAnnouncements_args>
+	): Promise<LINETypes.SquareService_getSquareChatAnnouncements_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_getSquareChatAnnouncements_args(...param),
 			"getSquareChatAnnouncements",
@@ -347,9 +307,7 @@ export class SquareService implements BaseService {
 	}
 
 	async leaveSquareChat(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_leaveSquareChat_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_leaveSquareChat_args>
 	): Promise<LINETypes.SquareService_leaveSquareChat_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_leaveSquareChat_args(...param),
@@ -361,9 +319,7 @@ export class SquareService implements BaseService {
 	}
 
 	async getSquareChatMember(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_getSquareChatMember_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_getSquareChatMember_args>
 	): Promise<LINETypes.SquareService_getSquareChatMember_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_getSquareChatMember_args(...param),
@@ -387,12 +343,8 @@ export class SquareService implements BaseService {
 	}
 
 	async updateSquareFeatureSet(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_updateSquareFeatureSet_args
-		>
-	): Promise<
-		LINETypes.SquareService_updateSquareFeatureSet_result["success"]
-	> {
+		...param: Parameters<typeof LINEStruct.SquareService_updateSquareFeatureSet_args>
+	): Promise<LINETypes.SquareService_updateSquareFeatureSet_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_updateSquareFeatureSet_args(...param),
 			"updateSquareFeatureSet",
@@ -402,15 +354,13 @@ export class SquareService implements BaseService {
 		);
 	}
 
-	async joinSquare(
-		options: {
-			squareMid: string;
-			displayName: string;
-			ableToReceiveMessage?: boolean;
-			passCode?: string | undefined;
-			joinMessage?: string;
-		},
-	): Promise<LINETypes.SquareService_joinSquare_result["success"]> {
+	async joinSquare(options: {
+		squareMid: string;
+		displayName: string;
+		ableToReceiveMessage?: boolean;
+		passCode?: string | undefined;
+		joinMessage?: string;
+	}): Promise<LINETypes.SquareService_joinSquare_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_joinSquare_args({
 				request: {
@@ -435,9 +385,7 @@ export class SquareService implements BaseService {
 	}
 
 	async getPopularKeywords(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_getPopularKeywords_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_getPopularKeywords_args>
 	): Promise<LINETypes.SquareService_getPopularKeywords_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_getPopularKeywords_args(...param),
@@ -449,9 +397,7 @@ export class SquareService implements BaseService {
 	}
 
 	async reportSquareMessage(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_reportSquareMessage_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_reportSquareMessage_args>
 	): Promise<LINETypes.SquareService_reportSquareMessage_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_reportSquareMessage_args(...param),
@@ -463,12 +409,8 @@ export class SquareService implements BaseService {
 	}
 
 	async updateSquareMemberRelation(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_updateSquareMemberRelation_args
-		>
-	): Promise<
-		LINETypes.SquareService_updateSquareMemberRelation_result["success"]
-	> {
+		...param: Parameters<typeof LINEStruct.SquareService_updateSquareMemberRelation_args>
+	): Promise<LINETypes.SquareService_updateSquareMemberRelation_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_updateSquareMemberRelation_args(...param),
 			"updateSquareMemberRelation",
@@ -491,12 +433,8 @@ export class SquareService implements BaseService {
 	}
 
 	async getSquareMemberRelations(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_getSquareMemberRelations_args
-		>
-	): Promise<
-		LINETypes.SquareService_getSquareMemberRelations_result["success"]
-	> {
+		...param: Parameters<typeof LINEStruct.SquareService_getSquareMemberRelations_args>
+	): Promise<LINETypes.SquareService_getSquareMemberRelations_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_getSquareMemberRelations_args(...param),
 			"getSquareMemberRelations",
@@ -507,9 +445,7 @@ export class SquareService implements BaseService {
 	}
 
 	async removeSubscriptions(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_removeSubscriptions_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_removeSubscriptions_args>
 	): Promise<LINETypes.SquareService_removeSubscriptions_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_removeSubscriptions_args(...param),
@@ -521,9 +457,7 @@ export class SquareService implements BaseService {
 	}
 
 	async getSquareMembers(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_getSquareMembers_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_getSquareMembers_args>
 	): Promise<LINETypes.SquareService_getSquareMembers_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_getSquareMembers_args(...param),
@@ -535,9 +469,7 @@ export class SquareService implements BaseService {
 	}
 
 	async updateSquareChat(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_updateSquareChat_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_updateSquareChat_args>
 	): Promise<LINETypes.SquareService_updateSquareChat_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_updateSquareChat_args(...param),
@@ -548,13 +480,11 @@ export class SquareService implements BaseService {
 		);
 	}
 
-	async destroyMessage(
-		options: {
-			messageId: string;
-			squareChatMid: string;
-			threadMid?: string;
-		},
-	): Promise<LINETypes.SquareService_destroyMessage_result["success"]> {
+	async destroyMessage(options: {
+		messageId: string;
+		squareChatMid: string;
+		threadMid?: string;
+	}): Promise<LINETypes.SquareService_destroyMessage_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_destroyMessage_args({
 				request: {
@@ -571,9 +501,7 @@ export class SquareService implements BaseService {
 	}
 
 	async reportSquareChat(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_reportSquareChat_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_reportSquareChat_args>
 	): Promise<LINETypes.SquareService_reportSquareChat_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_reportSquareChat_args(...param),
@@ -584,13 +512,11 @@ export class SquareService implements BaseService {
 		);
 	}
 
-	async unsendMessage(
-		options: {
-			messageId: string;
-			squareChatMid: string;
-			threadMid?: string;
-		},
-	): Promise<LINETypes.SquareService_unsendMessage_result["success"]> {
+	async unsendMessage(options: {
+		messageId: string;
+		squareChatMid: string;
+		threadMid?: string;
+	}): Promise<LINETypes.SquareService_unsendMessage_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_unsendMessage_args({
 				request: {
@@ -607,16 +533,10 @@ export class SquareService implements BaseService {
 	}
 
 	async deleteSquareChatAnnouncement(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_deleteSquareChatAnnouncement_args
-		>
-	): Promise<
-		LINETypes.SquareService_deleteSquareChatAnnouncement_result["success"]
-	> {
+		...param: Parameters<typeof LINEStruct.SquareService_deleteSquareChatAnnouncement_args>
+	): Promise<LINETypes.SquareService_deleteSquareChatAnnouncement_result["success"]> {
 		return await this.client.request.request(
-			LINEStruct.SquareService_deleteSquareChatAnnouncement_args(
-				...param,
-			),
+			LINEStruct.SquareService_deleteSquareChatAnnouncement_args(...param),
 			"deleteSquareChatAnnouncement",
 			this.protocolType,
 			true,
@@ -625,9 +545,7 @@ export class SquareService implements BaseService {
 	}
 
 	async createSquareChat(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_createSquareChat_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_createSquareChat_args>
 	): Promise<LINETypes.SquareService_createSquareChat_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_createSquareChat_args(...param),
@@ -639,9 +557,7 @@ export class SquareService implements BaseService {
 	}
 
 	async deleteSquareChat(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_deleteSquareChat_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_deleteSquareChat_args>
 	): Promise<LINETypes.SquareService_deleteSquareChat_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_deleteSquareChat_args(...param),
@@ -652,13 +568,11 @@ export class SquareService implements BaseService {
 		);
 	}
 
-	async getSquareChatMembers(
-		options: {
-			continuationToken?: string;
-			squareChatMid: string;
-			limit?: number;
-		},
-	): Promise<LINETypes.SquareService_getSquareChatMembers_result["success"]> {
+	async getSquareChatMembers(options: {
+		continuationToken?: string;
+		squareChatMid: string;
+		limit?: number;
+	}): Promise<LINETypes.SquareService_getSquareChatMembers_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_getSquareChatMembers_args({
 				request: {
@@ -675,9 +589,7 @@ export class SquareService implements BaseService {
 	}
 
 	async getSquareFeatureSet(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_getSquareFeatureSet_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_getSquareFeatureSet_args>
 	): Promise<LINETypes.SquareService_getSquareFeatureSet_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_getSquareFeatureSet_args(...param),
@@ -689,12 +601,8 @@ export class SquareService implements BaseService {
 	}
 
 	async updateSquareAuthority(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_updateSquareAuthority_args
-		>
-	): Promise<
-		LINETypes.SquareService_updateSquareAuthority_result["success"]
-	> {
+		...param: Parameters<typeof LINEStruct.SquareService_updateSquareAuthority_args>
+	): Promise<LINETypes.SquareService_updateSquareAuthority_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_updateSquareAuthority_args(...param),
 			"updateSquareAuthority",
@@ -705,9 +613,7 @@ export class SquareService implements BaseService {
 	}
 
 	async rejectSquareMembers(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_rejectSquareMembers_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_rejectSquareMembers_args>
 	): Promise<LINETypes.SquareService_rejectSquareMembers_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_rejectSquareMembers_args(...param),
@@ -743,12 +649,8 @@ export class SquareService implements BaseService {
 	}
 
 	async getInvitationTicketUrl(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_getInvitationTicketUrl_args
-		>
-	): Promise<
-		LINETypes.SquareService_getInvitationTicketUrl_result["success"]
-	> {
+		...param: Parameters<typeof LINEStruct.SquareService_getInvitationTicketUrl_args>
+	): Promise<LINETypes.SquareService_getInvitationTicketUrl_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_getInvitationTicketUrl_args(...param),
 			"getInvitationTicketUrl",
@@ -759,12 +661,8 @@ export class SquareService implements BaseService {
 	}
 
 	async updateSquareChatMember(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_updateSquareChatMember_args
-		>
-	): Promise<
-		LINETypes.SquareService_updateSquareChatMember_result["success"]
-	> {
+		...param: Parameters<typeof LINEStruct.SquareService_updateSquareChatMember_args>
+	): Promise<LINETypes.SquareService_updateSquareChatMember_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_updateSquareChatMember_args(...param),
 			"updateSquareChatMember",
@@ -775,9 +673,7 @@ export class SquareService implements BaseService {
 	}
 
 	async updateSquareMember(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_updateSquareMember_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_updateSquareMember_args>
 	): Promise<LINETypes.SquareService_updateSquareMember_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_updateSquareMember_args(...param),
@@ -801,9 +697,7 @@ export class SquareService implements BaseService {
 	}
 
 	async getSquareAuthorities(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_getSquareAuthorities_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_getSquareAuthorities_args>
 	): Promise<LINETypes.SquareService_getSquareAuthorities_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_getSquareAuthorities_args(...param),
@@ -815,9 +709,7 @@ export class SquareService implements BaseService {
 	}
 
 	async updateSquareMembers(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_updateSquareMembers_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_updateSquareMembers_args>
 	): Promise<LINETypes.SquareService_updateSquareMembers_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_updateSquareMembers_args(...param),
@@ -829,9 +721,7 @@ export class SquareService implements BaseService {
 	}
 
 	async getSquareChatStatus(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_getSquareChatStatus_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_getSquareChatStatus_args>
 	): Promise<LINETypes.SquareService_getSquareChatStatus_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_getSquareChatStatus_args(...param),
@@ -843,9 +733,7 @@ export class SquareService implements BaseService {
 	}
 
 	async approveSquareMembers(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_approveSquareMembers_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_approveSquareMembers_args>
 	): Promise<LINETypes.SquareService_approveSquareMembers_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_approveSquareMembers_args(...param),
@@ -857,9 +745,7 @@ export class SquareService implements BaseService {
 	}
 
 	async getSquareStatus(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_getSquareStatus_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_getSquareStatus_args>
 	): Promise<LINETypes.SquareService_getSquareStatus_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_getSquareStatus_args(...param),
@@ -871,9 +757,7 @@ export class SquareService implements BaseService {
 	}
 
 	async searchSquareMembers(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_searchSquareMembers_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_searchSquareMembers_args>
 	): Promise<LINETypes.SquareService_searchSquareMembers_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_searchSquareMembers_args(...param),
@@ -902,30 +786,26 @@ export class SquareService implements BaseService {
 		messageId: string;
 		text: string;
 		createdAt: bigint | number;
-	}): Promise<
-		LINETypes.SquareService_createSquareChatAnnouncement_result["success"]
-	> {
+	}): Promise<LINETypes.SquareService_createSquareChatAnnouncement_result["success"]> {
 		return await this.client.request.request(
-			LINEStruct.SquareService_createSquareChatAnnouncement_args(
-				{
-					createSquareChatAnnouncementRequest: {
-						reqSeq: 0,
-						squareChatMid: options.squareChatMid,
-						squareChatAnnouncement: {
-							announcementSeq: 0,
-							contents: {
-								textMessageAnnouncementContents: {
-									senderSquareMemberMid: options.senderMid,
-									messageId: options.messageId,
-									text: options.text,
-								},
+			LINEStruct.SquareService_createSquareChatAnnouncement_args({
+				createSquareChatAnnouncementRequest: {
+					reqSeq: 0,
+					squareChatMid: options.squareChatMid,
+					squareChatAnnouncement: {
+						announcementSeq: 0,
+						contents: {
+							textMessageAnnouncementContents: {
+								senderSquareMemberMid: options.senderMid,
+								messageId: options.messageId,
+								text: options.text,
 							},
-							createdAt: options.createdAt,
-							type: 0,
 						},
+						createdAt: options.createdAt,
+						type: 0,
 					},
 				},
-			),
+			}),
 			"createSquareChatAnnouncement",
 			this.protocolType,
 			true,
@@ -934,9 +814,7 @@ export class SquareService implements BaseService {
 	}
 
 	async getSquareAuthority(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_getSquareAuthority_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_getSquareAuthority_args>
 	): Promise<LINETypes.SquareService_getSquareAuthority_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_getSquareAuthority_args(...param),
@@ -947,9 +825,7 @@ export class SquareService implements BaseService {
 		);
 	}
 
-	async getSquareChat(
-		options: { squareChatMid: string },
-	): Promise<LINETypes.SquareService_getSquareChat_result["success"]> {
+	async getSquareChat(options: { squareChatMid: string }): Promise<LINETypes.SquareService_getSquareChat_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_getSquareChat_args({
 				request: { squareChatMid: options.squareChatMid },
@@ -962,9 +838,7 @@ export class SquareService implements BaseService {
 	}
 
 	async refreshSubscriptions(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_refreshSubscriptions_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_refreshSubscriptions_args>
 	): Promise<LINETypes.SquareService_refreshSubscriptions_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_refreshSubscriptions_args(...param),
@@ -976,9 +850,7 @@ export class SquareService implements BaseService {
 	}
 
 	async getJoinedSquareChats(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_getJoinedSquareChats_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_getJoinedSquareChats_args>
 	): Promise<LINETypes.SquareService_getJoinedSquareChats_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_getJoinedSquareChats_args(...param),
@@ -990,9 +862,7 @@ export class SquareService implements BaseService {
 	}
 
 	async joinSquareChat(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_joinSquareChat_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_joinSquareChat_args>
 	): Promise<LINETypes.SquareService_joinSquareChat_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_joinSquareChat_args(...param),
@@ -1004,9 +874,7 @@ export class SquareService implements BaseService {
 	}
 
 	async findSquareByEmid(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_findSquareByEmid_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_findSquareByEmid_args>
 	): Promise<LINETypes.SquareService_findSquareByEmid_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_findSquareByEmid_args(...param),
@@ -1018,12 +886,8 @@ export class SquareService implements BaseService {
 	}
 
 	async getSquareMemberRelation(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_getSquareMemberRelation_args
-		>
-	): Promise<
-		LINETypes.SquareService_getSquareMemberRelation_result["success"]
-	> {
+		...param: Parameters<typeof LINEStruct.SquareService_getSquareMemberRelation_args>
+	): Promise<LINETypes.SquareService_getSquareMemberRelation_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_getSquareMemberRelation_args(...param),
 			"getSquareMemberRelation",
@@ -1033,9 +897,7 @@ export class SquareService implements BaseService {
 		);
 	}
 
-	async getSquareMember(
-		options: { squareMemberMid: string },
-	): Promise<LINETypes.SquareService_getSquareMember_result["success"]> {
+	async getSquareMember(options: { squareMemberMid: string }): Promise<LINETypes.SquareService_getSquareMember_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_getSquareMember_args({
 				request: options,
@@ -1046,12 +908,8 @@ export class SquareService implements BaseService {
 			this.requestPath,
 		);
 	}
-	async deleteOtherFromSquare(
-		squareMemberMid: string,
-	): Promise<LINETypes.SquareService_updateSquareMember_result["success"]> {
-		if (
-			typeof squareMemberMid !== "string" || !squareMemberMid.startsWith("p")
-		) {
+	async deleteOtherFromSquare(squareMemberMid: string): Promise<LINETypes.SquareService_updateSquareMember_result["success"]> {
+		if (typeof squareMemberMid !== "string" || !squareMemberMid.startsWith("p")) {
 			throw new Error("Invalid value: squareMemberMid");
 		}
 		const response = await this.getSquareMember({ squareMemberMid });
@@ -1068,9 +926,7 @@ export class SquareService implements BaseService {
 		});
 	}
 	async destroyMessages(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_destroyMessages_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_destroyMessages_args>
 	): Promise<LINETypes.SquareService_destroyMessages_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_destroyMessages_args(...param),
@@ -1094,9 +950,7 @@ export class SquareService implements BaseService {
 	}
 
 	async reportSquareMember(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_reportSquareMember_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_reportSquareMember_args>
 	): Promise<LINETypes.SquareService_reportSquareMember_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_reportSquareMember_args(...param),
@@ -1119,16 +973,12 @@ export class SquareService implements BaseService {
 		);
 	}
 
-	async searchSquareChatMembers(
-		options: {
-			searchOption?: LINETypes.SquareChatMemberSearchOption;
-			continuationToken?: string;
-			squareChatMid: string;
-			limit?: number;
-		},
-	): Promise<
-		LINETypes.SquareService_searchSquareChatMembers_result["success"]
-	> {
+	async searchSquareChatMembers(options: {
+		searchOption?: LINETypes.SquareChatMemberSearchOption;
+		continuationToken?: string;
+		squareChatMid: string;
+		limit?: number;
+	}): Promise<LINETypes.SquareService_searchSquareChatMembers_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_searchSquareChatMembers_args({
 				request: {
@@ -1146,12 +996,8 @@ export class SquareService implements BaseService {
 	}
 
 	async getSquareChatFeatureSet(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_getSquareChatFeatureSet_args
-		>
-	): Promise<
-		LINETypes.SquareService_getSquareChatFeatureSet_result["success"]
-	> {
+		...param: Parameters<typeof LINEStruct.SquareService_getSquareChatFeatureSet_args>
+	): Promise<LINETypes.SquareService_getSquareChatFeatureSet_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_getSquareChatFeatureSet_args(...param),
 			"getSquareChatFeatureSet",
@@ -1174,12 +1020,8 @@ export class SquareService implements BaseService {
 	}
 
 	async getSquareMembersBySquare(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_getSquareMembersBySquare_args
-		>
-	): Promise<
-		LINETypes.SquareService_getSquareMembersBySquare_result["success"]
-	> {
+		...param: Parameters<typeof LINEStruct.SquareService_getSquareMembersBySquare_args>
+	): Promise<LINETypes.SquareService_getSquareMembersBySquare_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_getSquareMembersBySquare_args(...param),
 			"getSquareMembersBySquare",
@@ -1202,9 +1044,7 @@ export class SquareService implements BaseService {
 	}
 
 	async syncSquareMembers(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_syncSquareMembers_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_syncSquareMembers_args>
 	): Promise<LINETypes.SquareService_syncSquareMembers_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_syncSquareMembers_args(...param),
@@ -1216,12 +1056,8 @@ export class SquareService implements BaseService {
 	}
 
 	async hideSquareMemberContents(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_hideSquareMemberContents_args
-		>
-	): Promise<
-		LINETypes.SquareService_hideSquareMemberContents_result["success"]
-	> {
+		...param: Parameters<typeof LINEStruct.SquareService_hideSquareMemberContents_args>
+	): Promise<LINETypes.SquareService_hideSquareMemberContents_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_hideSquareMemberContents_args(...param),
 			"hideSquareMemberContents",
@@ -1232,9 +1068,7 @@ export class SquareService implements BaseService {
 	}
 
 	async markChatsAsRead(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_markChatsAsRead_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_markChatsAsRead_args>
 	): Promise<LINETypes.SquareService_markChatsAsRead_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_markChatsAsRead_args(...param),
@@ -1246,9 +1080,7 @@ export class SquareService implements BaseService {
 	}
 
 	async reportMessageSummary(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_reportMessageSummary_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_reportMessageSummary_args>
 	): Promise<LINETypes.SquareService_reportMessageSummary_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_reportMessageSummary_args(...param),
@@ -1260,9 +1092,7 @@ export class SquareService implements BaseService {
 	}
 
 	async getGoogleAdOptions(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_getGoogleAdOptions_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_getGoogleAdOptions_args>
 	): Promise<LINETypes.SquareService_getGoogleAdOptions_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_getGoogleAdOptions_args(...param),
@@ -1274,12 +1104,8 @@ export class SquareService implements BaseService {
 	}
 
 	async unhideSquareMemberContents(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_unhideSquareMemberContents_args
-		>
-	): Promise<
-		LINETypes.SquareService_unhideSquareMemberContents_result["success"]
-	> {
+		...param: Parameters<typeof LINEStruct.SquareService_unhideSquareMemberContents_args>
+	): Promise<LINETypes.SquareService_unhideSquareMemberContents_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_unhideSquareMemberContents_args(...param),
 			"unhideSquareMemberContents",
@@ -1290,9 +1116,7 @@ export class SquareService implements BaseService {
 	}
 
 	async getSquareChatEmid(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_getSquareChatEmid_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_getSquareChatEmid_args>
 	): Promise<LINETypes.SquareService_getSquareChatEmid_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_getSquareChatEmid_args(...param),
@@ -1304,9 +1128,7 @@ export class SquareService implements BaseService {
 	}
 
 	async getSquareThread(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_getSquareThread_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_getSquareThread_args>
 	): Promise<LINETypes.SquareService_getSquareThread_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_getSquareThread_args(...param),
@@ -1318,9 +1140,7 @@ export class SquareService implements BaseService {
 	}
 
 	async getSquareThreadMid(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_getSquareThreadMid_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_getSquareThreadMid_args>
 	): Promise<LINETypes.SquareService_getSquareThreadMid_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_getSquareThreadMid_args(...param),
@@ -1332,9 +1152,7 @@ export class SquareService implements BaseService {
 	}
 
 	async getUserSettings(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_getUserSettings_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_getUserSettings_args>
 	): Promise<LINETypes.SquareService_getUserSettings_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_getUserSettings_args(...param),
@@ -1346,9 +1164,7 @@ export class SquareService implements BaseService {
 	}
 
 	async markThreadsAsRead(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_markThreadsAsRead_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_markThreadsAsRead_args>
 	): Promise<LINETypes.SquareService_markThreadsAsRead_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_markThreadsAsRead_args(...param),
@@ -1360,12 +1176,8 @@ export class SquareService implements BaseService {
 	}
 
 	async sendSquareThreadMessage(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_sendSquareThreadMessage_args
-		>
-	): Promise<
-		LINETypes.SquareService_sendSquareThreadMessage_result["success"]
-	> {
+		...param: Parameters<typeof LINEStruct.SquareService_sendSquareThreadMessage_args>
+	): Promise<LINETypes.SquareService_sendSquareThreadMessage_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_sendSquareThreadMessage_args(...param),
 			"sendSquareThreadMessage",
@@ -1376,16 +1188,10 @@ export class SquareService implements BaseService {
 	}
 
 	async findSquareByInvitationTicketV2(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_findSquareByInvitationTicketV2_args
-		>
-	): Promise<
-		LINETypes.SquareService_findSquareByInvitationTicketV2_result["success"]
-	> {
+		...param: Parameters<typeof LINEStruct.SquareService_findSquareByInvitationTicketV2_args>
+	): Promise<LINETypes.SquareService_findSquareByInvitationTicketV2_result["success"]> {
 		return await this.client.request.request(
-			LINEStruct.SquareService_findSquareByInvitationTicketV2_args(
-				...param,
-			),
+			LINEStruct.SquareService_findSquareByInvitationTicketV2_args(...param),
 			"findSquareByInvitationTicketV2",
 			this.protocolType,
 			true,
@@ -1394,9 +1200,7 @@ export class SquareService implements BaseService {
 	}
 
 	async leaveSquareThread(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_leaveSquareThread_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_leaveSquareThread_args>
 	): Promise<LINETypes.SquareService_leaveSquareThread_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_leaveSquareThread_args(...param),
@@ -1408,9 +1212,7 @@ export class SquareService implements BaseService {
 	}
 
 	async joinSquareThread(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_joinSquareThread_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_joinSquareThread_args>
 	): Promise<LINETypes.SquareService_joinSquareThread_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_joinSquareThread_args(...param),
@@ -1422,9 +1224,7 @@ export class SquareService implements BaseService {
 	}
 
 	async updateUserSettings(
-		...param: Parameters<
-			typeof LINEStruct.SquareService_updateUserSettings_args
-		>
+		...param: Parameters<typeof LINEStruct.SquareService_updateUserSettings_args>
 	): Promise<LINETypes.SquareService_updateUserSettings_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.SquareService_updateUserSettings_args(...param),

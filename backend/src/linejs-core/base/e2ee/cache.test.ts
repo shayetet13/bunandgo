@@ -10,18 +10,21 @@ function makeClient(preloadPeer: boolean) {
 	const self = nacl.box.keyPair();
 	const peer = nacl.box.keyPair();
 	const values = new Map<string, unknown>();
-	values.set(`e2eeKeys:${SELF}`, JSON.stringify({
-		keyId: 1,
-		privKey: Buffer.from(self.secretKey).toString("base64"),
-		pubKey: Buffer.from(self.publicKey).toString("base64"),
-	}));
+	values.set(
+		`e2eeKeys:${SELF}`,
+		JSON.stringify({
+			keyId: 1,
+			privKey: Buffer.from(self.secretKey).toString("base64"),
+			pubKey: Buffer.from(self.publicKey).toString("base64"),
+		}),
+	);
 	if (preloadPeer) {
 		values.set("e2eePublicKeys:2", Buffer.from(peer.publicKey).toString("base64"));
 	}
 	let negotiations = 0;
 	const client = {
 		profile: { mid: SELF },
-		getToType: (mid: string) => mid.startsWith("u") ? 0 : 2,
+		getToType: (mid: string) => (mid.startsWith("u") ? 0 : 2),
 		log() {},
 		storage: {
 			async get(key: string) {
@@ -51,10 +54,7 @@ describe("E2EE hot cache", () => {
 			const local = nacl.box.keyPair();
 			const peer = nacl.box.keyPair();
 			const expected = Buffer.from(sharedKey(local.secretKey, peer.publicKey));
-			const actual = Buffer.from(e2ee.generateSharedSecret(
-				Buffer.from(local.secretKey),
-				Buffer.from(peer.publicKey),
-			));
+			const actual = Buffer.from(e2ee.generateSharedSecret(Buffer.from(local.secretKey), Buffer.from(peer.publicKey)));
 			expect(actual.equals(expected)).toBe(true);
 		}
 	});
@@ -74,10 +74,7 @@ describe("E2EE hot cache", () => {
 		const peer = nacl.box.keyPair();
 		const to = "c00000000000000000000000000000001";
 		const from = PEER;
-		const shared = Buffer.from(e2ee.generateSharedSecret(
-			Buffer.from(local.secretKey),
-			Buffer.from(peer.publicKey),
-		));
+		const shared = Buffer.from(e2ee.generateSharedSecret(Buffer.from(local.secretKey), Buffer.from(peer.publicKey)));
 		const chunks = e2ee.encryptE2EETextMessage(2, 1, shared, 2, "cached", to, from);
 		const original = e2ee.generateSharedSecret.bind(e2ee);
 		let generated = 0;
@@ -86,20 +83,12 @@ describe("E2EE hot cache", () => {
 			return original(privateKey, publicKey);
 		}) as typeof e2ee.generateSharedSecret;
 
-		expect(e2ee.decryptE2EEMessageV2(
-			to,
-			from,
-			chunks,
-			Buffer.from(local.secretKey),
-			Buffer.from(peer.publicKey),
-		)).toEqual({ text: "cached" });
-		expect(e2ee.decryptE2EEMessageV2(
-			to,
-			from,
-			chunks,
-			Buffer.from(local.secretKey),
-			Buffer.from(peer.publicKey),
-		)).toEqual({ text: "cached" });
+		expect(e2ee.decryptE2EEMessageV2(to, from, chunks, Buffer.from(local.secretKey), Buffer.from(peer.publicKey))).toEqual({
+			text: "cached",
+		});
+		expect(e2ee.decryptE2EEMessageV2(to, from, chunks, Buffer.from(local.secretKey), Buffer.from(peer.publicKey))).toEqual({
+			text: "cached",
+		});
 		expect(generated).toBe(1);
 	});
 

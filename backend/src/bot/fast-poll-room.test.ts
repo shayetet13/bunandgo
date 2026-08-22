@@ -4,10 +4,7 @@ import { selectFastPollRooms } from "./fast-poll-room.ts";
 const room = (mid: string, recentMessages: number) => ({ mid, recentMessages });
 
 /** The single-room budget, which is still the default everywhere. */
-function pick(
-	candidates: ReadonlyArray<{ mid: string; recentMessages: number }>,
-	current: string | undefined,
-): string | undefined {
+function pick(candidates: ReadonlyArray<{ mid: string; recentMessages: number }>, current: string | undefined): string | undefined {
 	return selectFastPollRooms(candidates, current === undefined ? [] : [current], 1)[0];
 }
 
@@ -69,13 +66,11 @@ describe("selectFastPollRooms — a raised budget", () => {
 	test("one bot covers several rooms, busiest first", () => {
 		// The point of the budget: four rooms need one account allowed four
 		// rooms, not four accounts.
-		expect(selectFastPollRooms([room("a", 1), room("b", 9), room("c", 4)], [], 3))
-			.toEqual(["b", "c", "a"]);
+		expect(selectFastPollRooms([room("a", 1), room("b", 9), room("c", 4)], [], 3)).toEqual(["b", "c", "a"]);
 	});
 
 	test("never returns more rooms than the budget", () => {
-		expect(selectFastPollRooms([room("a", 1), room("b", 9), room("c", 4)], [], 2))
-			.toEqual(["b", "c"]);
+		expect(selectFastPollRooms([room("a", 1), room("b", 9), room("c", 4)], [], 2)).toEqual(["b", "c"]);
 	});
 
 	test("never returns more rooms than the bot actually has", () => {

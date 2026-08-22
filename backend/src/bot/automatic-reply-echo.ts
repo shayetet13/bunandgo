@@ -34,13 +34,7 @@ function evictExpired(now: number): void {
 	}
 }
 
-export function trackAutomaticReply(
-	botId: number,
-	surface: Surface,
-	targetMid: string,
-	text: string,
-	now = Date.now(),
-): () => void {
+export function trackAutomaticReply(botId: number, surface: Surface, targetMid: string, text: string, now = Date.now()): () => void {
 	evictExpired(now);
 	const key = signature(botId, surface, targetMid, text);
 	const token = ++nextToken;

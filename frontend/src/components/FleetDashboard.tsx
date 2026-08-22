@@ -25,7 +25,8 @@ export function FleetDashboard({ bots }: FleetDashboardProps) {
 	useEffect(() => {
 		let cancelled = false;
 		function load() {
-			api.metricsSummary()
+			api
+				.metricsSummary()
 				.then((s) => {
 					if (!cancelled) setSummary(s);
 				})
@@ -43,9 +44,18 @@ export function FleetDashboard({ bots }: FleetDashboardProps) {
 
 	return (
 		<section className="panel" style={{ padding: "var(--space-md)" }}>
-			<div className="label" style={{ marginBottom: "var(--space-sm)" }}>ภาพรวมบอททั้งหมด</div>
+			<div className="label" style={{ marginBottom: "var(--space-sm)" }}>
+				ภาพรวมบอททั้งหมด
+			</div>
 
-			<div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "var(--space-md)", marginBottom: "var(--space-md)" }}>
+			<div
+				style={{
+					display: "grid",
+					gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+					gap: "var(--space-md)",
+					marginBottom: "var(--space-md)",
+				}}
+			>
 				<StatCard label="จำนวนบอท" value={`${onlineCount}/${bots.length}`} hint="ออนไลน์ / ทั้งหมด" />
 				<StatCard label="ข้อความทั้งหมด" value={summary ? String(summary.totalMessages) : "—"} hint="ตั้งแต่เริ่มใช้งาน" />
 				<StatCard label="วันนี้" value={summary ? String(summary.todayCount) : "—"} hint="ข้อความที่ส่งวันนี้" />

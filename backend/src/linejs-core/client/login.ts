@@ -7,10 +7,7 @@ import type { FetchLike } from "../base/mod.ts";
 import type { Device } from "../base/mod.ts";
 import { BaseClient } from "../base/mod.ts";
 import type { BaseStorage } from "../base/storage/mod.ts";
-import {
-	type AuthTokenInput,
-	parseAuthTokenInput,
-} from "../base/request/auth_token.ts";
+import { type AuthTokenInput, parseAuthTokenInput } from "../base/request/auth_token.ts";
 import { Client } from "./client.ts";
 
 export interface InitOptions {
@@ -65,10 +62,7 @@ export interface WithQROptions {
 	onReceiveQRUrl(url: string): Promise<void> | void;
 	onPincodeRequest(pin: string): void | Promise<void>;
 }
-export const loginWithQR = async (
-	opts: WithQROptions,
-	init: InitOptions,
-): Promise<Client> => {
+export const loginWithQR = async (opts: WithQROptions, init: InitOptions): Promise<Client> => {
 	const base = createBaseClient(init);
 	base.on("qrcall", opts.onReceiveQRUrl);
 	base.on("pincall", opts.onPincodeRequest);
@@ -85,10 +79,7 @@ export interface WithPasswordOptions {
 
 	onPincodeRequest(pin: string): void | Promise<void>;
 }
-export const loginWithPassword = async (
-	opts: WithPasswordOptions,
-	init: InitOptions,
-): Promise<Client> => {
+export const loginWithPassword = async (opts: WithPasswordOptions, init: InitOptions): Promise<Client> => {
 	const base = createBaseClient(init);
 	base.on("pincall", opts.onPincodeRequest);
 	await base.loginProcess.withPassword({
@@ -100,10 +91,7 @@ export const loginWithPassword = async (
 	return new Client(base);
 };
 
-export const loginWithAuthToken = async (
-	authToken: AuthTokenInput,
-	init: InitOptions,
-): Promise<Client> => {
+export const loginWithAuthToken = async (authToken: AuthTokenInput, init: InitOptions): Promise<Client> => {
 	const base = createBaseClient(init);
 	const credential = parseAuthTokenInput(authToken);
 	base.authToken = credential.accessToken;

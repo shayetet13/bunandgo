@@ -34,9 +34,10 @@ function toEpochMs(value: unknown): number | undefined {
 
 /** LINE's own stamp for a message, on the clock every participant shares. */
 export function lineCreatedTimeOf(surface: Surface, message: TalkMessage | SquareMessage): number | undefined {
-	const raw = surface === "talk"
-		? toEpochMs((message as TalkMessage).raw.createdTime)
-		: toEpochMs((message as SquareMessage).raw.message.createdTime);
+	const raw =
+		surface === "talk"
+			? toEpochMs((message as TalkMessage).raw.createdTime)
+			: toEpochMs((message as SquareMessage).raw.message.createdTime);
 	return raw !== undefined && raw > 0 ? raw : undefined;
 }
 
@@ -58,11 +59,7 @@ export function toLineEpochMs(value: unknown): number | undefined {
  * negative value means our clock runs ahead of LINE's, which is a fact
  * worth seeing rather than hiding behind a zero.
  */
-export function inboundDelayMs(
-	surface: Surface,
-	message: TalkMessage | SquareMessage,
-	now = Date.now(),
-): number | undefined {
+export function inboundDelayMs(surface: Surface, message: TalkMessage | SquareMessage, now = Date.now()): number | undefined {
 	const createdTime = createdTimeOf(surface, message);
 	if (createdTime === undefined || createdTime <= 0) return undefined;
 	return now - createdTime;

@@ -54,9 +54,7 @@ export class MultiProfileService implements BaseService {
 		);
 	}
 
-	async updateProfileAttributes(
-		...param: Parameters<typeof LINEStruct.updateProfileAttributes_args>
-	): Promise<void> {
+	async updateProfileAttributes(...param: Parameters<typeof LINEStruct.updateProfileAttributes_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.updateProfileAttributes_args(...param),
 			"updateProfileAttributes",
@@ -78,16 +76,8 @@ export class MultiProfileService implements BaseService {
 		);
 	}
 
-	async getProfile(
-		...param: Parameters<typeof LINEStruct.getProfile_args>
-	): Promise<LINETypes.getProfile_result["success"]> {
-		return await this.client.request.request(
-			LINEStruct.getProfile_args(...param),
-			"getProfile",
-			this.protocolType,
-			true,
-			this.requestPath,
-		);
+	async getProfile(...param: Parameters<typeof LINEStruct.getProfile_args>): Promise<LINETypes.getProfile_result["success"]> {
+		return await this.client.request.request(LINEStruct.getProfile_args(...param), "getProfile", this.protocolType, true, this.requestPath);
 	}
 
 	async getUsersMappedByProfile(

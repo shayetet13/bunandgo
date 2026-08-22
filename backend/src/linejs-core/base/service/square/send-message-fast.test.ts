@@ -21,10 +21,10 @@ function generated(reqSeq: number, options: SendOptions) {
 					location: options.location,
 					...(options.relatedMessageId
 						? {
-							relatedMessageId: options.relatedMessageId,
-							relatedMessageServiceCode: "SQUARE" as const,
-							messageRelationType: "REPLY" as const,
-						}
+								relatedMessageId: options.relatedMessageId,
+								relatedMessageServiceCode: "SQUARE" as const,
+								messageRelationType: "REPLY" as const,
+							}
 						: {}),
 				},
 			},
@@ -58,16 +58,8 @@ describe("Square send hot builder", () => {
 	];
 	for (const sample of samples) {
 		test(`matches generated wire bytes for reqSeq ${sample.reqSeq}`, () => {
-			const expected = writeThrift(
-				generated(sample.reqSeq, sample.options),
-				"sendMessage",
-				Protocols[4],
-			);
-			const actual = writeThrift(
-				buildSquareSendMessageArgs(sample.reqSeq, sample.options),
-				"sendMessage",
-				Protocols[4],
-			);
+			const expected = writeThrift(generated(sample.reqSeq, sample.options), "sendMessage", Protocols[4]);
+			const actual = writeThrift(buildSquareSendMessageArgs(sample.reqSeq, sample.options), "sendMessage", Protocols[4]);
 			expect(actual).toEqual(expected);
 		});
 	}

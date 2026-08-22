@@ -32,10 +32,9 @@ export function isPublicIp(ip: string | undefined): boolean {
 export async function lookupIpGeo(ip: string): Promise<IpGeoInfo | null> {
 	if (!isPublicIp(ip)) return null;
 	try {
-		const res = await fetch(
-			`http://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,country,regionName,city,isp,lat,lon`,
-			{ signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS) },
-		);
+		const res = await fetch(`http://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,country,regionName,city,isp,lat,lon`, {
+			signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS),
+		});
 		if (!res.ok) return null;
 		const data = (await res.json()) as { status?: string } & IpGeoInfo;
 		if (data.status !== "success") return null;
@@ -49,8 +48,7 @@ export function formatGeoLine(geo: IpGeoInfo | null): string {
 	if (!geo) return "ตำแหน่ง: ไม่ทราบ (IP ภายใน หรือ lookup ไม่สำเร็จ)";
 	const place = [geo.city, geo.regionName, geo.country].filter(Boolean).join(", ") || "ไม่ทราบ";
 	const isp = geo.isp ? ` · ISP: ${geo.isp}` : "";
-	const map = geo.lat !== undefined && geo.lon !== undefined
-		? `\nแผนที่ (โดยประมาณ): https://www.google.com/maps?q=${geo.lat},${geo.lon}`
-		: "";
+	const map =
+		geo.lat !== undefined && geo.lon !== undefined ? `\nแผนที่ (โดยประมาณ): https://www.google.com/maps?q=${geo.lat},${geo.lon}` : "";
 	return `ตำแหน่ง: ${place}${isp}${map}`;
 }

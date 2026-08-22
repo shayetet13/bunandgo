@@ -36,13 +36,47 @@ describe("runLogPurge", () => {
 
 		db.run("INSERT INTO bot_events (bot_id, ts, type, message) VALUES (?, ?, ?, ?)", [1, recent, "error", "recent"]);
 		db.run("INSERT INTO user_actions (user_id, username, ts, action, detail) VALUES (?, ?, ?, ?, ?)", [1, "u", recent, "login", null]);
-		db.run("INSERT INTO user_actions (user_id, username, ts, action, detail) VALUES (?, ?, ?, ?, ?)", [1, "old", expiredAudit, "login", null]);
-		db.run("INSERT INTO latency_samples (bot_id, ts, surface, target_mid, latency_ms, ok, source, text_preview) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [1, recent, "talk", null, 10, 1, "auto", null]);
-		db.run("INSERT INTO latency_samples (bot_id, ts, surface, target_mid, latency_ms, ok, source, text_preview) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [1, now - 31 * DAY_MS, "talk", null, 99, 1, "auto", null]);
+		db.run("INSERT INTO user_actions (user_id, username, ts, action, detail) VALUES (?, ?, ?, ?, ?)", [
+			1,
+			"old",
+			expiredAudit,
+			"login",
+			null,
+		]);
+		db.run(
+			"INSERT INTO latency_samples (bot_id, ts, surface, target_mid, latency_ms, ok, source, text_preview) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+			[1, recent, "talk", null, 10, 1, "auto", null],
+		);
+		db.run(
+			"INSERT INTO latency_samples (bot_id, ts, surface, target_mid, latency_ms, ok, source, text_preview) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+			[1, now - 31 * DAY_MS, "talk", null, 99, 1, "auto", null],
+		);
 		db.run("INSERT INTO messages_in (bot_id, ts, surface, target_mid, text) VALUES (?, ?, ?, ?, ?)", [1, recent, "talk", "m1", "hello"]);
-		db.run("INSERT INTO anomalies (bot_id, ts, kind, severity, detail) VALUES (?, ?, ?, ?, ?)", [1, recent, "send_dropped", "critical", "blocked"]);
-		db.run("INSERT INTO lane_race_events (ts, worker_id, origin, lane_id, role, result, rtt_ms) VALUES (?, ?, ?, ?, ?, ?, ?)", [recent, "test", "https://line.test", 1, "poll", "star", 12]);
-		db.run("INSERT INTO lane_race_events (ts, worker_id, origin, lane_id, role, result, rtt_ms) VALUES (?, ?, ?, ?, ?, ?, ?)", [now - 31 * DAY_MS, "test", "https://line.test", 2, "poll", "banana", 20]);
+		db.run("INSERT INTO anomalies (bot_id, ts, kind, severity, detail) VALUES (?, ?, ?, ?, ?)", [
+			1,
+			recent,
+			"send_dropped",
+			"critical",
+			"blocked",
+		]);
+		db.run("INSERT INTO lane_race_events (ts, worker_id, origin, lane_id, role, result, rtt_ms) VALUES (?, ?, ?, ?, ?, ?, ?)", [
+			recent,
+			"test",
+			"https://line.test",
+			1,
+			"poll",
+			"star",
+			12,
+		]);
+		db.run("INSERT INTO lane_race_events (ts, worker_id, origin, lane_id, role, result, rtt_ms) VALUES (?, ?, ?, ?, ?, ?, ?)", [
+			now - 31 * DAY_MS,
+			"test",
+			"https://line.test",
+			2,
+			"poll",
+			"banana",
+			20,
+		]);
 
 		runLogPurge(now);
 

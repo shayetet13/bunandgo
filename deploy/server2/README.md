@@ -1,140 +1,93 @@
 # Server 2 production workers
 
-Server 2 runs one public control-plane worker and, when enabled, one or more
-owner-scoped workers. All processes use the same local SQLite database, but an
-owner belongs to exactly one runtime process. Split by `owner_user_id`, never by
-an individual bot: sibling-bot coordination is in memory and every current and
-future bot for that owner must move together.
+Server 2 runs two permanent runtime processes against one shared SQLite
+database. Primary is the public control plane on port 8791; Shard B is private
+on port 8792. An owner and all of that owner's bots always run in exactly one
+process.
 
-## Configuration sources
+## Permanent topology
 
-| Process | Unit | Environment source | Listen port |
-| --- | --- | --- | --- |
-| Primary/control plane | `linebot-worker` | `/etc/linebot/worker.env` | 8791 |
-| Shard B | `linebot-worker-shard-b` | `/etc/linebot/worker-shard-b.env` | 8792 |
+The source of truth is `/opt/linebot/shared/worker-topology.json`. Start from
+`worker-topology.example.json`, replace both placeholder secrets, then install
+the file as `linebot:linebot` mode `0600` before restarting either service.
 
-Both files are `root:linebot` mode `0640`. Production releases contain no
-`.env`, `.env.local`, or `.env.production`. Both units run Bun with
-`--no-env-file`, so a stale file in a current or rollback release cannot merge
-the primary's scope into a shard. Do not use
-`/opt/linebot/current/backend/.env` for production configuration.
+The production invariants are:
 
-The unit files deliberately define empty topology defaults before their
-required `EnvironmentFile`. This clears any manager-wide values while allowing
-the service-specific file to supply the real values.
+| Property              | Primary                         | Shard B                          |
+| --------------------- | ------------------------------- | -------------------------------- |
+| Worker ID             | `primary`                       | `shard-b`                        |
+| API port              | 8791                            | 8792, loopback only              |
+| LINE lane source      | 16 local Server 2 lanes         | 16 Server 3 relay lanes          |
+| Send-reserved lanes   | 4                               | 4                                |
+| Zero-delay poll slots | 8                               | 8                                |
+| Owner allocation      | first new owner, then every tie | second new owner, then every tie |
 
-## Required topology invariant
+`assignmentMode: balanced-sticky` persists the selected worker in
+`owner_worker_assignments` when an owner creates the first bot. Allocation uses
+the worker with fewer owners and Primary wins a tie. Later bot creation, login,
+reconnect, restart, and deploy all reuse that row; existing owners are never
+rebalanced automatically. Deleting the user removes its obsolete assignment.
 
-For the owner-2 / bot-117 split, the effective settings are:
+Primary routes requests for Shard B owners over loopback. Shard B accepts only
+authenticated forwards from Primary and reports events back to Primary. Both
+services share `CONTROL_PLANE_TOKEN`, but the token lives only in the protected
+runtime topology. Static `WORKER_OWNER_SCOPE`, `WORKER_OWNER_EXCLUDE`, and
+`WORKER_OWNER_ROUTES` values remain empty.
 
-| Key | Primary | Shard B |
-| --- | --- | --- |
-| `WORKER_OWNER_SCOPE` | unset | `2` |
-| `WORKER_OWNER_EXCLUDE` | `2` | unset |
-| `WORKER_OWNER_ROUTES` | `2=http://127.0.0.1:8792` | unset |
-| `CONTROL_PLANE_URL` | unset | `http://127.0.0.1:8791` |
-| `CONTROL_PLANE_TOKEN` | same 32+ character secret | same secret |
-| `SQUARE_FAST_POLL_INTERVAL_MS` | `100` | `50` |
-| `SQUARE_FAST_POLL_ALLOW_50MS` | unset | `1` |
+## Lane and latency policy
 
-With multiple shards, the primary's excluded-owner set must exactly equal the
-union of every enabled shard scope. `WORKER_OWNER_ROUTES` must map every one of
-those owners to its shard loopback port, with no duplicates or overlaps. The
-backend validates this topology before starting the sender or any LINE session.
+Both workers use 16 effective H2 lanes: four are reserved for sends and twelve
+are available for polling. Eight zero-delay poll slots can be active per
+worker. The scheduler explores the complete poll pool every two seconds, ranks
+real application samples, treats `<20ms` as hot, permits `20–<23ms` only as
+warm capacity, and marks known `>=23ms` lanes degraded for repair.
 
-Port 8791 remains the only public API/WebSocket target. The control plane
-proxies owner-specific API operations to the correct shard, while shards relay
-runtime events back to it using `CONTROL_PLANE_TOKEN`. Host-global jobs run only
-on the control plane. Ports 8791 and 8792 remain loopback/private listeners;
-never expose a shard port publicly.
+Server 3 owns no bot, login, session, database, or public API runtime. It only
+maintains the relay lane pools. Its one-second report is stale after three
+seconds. Shard B is fail-closed: if the relay is unavailable or has accepted a
+request and returned an error, the request is not retried locally. This avoids
+egress changes and duplicate LINE sends.
 
-## Atomic shard-B cutover and rollback
+Application reply telemetry also reports guardrails at 40/50/60/80/90/100ms.
+These are measurement and incident thresholds, not a promise that an external
+network can never exceed them. The scheduler never queues a request just to
+hide a slow result.
 
-Run the repository-root helper on Server 2 as root:
+## Service configuration
 
-```bash
-sudo /opt/linebot/current/setup-shard-b.sh 2
-```
+| Process | Unit                     | Environment source                |
+| ------- | ------------------------ | --------------------------------- |
+| Primary | `linebot-worker`         | `/etc/linebot/worker.env`         |
+| Shard B | `linebot-worker-shard-b` | `/etc/linebot/worker-shard-b.env` |
 
-The helper:
+Both env files are `root:linebot` mode `0640`. Units run Bun with
+`--no-env-file`, so release-local `.env` files cannot merge settings between
+workers. Ports 8791 and 8792 must remain private; Server 1 is the only TLS edge.
 
-1. validates owner IDs and records every running bot;
-2. backs up env files, units, gate, sudoers, and service state under
-   `/var/backups/linebot-shard-b/<timestamp>`;
-3. generates a fresh shared control-plane token and builds both env files
-   without duplicate topology or fast-poll keys;
-4. installs the `--no-env-file` units and restricted deploy sudoers rule;
-5. stops both processes before ownership changes, preventing duplicate LINE
-   sessions;
-6. starts shard B first and then the primary, checking scope, topology, token,
-   fast-poll gate, listeners, and bot online state;
-7. automatically restores the entire pre-cutover topology if any check fails.
+`deploy-server2.sh` validates the shared file through the production parser,
+tests the release, switches one shared release symlink, and restarts both
+workers together. If either process or listener fails, it restores the prior
+release for both workers. The legacy static-scope validation remains only for
+safe rollback of releases created before the sticky topology migration.
 
-The script prints the exact backup path. Manual rollback is:
-
-```bash
-sudo /opt/linebot/current/setup-shard-b.sh --rollback \
-  /var/backups/linebot-shard-b/<timestamp>
-```
-
-Rollback stops both processes before restoring files and resumes only bots that
-were running, so it does not deliberately resurrect a bot stopped after the
-cutover.
-
-## Normal deploys with shards enabled
-
-`deploy-server2.sh` treats code as one shared release transaction. Before the
-symlink switch it verifies:
-
-- the release has no production env file;
-- enabled shard scopes are disjoint;
-- primary exclude/routes exactly match enabled shard ownership;
-- shard control-plane URLs and shared tokens match the primary;
-- a requested 50 ms interval has the explicit opt-in gate.
-
-It then restarts the primary and every enabled shard. If any process does not
-return active, the shared symlink is restored and every worker is restarted on
-the previous release. A shard failure is not a partial-success deploy.
-
-## Inspection and tuning
-
-Tail both processes when investigating bot 117 or cross-bot load:
+## Inspection
 
 ```bash
 journalctl -u linebot-worker -u linebot-worker-shard-b \
   -n 200 -f --no-hostname -o short-iso-precise
 ```
 
-On Windows, `watch-log-bigsa.bat` runs that command through the Server 1 jump
-host and intentionally keeps all bot/infrastructure lines. Before each tail it
-records service/PID state, non-secret effective topology, and the shared bot
-inventory. The same unfiltered stream is displayed and appended to a
-timestamped `logs/bigsa-*.log`; `logs/` is Git-ignored because journals contain
-operational user/message metadata. `CONTROL_PLANE_TOKEN` is never included in
-the snapshot.
-
-Configuration and latency tools require an explicit worker selection:
-
-```powershell
-.\scripts\Set-WorkerConfig.ps1 -Worker ShardB -Show
-```
+Inspect owner placement without exposing tokens:
 
 ```bash
-bash scripts/ab-latency.sh --worker shard-b config
-bash scripts/ab-latency.sh --worker shard-b collect isolated-50ms 10
+sqlite3 /opt/linebot/shared/worker.db \
+  'SELECT owner_user_id, worker_id, assigned_at FROM owner_worker_assignments ORDER BY owner_user_id;'
 ```
 
-`Set-WorkerConfig.ps1` writes only the selected `/etc/linebot/*.env` file and
-refuses coupled topology keys; use `setup-shard-b.sh` for those. The latency
-tool reads the selected systemd unit's actual process environment, records a
-separate CSV per worker, and filters the shared database to that worker's owner
-scope.
+The control-plane metrics endpoint is the authoritative combined view. Relay
+health is available only over the WireGuard address on Server 3 and returns
+HTTP 200 only when every configured origin has its full lane pool ready.
 
-## Initial host cutover safety
-
-Server 1 remains the TLS/Nginx edge and proxies `/api` plus `/ws` to Server 2
-over WireGuard. Never copy a live SQLite file or run the same LINE account on
-both hosts. During a host-level cutover, stop the old backend, copy the stopped
-database and secrets to root-owned Server 2 paths, verify every expected bot and
-an ACK-confirmed reply, and keep the Nginx rollback ready until observation is
-complete.
+Never copy a live SQLite file or run the same LINE account from another host.
+For host rollback, stop both workers before moving the database and resume only
+after the previous pair has fully stopped.

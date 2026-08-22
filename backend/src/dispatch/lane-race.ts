@@ -75,14 +75,18 @@ interface PersistedEventRow {
 
 function hydratePersistedRace(): void {
 	const since = Date.now() - RETENTION_MS;
-	const persistedScores = db.query<PersistedScoreRow, [string, number]>(`
+	const persistedScores = db
+		.query<PersistedScoreRow, [string, number]>(
+			`
 		SELECT origin, lane_id, role, COUNT(*) AS samples,
 			SUM(result = 'star') AS stars, SUM(result = 'banana') AS bananas,
 			AVG(rtt_ms) AS avg_rtt_ms, MAX(ts) AS last_at
 		FROM lane_race_events
 		WHERE worker_id = ? AND ts >= ?
 		GROUP BY origin, lane_id, role
-	`).all(WORKER_ID, since);
+	`,
+		)
+		.all(WORKER_ID, since);
 	for (const row of persistedScores) {
 		scores.set(scoreKey(row.origin, row.lane_id, row.role), {
 			samples: row.samples,
@@ -93,12 +97,17 @@ function hydratePersistedRace(): void {
 			lastAt: row.last_at,
 		});
 	}
-	const persistedEvents = db.query<PersistedEventRow, [string, number, number]>(`
+	const persistedEvents = db
+		.query<PersistedEventRow, [string, number, number]>(
+			`
 		SELECT ts, origin, lane_id, role, result, rtt_ms
 		FROM lane_race_events
 		WHERE worker_id = ? AND ts >= ?
 		ORDER BY ts DESC LIMIT ?
-	`).all(WORKER_ID, since, MAX_RECENT_EVENTS).reverse();
+	`,
+		)
+		.all(WORKER_ID, since, MAX_RECENT_EVENTS)
+		.reverse();
 	for (const row of persistedEvents) {
 		const event: LaneRaceEvent = {
 			ts: row.ts,
@@ -142,7 +151,9 @@ export interface LaneRaceDaily {
 
 /** Dashboard-only grouped read; never called by lane selection or replies. */
 export function laneRaceDailyHistory(): LaneRaceDaily[] {
-	return db.query<LaneRaceDaily, [string, number]>(`
+	return db
+		.query<LaneRaceDaily, [string, number]>(
+			`
 		SELECT strftime('%Y-%m-%d', ts / 1000, 'unixepoch', '+7 hours') AS day,
 			SUM(result = 'star') AS stars,
 			SUM(result = 'banana') AS bananas,
@@ -153,7 +164,9 @@ export function laneRaceDailyHistory(): LaneRaceDaily[] {
 		FROM lane_race_events
 		WHERE worker_id = ? AND ts >= ?
 		GROUP BY day ORDER BY day
-	`).all(WORKER_ID, Date.now() - RETENTION_MS);
+	`,
+		)
+		.all(WORKER_ID, Date.now() - RETENTION_MS);
 }
 
 export function scoreLaneRtt(rttMs: number, benchmarkMs: number | undefined): LaneRaceResult {
@@ -179,13 +192,7 @@ export function shouldScorePollLane(origin: string, laneId: number, now = Date.n
 	return true;
 }
 
-export function recordLaneRace(
-	role: LaneRaceRole,
-	origin: string,
-	laneId: number,
-	rttMs: number,
-	benchmarkMs: number | undefined,
-): void {
+export function recordLaneRace(role: LaneRaceRole, origin: string, laneId: number, rttMs: number, benchmarkMs: number | undefined): void {
 	const event: LaneRaceEvent = {
 		ts: Date.now(),
 		origin,

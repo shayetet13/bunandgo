@@ -37,12 +37,7 @@ function evictOneAtCapacityFrom(map: Map<string, { botId: number; claimedAt: num
 }
 
 /** Claims a raw message id once per bot+surface; a duplicate delivery returns false. */
-export function claimIncomingMessage(
-	botId: number,
-	surface: string,
-	messageId: string,
-	now = performance.now(),
-): boolean {
+export function claimIncomingMessage(botId: number, surface: string, messageId: string, now = performance.now()): boolean {
 	const k = `${botId}${SEP}${surface}${SEP}${messageId}`;
 	const existing = seenIncoming.get(k);
 	if (existing && now - existing.claimedAt < CLAIM_TTL_MS) return false;
@@ -79,13 +74,7 @@ const roomAnswers = new Map<string, { botId: number; claimedAt: number }>();
  * the owning user's id, or the bot's own id when it has no owner, which
  * leaves an unowned bot racing alone.
  */
-export function claimRoomAnswer(
-	ownerKey: string,
-	botId: number,
-	chatMid: string,
-	messageId: string,
-	now = performance.now(),
-): boolean {
+export function claimRoomAnswer(ownerKey: string, botId: number, chatMid: string, messageId: string, now = performance.now()): boolean {
 	const k = `${ownerKey}${SEP}${chatMid}${SEP}${messageId}`;
 	const existing = roomAnswers.get(k);
 	if (existing && now - existing.claimedAt < CLAIM_TTL_MS) return false;
@@ -95,12 +84,7 @@ export function claimRoomAnswer(
 	return true;
 }
 
-function key(
-	botId: number,
-	chatMid: string,
-	ruleId: number,
-	messageId: string,
-): string {
+function key(botId: number, chatMid: string, ruleId: number, messageId: string): string {
 	return `${botId}${SEP}${chatMid}${SEP}${ruleId}${SEP}${messageId}`;
 }
 
@@ -111,13 +95,7 @@ function evictOneAtCapacity(): void {
 }
 
 /** Claims a message once; a different message id remains independently valid. */
-export function claimReply(
-	botId: number,
-	chatMid: string,
-	ruleId: number,
-	messageId: string,
-	now = performance.now(),
-): boolean {
+export function claimReply(botId: number, chatMid: string, ruleId: number, messageId: string, now = performance.now()): boolean {
 	const k = key(botId, chatMid, ruleId, messageId);
 	const existing = claims.get(k);
 	if (existing && now - existing.claimedAt < CLAIM_TTL_MS) return false;

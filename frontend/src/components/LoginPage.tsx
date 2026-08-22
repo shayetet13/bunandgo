@@ -61,22 +61,22 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
 						}}
 					/>
 					<h1 style={{ margin: 0, fontSize: "1.3rem", letterSpacing: "0.06em", fontWeight: 800 }}>RACE // LINE BOT CONSOLE</h1>
-					<p className="hint" style={{ marginTop: "var(--space-xs)" }}>เข้าสู่ระบบเพื่อดูสถานะและข้อความล่าสุดของบอท</p>
+					<p className="hint" style={{ marginTop: "var(--space-xs)" }}>
+						เข้าสู่ระบบเพื่อดูสถานะและข้อความล่าสุดของบอท
+					</p>
 				</div>
 
 				<form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
 					<div>
-						<label className="label" style={{ display: "block", marginBottom: "var(--space-xs)" }}>ชื่อผู้ใช้</label>
-						<input
-							autoFocus
-							value={username}
-							onChange={(e) => setUsername(e.target.value)}
-							style={inputStyle}
-							placeholder="admin"
-						/>
+						<label className="label" style={{ display: "block", marginBottom: "var(--space-xs)" }}>
+							ชื่อผู้ใช้
+						</label>
+						<input autoFocus value={username} onChange={(e) => setUsername(e.target.value)} style={inputStyle} placeholder="admin" />
 					</div>
 					<div>
-						<label className="label" style={{ display: "block", marginBottom: "var(--space-xs)" }}>รหัสผ่าน</label>
+						<label className="label" style={{ display: "block", marginBottom: "var(--space-xs)" }}>
+							รหัสผ่าน
+						</label>
 						<input
 							type="password"
 							value={password}
@@ -105,9 +105,7 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
 					</button>
 				</form>
 
-				{error && (
-					<div style={{ color: "var(--signal-bad)", fontSize: "var(--text-sm)", textAlign: "center" }}>{error}</div>
-				)}
+				{error && <div style={{ color: "var(--signal-bad)", fontSize: "var(--text-sm)", textAlign: "center" }}>{error}</div>}
 			</section>
 		</div>
 	);

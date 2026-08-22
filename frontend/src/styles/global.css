@@ -39,11 +39,18 @@ body {
 	background-image:
 		radial-gradient(ellipse 900px 500px at 85% -10%, rgba(57, 255, 136, 0.08), transparent 60%),
 		radial-gradient(ellipse 700px 500px at -10% 40%, rgba(6, 199, 85, 0.05), transparent 60%),
-		linear-gradient(var(--border-hair) 1px, transparent 1px),
-		linear-gradient(90deg, var(--border-hair) 1px, transparent 1px);
-	background-size: auto, auto, 48px 48px, 48px 48px;
+		linear-gradient(var(--border-hair) 1px, transparent 1px), linear-gradient(90deg, var(--border-hair) 1px, transparent 1px);
+	background-size:
+		auto,
+		auto,
+		48px 48px,
+		48px 48px;
 	background-color: var(--bg-void);
-	background-position: 0 0, 0 0, -1px -1px, -1px -1px;
+	background-position:
+		0 0,
+		0 0,
+		-1px -1px,
+		-1px -1px;
 	background-blend-mode: normal, normal, screen, screen;
 }
 
@@ -836,7 +843,9 @@ textarea {
 	font-size: 0.6875rem;
 	color: var(--text-secondary);
 	cursor: pointer;
-	transition: border-color 0.15s ease, color 0.15s ease;
+	transition:
+		border-color 0.15s ease,
+		color 0.15s ease;
 }
 
 .admin-only-name:hover {
@@ -952,7 +961,9 @@ textarea {
 	gap: var(--space-sm);
 	text-align: center;
 	border: 2px solid var(--signal-bad);
-	box-shadow: 0 0 0 6px rgba(255, 69, 87, 0.12), 0 24px 60px rgba(0, 0, 0, 0.5);
+	box-shadow:
+		0 0 0 6px rgba(255, 69, 87, 0.12),
+		0 24px 60px rgba(0, 0, 0, 0.5);
 }
 
 .id-lock-modal-icon {
@@ -1042,8 +1053,7 @@ textarea {
 		radial-gradient(ellipse 780px 520px at 14% -8%, rgba(34, 211, 238, 0.16), transparent 60%),
 		radial-gradient(ellipse 640px 520px at 92% 4%, rgba(167, 139, 250, 0.14), transparent 58%),
 		radial-gradient(ellipse 700px 480px at 80% 108%, rgba(34, 211, 238, 0.1), transparent 55%),
-		linear-gradient(rgba(103, 232, 249, 0.05) 1px, transparent 1px),
-		linear-gradient(90deg, rgba(103, 232, 249, 0.05) 1px, transparent 1px);
+		linear-gradient(rgba(103, 232, 249, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(103, 232, 249, 0.05) 1px, transparent 1px);
 	background-size:
 		auto,
 		auto,
@@ -1066,8 +1076,7 @@ textarea {
 	align-items: center;
 	justify-content: space-between;
 	gap: 1rem;
-	padding: max(1.1rem, env(safe-area-inset-top)) max(1.3rem, env(safe-area-inset-right)) 0
-		max(1.3rem, env(safe-area-inset-left));
+	padding: max(1.1rem, env(safe-area-inset-top)) max(1.3rem, env(safe-area-inset-right)) 0 max(1.3rem, env(safe-area-inset-left));
 }
 
 .maint-username {

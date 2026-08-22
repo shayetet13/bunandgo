@@ -25,13 +25,11 @@ describe("parseHedgeConfig", () => {
 	});
 
 	test("accepts off and coerces numeric strings", () => {
-		expect(parseHedgeConfig({ mode: "off", delayMs: "10", slowMs: "30" }))
-			.toEqual({ mode: "off", delayMs: 10, slowMs: 30 });
+		expect(parseHedgeConfig({ mode: "off", delayMs: "10", slowMs: "30" })).toEqual({ mode: "off", delayMs: 10, slowMs: 30 });
 	});
 
 	test("rejects mode on until stage 2 proves reqSeq dedupe", () => {
-		expect(() => parseHedgeConfig({ mode: "on", delayMs: 14, slowMs: 23 }))
-			.toThrow(/stage 2/);
+		expect(() => parseHedgeConfig({ mode: "on", delayMs: 14, slowMs: 23 })).toThrow(/stage 2/);
 	});
 
 	test("rejects unknown modes and malformed payloads", () => {
@@ -117,8 +115,9 @@ describe("hedge config persistence", () => {
 	});
 
 	test("a persisted row that fails validation falls back to safe defaults", () => {
-		db.prepare("INSERT INTO app_meta (key, value) VALUES ('hedge.send.config', ?)")
-			.run(JSON.stringify({ mode: "on", delayMs: 14, slowMs: 23 }));
+		db.prepare("INSERT INTO app_meta (key, value) VALUES ('hedge.send.config', ?)").run(
+			JSON.stringify({ mode: "on", delayMs: 14, slowMs: 23 }),
+		);
 		expect(refreshHedgeConfig().mode).toBe("off");
 	});
 });

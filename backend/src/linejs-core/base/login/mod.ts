@@ -7,10 +7,7 @@ import { Buffer } from "node:buffer";
 import { LINEStruct } from "../thrift/mod.ts";
 import type { BaseClient } from "../core/mod.ts";
 import type { LooseType } from "@evex/loose-types";
-import {
-	type AuthTokenInput,
-	parseAuthTokenInput,
-} from "../request/auth_token.ts";
+import { type AuthTokenInput, parseAuthTokenInput } from "../request/auth_token.ts";
 import {
 	isPollExpiry,
 	isTransientTransportFailure,
@@ -19,18 +16,17 @@ import {
 	TRANSPORT_RETRY_BACKOFF_MS,
 } from "./transient.ts";
 
-export type LoginOption = PasswordLoginOption | QrCodeLoginOption | {
-	authToken: AuthTokenInput;
-	email?: undefined;
-	qr?: undefined;
-};
+export type LoginOption =
+	| PasswordLoginOption
+	| QrCodeLoginOption
+	| {
+			authToken: AuthTokenInput;
+			email?: undefined;
+			qr?: undefined;
+	  };
 
-export function registrationAuthEndpoint(
-	device: Device,
-): "/api/v3p/rs" | "/api/v4p/rs" {
-	return device === "ANDROID" || device === "ANDROIDSECONDARY"
-		? "/api/v4p/rs"
-		: "/api/v3p/rs";
+export function registrationAuthEndpoint(device: Device): "/api/v3p/rs" | "/api/v4p/rs" {
+	return device === "ANDROID" || device === "ANDROIDSECONDARY" ? "/api/v4p/rs" : "/api/v3p/rs";
 }
 
 interface LoginVer {
@@ -46,11 +42,7 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
  * Only for calls that are safe to repeat against the same auth session:
  * status polls, and the handshake steps whose result we did not receive.
  */
-async function withTransportRetry<T>(
-	client: BaseClient,
-	label: string,
-	call: () => Promise<T>,
-): Promise<T> {
+async function withTransportRetry<T>(client: BaseClient, label: string, call: () => Promise<T>): Promise<T> {
 	for (let attempt = 0; ; attempt++) {
 		try {
 			return await call();
@@ -62,9 +54,7 @@ async function withTransportRetry<T>(
 			// console, not client.log: nothing is subscribed to the client's
 			// log events during login, and how often this fires is exactly
 			// what you want in the journal when a QR misbehaves.
-			console.warn(
-				`[login] ${label}: connection dropped, retrying ${attempt + 1}/${MAX_TRANSPORT_RETRIES} — ${message.slice(0, 160)}`,
-			);
+			console.warn(`[login] ${label}: connection dropped, retrying ${attempt + 1}/${MAX_TRANSPORT_RETRIES} — ${message.slice(0, 160)}`);
 			client.log("login", { retrying: label, attempt: attempt + 1, reason: message });
 			await sleep(TRANSPORT_RETRY_BACKOFF_MS);
 		}
@@ -133,7 +123,7 @@ export class Login {
 	 * @return {Promise<string | undefined>} The certificate, or undefined if it does not exist or an error occurred.
 	 */
 	public async getCert(email: string): Promise<string | undefined> {
-		return await this.client.storage.get("cert:" + email) as string;
+		return (await this.client.storage.get("cert:" + email)) as string;
 	}
 
 	/**
@@ -151,7 +141,7 @@ export class Login {
 	 * @return {Promise<string | undefined>} The certificate, or undefined if it does not exist or an error occurred.
 	 */
 	public async getQrCert(): Promise<string | undefined> {
-		return await this.client.storage.get("qrCert") as string;
+		return (await this.client.storage.get("qrCert")) as string;
 	}
 
 	async ready(): Promise<void> {
@@ -189,9 +179,7 @@ export class Login {
 	 * // Login with email and password
 	 * await login({ email: 'user@example.com', password: 'your-password' });
 	 */
-	async login(
-		options?: LoginOption,
-	) {
+	async login(options?: LoginOption) {
 		if (!options) {
 			await this.withQrCode();
 		} else if (options.qr) {
@@ -219,9 +207,7 @@ export class Login {
 	 */
 	async withQrCode(options?: QrCodeLoginOption): Promise<void> {
 		let authToken: string;
-		if (
-			typeof options === "undefined" || typeof options.v3 === "undefined"
-		) {
+		if (typeof options === "undefined" || typeof options.v3 === "undefined") {
 			if (isV3Support(this.client.device)) {
 				authToken = await this.requestSQR2();
 			} else {
@@ -248,11 +234,7 @@ export class Login {
 			try {
 				await this.verifyCertificate(sqr, await this.getQrCert());
 			} catch (_e) {
-				const { 1: pincode } = await withTransportRetry(
-					this.client,
-					"createPinCode",
-					() => this.createPinCode(sqr),
-				);
+				const { 1: pincode } = await withTransportRetry(this.client, "createPinCode", () => this.createPinCode(sqr));
 				this.client.emit("pincall", pincode);
 				await this.checkPinCodeVerified(sqr);
 			}
@@ -265,29 +247,19 @@ export class Login {
 			}
 			let e2eeKeyResult: LooseType = undefined;
 			if (e2eeInfo) {
-				e2eeKeyResult = await this.client.e2ee.decodeE2EEKeyV1(
-					e2eeInfo,
-					Buffer.from(secret),
-				);
+				e2eeKeyResult = await this.client.e2ee.decodeE2EEKeyV1(e2eeInfo, Buffer.from(secret));
 			}
 			if (!e2eeKeyResult) {
 				await this.client.e2ee.registerE2EEKeyPair();
 			}
 			return authToken;
 		}
-		throw new InternalError(
-			"TimeoutError",
-			"checkQrCodeVerified timed out",
-		);
+		throw new InternalError("TimeoutError", "checkQrCodeVerified timed out");
 	}
 
 	public async requestSQR2(): Promise<string> {
 		const { 1: sqr } = await withTransportRetry(this.client, "createSession", () => this.createSession());
-		const forSecure = await withTransportRetry(
-			this.client,
-			"createQrCodeForSecure",
-			() => this.createQrCodeForSecure(sqr),
-		);
+		const forSecure = await withTransportRetry(this.client, "createQrCodeForSecure", () => this.createQrCodeForSecure(sqr));
 		// Response shape per `oc4.i` (CreateQrCodeForSecureResponse):
 		//   1: callbackUrl, 2: longPollingMaxCount,
 		//   3: longPollingIntervalSec, 4: nonce
@@ -298,9 +270,7 @@ export class Login {
 		const longPollingMaxCount: number = forSecure[2] ?? 12;
 		const longPollingIntervalSec: number = forSecure[3] ?? 30;
 		const nonce: string = forSecure[4] ?? "";
-		console.log(
-			`[login] ForSecure: maxCount=${longPollingMaxCount} intervalSec=${longPollingIntervalSec} nonce=${nonce.length}chars`,
-		);
+		console.log(`[login] ForSecure: maxCount=${longPollingMaxCount} intervalSec=${longPollingIntervalSec} nonce=${nonce.length}chars`);
 		const [secret, secretUrl] = this.client.e2ee.createSqrSecret();
 		url = url + secretUrl;
 		this.client.emit("qrcall", url);
@@ -309,37 +279,19 @@ export class Login {
 		// and retries up to `longPollingMaxCount` times.  A single
 		// non-long-polling call (the legacy behaviour) makes the server
 		// expire the session almost immediately.
-		if (
-			await this.checkQrCodeVerified(
-				sqr,
-				longPollingMaxCount,
-				longPollingIntervalSec,
-			)
-		) {
+		if (await this.checkQrCodeVerified(sqr, longPollingMaxCount, longPollingIntervalSec)) {
 			try {
 				await this.verifyCertificate(sqr, await this.getQrCert());
 			} catch (_e) {
-				const { 1: pincode } = await withTransportRetry(
-					this.client,
-					"createPinCode",
-					() => this.createPinCode(sqr),
-				);
+				const { 1: pincode } = await withTransportRetry(this.client, "createPinCode", () => this.createPinCode(sqr));
 				this.client.emit("pincall", pincode);
-				await this.checkPinCodeVerified(
-					sqr,
-					longPollingMaxCount,
-					longPollingIntervalSec,
-				);
+				await this.checkPinCodeVerified(sqr, longPollingMaxCount, longPollingIntervalSec);
 			}
 			// The user has already approved on their phone by now, so losing
 			// this response to a dropped connection would throw away a scan
 			// that worked — exactly the case that leaves LINE showing the
 			// account as logged in while the console never comes up.
-			const response = await withTransportRetry(
-				this.client,
-				"qrCodeLoginV2ForSecure",
-				() => this.qrCodeLoginV2ForSecure(sqr, nonce),
-			);
+			const response = await withTransportRetry(this.client, "qrCodeLoginV2ForSecure", () => this.qrCodeLoginV2ForSecure(sqr, nonce));
 			// Response shape per `oc4.q` (QrCodeLoginV2Response — reused
 			// by both V2 and V2ForSecure):
 			//   1: certificate, 2: accessTokenV2 (legacy str),
@@ -356,25 +308,16 @@ export class Login {
 			const e2eeInfo = response[10] ?? metaData?.["e2eeInfo"];
 			let e2eeKeyResult: LooseType = undefined;
 			if (e2eeInfo) {
-				e2eeKeyResult = await this.client.e2ee.decodeE2EEKeyV1(
-					e2eeInfo,
-					Buffer.from(secret),
-				);
+				e2eeKeyResult = await this.client.e2ee.decodeE2EEKeyV1(e2eeInfo, Buffer.from(secret));
 			}
 			if (!e2eeKeyResult) {
 				await this.client.e2ee.registerE2EEKeyPair();
 			}
 			await this.client.storage.set("refreshToken", tokenInfo[2]);
-			await this.client.storage.set(
-				"expire",
-				tokenInfo[3] + tokenInfo[6],
-			);
+			await this.client.storage.set("expire", tokenInfo[3] + tokenInfo[6]);
 			return tokenInfo[1];
 		}
-		throw new InternalError(
-			"TimeoutError",
-			"checkQrCodeVerified timed out",
-		);
+		throw new InternalError("TimeoutError", "checkQrCodeVerified timed out");
 	}
 
 	/**
@@ -396,33 +339,15 @@ export class Login {
 
 		if (typeof options.v3 === "undefined") {
 			if (isV3Support(this.client.device)) {
-				authToken = await this.requestEmailLoginV2(
-					options.email,
-					options.password,
-					options.pincode,
-				);
+				authToken = await this.requestEmailLoginV2(options.email, options.password, options.pincode);
 			} else {
-				authToken = await this.requestEmailLogin(
-					options.email,
-					options.password,
-					options.pincode,
-					options.e2ee,
-				);
+				authToken = await this.requestEmailLogin(options.email, options.password, options.pincode, options.e2ee);
 			}
 		} else {
 			if (options.v3) {
-				authToken = await this.requestEmailLoginV2(
-					options.email,
-					options.password,
-					options.pincode,
-				);
+				authToken = await this.requestEmailLoginV2(options.email, options.password, options.pincode);
 			} else {
-				authToken = await this.requestEmailLogin(
-					options.email,
-					options.password,
-					options.pincode,
-					options.e2ee,
-				);
+				authToken = await this.requestEmailLogin(options.email, options.password, options.pincode, options.e2ee);
 			}
 		}
 		this.client.emit("update:authtoken", authToken);
@@ -450,10 +375,7 @@ export class Login {
 		enableE2EE: boolean = true,
 	): Promise<string> {
 		if (constantPincode.length !== 6) {
-			throw new InternalError(
-				"Invalid constant pincode",
-				"The constant pincode should be 6 digits",
-			);
+			throw new InternalError("Invalid constant pincode", "The constant pincode should be 6 digits");
 		}
 
 		this.client.log("login", {
@@ -467,38 +389,26 @@ export class Login {
 		const rsaKey = await this.getRSAKeyInfo();
 		const { keynm, sessionKey } = rsaKey;
 
-		const message = String.fromCharCode(sessionKey.length) +
+		const message =
+			String.fromCharCode(sessionKey.length) +
 			sessionKey +
 			String.fromCharCode(email.length) +
 			email +
 			String.fromCharCode(password.length) +
 			password;
 
-		let e2eeData: Buffer | undefined,
-			secret: Uint8Array | undefined,
-			secretPK: string | undefined;
+		let e2eeData: Buffer | undefined, secret: Uint8Array | undefined, secretPK: string | undefined;
 
 		if (enableE2EE) {
 			[secret, secretPK] = this.client.e2ee.createSqrSecret(true);
-			e2eeData = this.client.e2ee.encryptAESECB(
-				this.client.e2ee.getSHA256Sum(constantPincode),
-				Buffer.from(secretPK, "base64"),
-			);
+			e2eeData = this.client.e2ee.encryptAESECB(this.client.e2ee.getSHA256Sum(constantPincode), Buffer.from(secretPK, "base64"));
 		}
 
 		const encryptedMessage = getRSACrypto(message, rsaKey).credentials;
 
-		const cert = await this.getCert(email) || undefined;
+		const cert = (await this.getCert(email)) || undefined;
 
-		let response = await this.loginV2(
-			keynm,
-			encryptedMessage,
-			this.client.device,
-			undefined,
-			e2eeData,
-			cert,
-			"loginZ",
-		);
+		let response = await this.loginV2(keynm, encryptedMessage, this.client.device, undefined, e2eeData, cert, "loginZ");
 
 		if (!response.authToken) {
 			this.client.emit("pincall", response.pinCode || constantPincode);
@@ -513,36 +423,21 @@ export class Login {
 					"accept-encoding": "gzip",
 				};
 				const e2eeInfo = (
-					await this.client.fetch(
-						`https://${this.client.request.endpoint}/LF1`,
-						{
+					await this.client
+						.fetch(`https://${this.client.request.endpoint}/LF1`, {
 							headers: headers,
-						},
-					).then((res) => res.json())
+						})
+						.then((res) => res.json())
 				).result;
 				this.client.log("response", e2eeInfo);
-				await this.client.e2ee.decodeE2EEKeyV1(
-					e2eeInfo.metadata,
-					Buffer.from(secret),
-				);
+				await this.client.e2ee.decodeE2EEKeyV1(e2eeInfo.metadata, Buffer.from(secret));
 				const deviceSecret = this.client.e2ee.encryptDeviceSecret(
 					Buffer.from(e2eeInfo.metadata.publicKey, "base64"),
 					Buffer.from(secret),
 					Buffer.from(e2eeInfo.metadata.encryptedKeyChain, "base64"),
 				);
-				const e2eeLogin = await this.confirmE2EELogin(
-					response.verifier,
-					deviceSecret,
-				);
-				response = await this.loginV2(
-					keynm,
-					encryptedMessage,
-					this.client.device,
-					e2eeLogin,
-					e2eeData,
-					cert,
-					"loginZ",
-				);
+				const e2eeLogin = await this.confirmE2EELogin(response.verifier, deviceSecret);
+				response = await this.loginV2(keynm, encryptedMessage, this.client.device, e2eeLogin, e2eeData, cert, "loginZ");
 			} else {
 				const headers = {
 					accept: "application/x-thrift",
@@ -554,22 +449,13 @@ export class Login {
 					"x-lhm": "GET",
 					"accept-encoding": "gzip",
 				};
-				const verifier = await this.client.fetch(
-					`https://${this.client.request.endpoint}/Q`,
-					{
+				const verifier = await this.client
+					.fetch(`https://${this.client.request.endpoint}/Q`, {
 						headers: headers,
-					},
-				).then((res) => res.json());
+					})
+					.then((res) => res.json());
 				this.client.log("response", verifier);
-				response = await this.loginV2(
-					keynm,
-					encryptedMessage,
-					this.client.device,
-					verifier.result.verifier,
-					e2eeData,
-					cert,
-					"loginZ",
-				);
+				response = await this.loginV2(keynm, encryptedMessage, this.client.device, verifier.result.verifier, e2eeData, cert, "loginZ");
 			}
 		}
 		if (response.certificate) {
@@ -579,16 +465,9 @@ export class Login {
 		return response.authToken;
 	}
 
-	public async requestEmailLoginV2(
-		email: string,
-		password: string,
-		constantPincode: string = "114514",
-	): Promise<string> {
+	public async requestEmailLoginV2(email: string, password: string, constantPincode: string = "114514"): Promise<string> {
 		if (constantPincode.length !== 6) {
-			throw new InternalError(
-				"Invalid constant pincode",
-				"The constant pincode should be 6 digits",
-			);
+			throw new InternalError("Invalid constant pincode", "The constant pincode should be 6 digits");
 		}
 
 		this.client.log("login", {
@@ -601,7 +480,8 @@ export class Login {
 		const rsaKey = await this.getRSAKeyInfo();
 		const { keynm, sessionKey } = rsaKey;
 
-		const message = String.fromCharCode(sessionKey.length) +
+		const message =
+			String.fromCharCode(sessionKey.length) +
 			sessionKey +
 			String.fromCharCode(email.length) +
 			email +
@@ -609,24 +489,13 @@ export class Login {
 			password;
 
 		const [secret, secretPK] = this.client.e2ee.createSqrSecret(true);
-		const e2eeData = this.client.e2ee.encryptAESECB(
-			this.client.e2ee.getSHA256Sum(constantPincode),
-			Buffer.from(secretPK, "base64"),
-		);
+		const e2eeData = this.client.e2ee.encryptAESECB(this.client.e2ee.getSHA256Sum(constantPincode), Buffer.from(secretPK, "base64"));
 
 		const encryptedMessage = getRSACrypto(message, rsaKey).credentials;
 
-		const cert = await this.getCert(email) || undefined;
+		const cert = (await this.getCert(email)) || undefined;
 
-		let response = await this.loginV2(
-			keynm,
-			encryptedMessage,
-			this.client.device,
-			undefined,
-			e2eeData,
-			cert,
-			"loginV2",
-		);
+		let response = await this.loginV2(keynm, encryptedMessage, this.client.device, undefined, e2eeData, cert, "loginV2");
 
 		if (!response[9]) {
 			this.client.emit("pincall", constantPincode);
@@ -641,46 +510,28 @@ export class Login {
 				"accept-encoding": "gzip",
 			};
 			const e2eeInfo = (
-				await this.client.fetch(
-					`https://${this.client.request.endpoint}/LF1`,
-					{
+				await this.client
+					.fetch(`https://${this.client.request.endpoint}/LF1`, {
 						headers: headers,
-					},
-				).then((res) => res.json())
+					})
+					.then((res) => res.json())
 			).result;
 			this.client.log("response", e2eeInfo);
-			await this.client.e2ee.decodeE2EEKeyV1(
-				e2eeInfo.metadata,
-				Buffer.from(secret),
-			);
+			await this.client.e2ee.decodeE2EEKeyV1(e2eeInfo.metadata, Buffer.from(secret));
 			const deviceSecret = this.client.e2ee.encryptDeviceSecret(
 				Buffer.from(e2eeInfo.metadata.publicKey, "base64"),
 				Buffer.from(secret),
 				Buffer.from(e2eeInfo.metadata.encryptedKeyChain, "base64"),
 			);
-			const e2eeLogin = await this.confirmE2EELogin(
-				response[3],
-				deviceSecret,
-			);
-			response = await this.loginV2(
-				keynm,
-				encryptedMessage,
-				this.client.device,
-				e2eeLogin,
-				e2eeData,
-				cert,
-				"loginV2",
-			);
+			const e2eeLogin = await this.confirmE2EELogin(response[3], deviceSecret);
+			response = await this.loginV2(keynm, encryptedMessage, this.client.device, e2eeLogin, e2eeData, cert, "loginV2");
 		}
 		if (response[2]) {
 			this.client.emit("update:cert", response[2]);
 			await this.registerCert(response[2], email);
 		}
 		await this.client.storage.set("refreshToken", response[9][2]);
-		await this.client.storage.set(
-			"expire",
-			response[9][3] + response[9][6],
-		);
+		await this.client.storage.set("expire", response[9][3] + response[9][6]);
 		return response[9][1];
 	}
 
@@ -691,9 +542,7 @@ export class Login {
 	 * @returns {Promise<LINETypes.RSAKey>} RSA key info.
 	 * @throws {FetchError} If failed to fetch RSA key info.
 	 */
-	public async getRSAKeyInfo(
-		provider: LINETypes.IdentityProvider = 0,
-	): Promise<LINETypes.RSAKey> {
+	public async getRSAKeyInfo(provider: LINETypes.IdentityProvider = 0): Promise<LINETypes.RSAKey> {
 		return await this.client.request.request(
 			[[12, 1, [[8, 2, LINEStruct.IdentityProvider(provider)]]]],
 			"getRSAKeyInfo",
@@ -746,23 +595,11 @@ export class Login {
 	}
 
 	public async createSession(): Promise<LooseType> {
-		return await this.client.request.request(
-			[],
-			"createSession",
-			4,
-			false,
-			"/acct/lgn/sq/v1",
-		);
+		return await this.client.request.request([], "createSession", 4, false, "/acct/lgn/sq/v1");
 	}
 
 	public async createQrCode(qrcode: string): Promise<LooseType> {
-		return await this.client.request.request(
-			[[12, 1, [[11, 1, qrcode]]]],
-			"createQrCode",
-			4,
-			false,
-			"/acct/lgn/sq/v1",
-		);
+		return await this.client.request.request([[12, 1, [[11, 1, qrcode]]]], "createQrCode", 4, false, "/acct/lgn/sq/v1");
 	}
 
 	/**
@@ -814,7 +651,7 @@ export class Login {
 					if (++transportFailures > MAX_TRANSPORT_RETRIES) throw error;
 					console.warn(
 						`[login] ${methodName}: connection dropped, re-polling same session ` +
-						`${transportFailures}/${MAX_TRANSPORT_RETRIES} — ${message.slice(0, 160)}`,
+							`${transportFailures}/${MAX_TRANSPORT_RETRIES} — ${message.slice(0, 160)}`,
 					);
 					this.client.log("login", { retrying: methodName, attempt: transportFailures, reason: message });
 				} else if (!isPollExpiry(message)) {
@@ -829,20 +666,22 @@ export class Login {
 		return false;
 	}
 
-	public async checkQrCodeVerified(
-		qrcode: string,
-		maxCount: number = 1,
-		intervalSec: number = 30,
-	): Promise<boolean> {
+	public async checkQrCodeVerified(qrcode: string, maxCount: number = 1, intervalSec: number = 30): Promise<boolean> {
 		return await this.pollUntilVerified("checkQrCodeVerified", qrcode, maxCount, intervalSec);
 	}
 
-	public async verifyCertificate(
-		qrcode: string,
-		cert?: string | undefined,
-	): Promise<LooseType> {
+	public async verifyCertificate(qrcode: string, cert?: string | undefined): Promise<LooseType> {
 		return await this.client.request.request(
-			[[12, 1, [[11, 1, qrcode], [11, 2, cert]]]],
+			[
+				[
+					12,
+					1,
+					[
+						[11, 1, qrcode],
+						[11, 2, cert],
+					],
+				],
+			],
 			"verifyCertificate",
 			4,
 			false,
@@ -851,33 +690,26 @@ export class Login {
 	}
 
 	public async createPinCode(qrcode: string): Promise<LooseType> {
-		return await this.client.request.request(
-			[[12, 1, [[11, 1, qrcode]]]],
-			"createPinCode",
-			4,
-			false,
-			"/acct/lgn/sq/v1",
-		);
+		return await this.client.request.request([[12, 1, [[11, 1, qrcode]]]], "createPinCode", 4, false, "/acct/lgn/sq/v1");
 	}
 
-	public async checkPinCodeVerified(
-		qrcode: string,
-		maxCount: number = 1,
-		intervalSec: number = 30,
-	): Promise<boolean> {
+	public async checkPinCodeVerified(qrcode: string, maxCount: number = 1, intervalSec: number = 30): Promise<boolean> {
 		return await this.pollUntilVerified("checkPinCodeVerified", qrcode, maxCount, intervalSec);
 	}
 
-	public async qrCodeLogin(
-		authSessionId: string,
-		autoLoginIsRequired: boolean = true,
-	): Promise<LooseType> {
+	public async qrCodeLogin(authSessionId: string, autoLoginIsRequired: boolean = true): Promise<LooseType> {
 		return await this.client.request.request(
-			[[12, 1, [
-				[11, 1, authSessionId],
-				[11, 2, this.client.device],
-				[2, 3, autoLoginIsRequired],
-			]]],
+			[
+				[
+					12,
+					1,
+					[
+						[11, 1, authSessionId],
+						[11, 2, this.client.device],
+						[2, 3, autoLoginIsRequired],
+					],
+				],
+			],
 			"qrCodeLogin",
 			4,
 			false,
@@ -892,12 +724,18 @@ export class Login {
 		autoLoginIsRequired: boolean = true,
 	): Promise<LooseType> {
 		return await this.client.request.request(
-			[[12, 1, [
-				[11, 1, authSessionId],
-				[11, 2, systemName],
-				[11, 3, modelName],
-				[2, 4, autoLoginIsRequired],
-			]]],
+			[
+				[
+					12,
+					1,
+					[
+						[11, 1, authSessionId],
+						[11, 2, systemName],
+						[11, 3, modelName],
+						[2, 4, autoLoginIsRequired],
+					],
+				],
+			],
 			"qrCodeLoginV2",
 			4,
 			false,
@@ -919,16 +757,8 @@ export class Login {
 	 *
 	 * Schema source: smali `oc4.i.smali` in LINE Android 26.6.2.
 	 */
-	public async createQrCodeForSecure(
-		authSessionId: string,
-	): Promise<LooseType> {
-		return await this.client.request.request(
-			[[12, 1, [[11, 1, authSessionId]]]],
-			"createQrCodeForSecure",
-			4,
-			false,
-			"/acct/lgn/sq/v1",
-		);
+	public async createQrCodeForSecure(authSessionId: string): Promise<LooseType> {
+		return await this.client.request.request([[12, 1, [[11, 1, authSessionId]]]], "createQrCodeForSecure", 4, false, "/acct/lgn/sq/v1");
 	}
 
 	/**
@@ -951,13 +781,19 @@ export class Login {
 		autoLoginIsRequired: boolean = true,
 	): Promise<LooseType> {
 		return await this.client.request.request(
-			[[12, 1, [
-				[11, 1, authSessionId],
-				[11, 2, systemName],
-				[11, 3, modelName],
-				[2, 4, autoLoginIsRequired],
-				[11, 5, nonce],
-			]]],
+			[
+				[
+					12,
+					1,
+					[
+						[11, 1, authSessionId],
+						[11, 2, systemName],
+						[11, 3, modelName],
+						[2, 4, autoLoginIsRequired],
+						[11, 5, nonce],
+					],
+				],
+			],
 			"qrCodeLoginV2ForSecure",
 			4,
 			false,
@@ -965,10 +801,7 @@ export class Login {
 		);
 	}
 
-	public async confirmE2EELogin(
-		verifier: string,
-		deviceSecret: Buffer,
-	): Promise<LooseType> {
+	public async confirmE2EELogin(verifier: string, deviceSecret: Buffer): Promise<LooseType> {
 		return await this.client.request.request(
 			[
 				[11, 1, verifier],

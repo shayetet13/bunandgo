@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { latencyTracker } from "../../metrics/latency.ts";
+import { latencyTracker, summarizeLatencyGuardrails } from "../../metrics/latency.ts";
 import { db } from "../../db/sqlite.ts";
 import type { LatencySampleRow } from "../../db/schema.ts";
 import { fastPathTracker } from "../../metrics/fast-path.ts";
@@ -29,10 +29,11 @@ function latencySnapshot(samples: LatencySample[]) {
 		p50: percentile(values, 0.5),
 		p95: percentile(values, 0.95),
 		p99: percentile(values, 0.99),
-		okRate: samples.length ? samples.filter((sample) => sample.ok).length / samples.length * 100 : 100,
+		okRate: samples.length ? (samples.filter((sample) => sample.ok).length / samples.length) * 100 : 100,
 		count: samples.length,
 		windowSize: 500,
 		last: samples.at(-1),
+		guardrails: summarizeLatencyGuardrails(values),
 	};
 }
 
@@ -51,24 +52,16 @@ function fastSnapshot(samples: FastPathSample[]) {
 
 function visibleBotIds(c: Parameters<typeof requestUser>[0]): number[] | undefined {
 	const user = requestUser(c)!;
-	return user.role === "admin"
-		? undefined
-		: listBotIdsForUser(user, { includeAllWorkers: isControlPlane() });
+	return user.role === "admin" ? undefined : listBotIdsForUser(user, { includeAllWorkers: isControlPlane() });
 }
 
 function allRecentLatency(limit: number): LatencySample[] {
-	const samples = [
-		...latencyTracker.recent(limit),
-		...(isControlPlane() ? relayedLatencySamples(limit) : []),
-	];
+	const samples = [...latencyTracker.recent(limit), ...(isControlPlane() ? relayedLatencySamples(limit) : [])];
 	return samples.sort((a, b) => a.ts - b.ts).slice(-limit);
 }
 
 function allRecentFastPath(limit: number): FastPathSample[] {
-	const samples = [
-		...fastPathTracker.recent(limit),
-		...(isControlPlane() ? relayedFastPathSamples(limit) : []),
-	];
+	const samples = [...fastPathTracker.recent(limit), ...(isControlPlane() ? relayedFastPathSamples(limit) : [])];
 	return samples.sort((a, b) => a.ts - b.ts).slice(-limit);
 }
 
@@ -84,20 +77,22 @@ function latencyRowToSample(row: LatencySampleRow): LatencySample {
 		source: row.source,
 		textPreview: row.text_preview,
 		lineCreatedTime: row.line_created_time ?? undefined,
-		breakdown: hasBreakdown ? {
-			lineMs: row.line_ms ?? 0,
-			codeMs: row.code_ms ?? 0,
-			inboundMs: row.inbound_ms ?? undefined,
-			decryptMs: row.decrypt_ms ?? 0,
-			matchMs: row.match_ms ?? 0,
-			limiterMs: row.limiter_ms ?? 0,
-			routingMs: row.routing_ms ?? 0,
-			protocolPrepMs: row.protocol_prep_ms ?? 0,
-			relayEncodeMs: row.relay_encode_ms ?? 0,
-			goPrepMs: row.go_prep_ms ?? 0,
-			relayAndParseMs: row.relay_and_parse_ms ?? 0,
-			upstreamCalls: row.upstream_calls ?? 0,
-		} : undefined,
+		breakdown: hasBreakdown
+			? {
+					lineMs: row.line_ms ?? 0,
+					codeMs: row.code_ms ?? 0,
+					inboundMs: row.inbound_ms ?? undefined,
+					decryptMs: row.decrypt_ms ?? 0,
+					matchMs: row.match_ms ?? 0,
+					limiterMs: row.limiter_ms ?? 0,
+					routingMs: row.routing_ms ?? 0,
+					protocolPrepMs: row.protocol_prep_ms ?? 0,
+					relayEncodeMs: row.relay_encode_ms ?? 0,
+					goPrepMs: row.go_prep_ms ?? 0,
+					relayAndParseMs: row.relay_and_parse_ms ?? 0,
+					upstreamCalls: row.upstream_calls ?? 0,
+				}
+			: undefined,
 	};
 }
 
@@ -139,15 +134,13 @@ metricsRoute.get("/lane-race", (c) => {
 	// backend/src/relay/) most recently reported. Tagged with workerId since
 	// lane ids (0..15) repeat across processes/machines and would otherwise
 	// collide as React keys on the dashboard.
-	const lanes: LaneRaceResponseLane[] = [
-		...laneRaceView().map((lane) => ({ ...lane, workerId: WORKER_ID })),
-		...remoteLaneRaces(),
-	];
-	lanes.sort((a, b) =>
-		Number(b.routingEligible) - Number(a.routingEligible) ||
-		(a.applicationRttMs ?? Number.POSITIVE_INFINITY) - (b.applicationRttMs ?? Number.POSITIVE_INFINITY) ||
-		a.laneId - b.laneId ||
-		a.workerId.localeCompare(b.workerId)
+	const lanes: LaneRaceResponseLane[] = [...laneRaceView().map((lane) => ({ ...lane, workerId: WORKER_ID })), ...remoteLaneRaces()];
+	lanes.sort(
+		(a, b) =>
+			Number(b.routingEligible) - Number(a.routingEligible) ||
+			(a.applicationRttMs ?? Number.POSITIVE_INFINITY) - (b.applicationRttMs ?? Number.POSITIVE_INFINITY) ||
+			a.laneId - b.laneId ||
+			a.workerId.localeCompare(b.workerId),
 	);
 	return c.json({
 		retentionDays: LANE_RACE_RETENTION_DAYS,
@@ -179,18 +172,18 @@ metricsRoute.get("/history", (c) => {
 	// this endpoint via the other two branches needs the opposite
 	// (oldest-first, so it plots left-to-right), so only those get reversed.
 	if (from !== undefined || to !== undefined) {
-		rows = db.query<LatencySampleRow, number[]>(
-			`SELECT * FROM latency_samples WHERE ts >= ? AND ts <= ?${ownerFilter} ORDER BY id DESC LIMIT ?`,
-		).all(from ?? 0, to ?? Date.now(), ...(ids ?? []), limit);
+		rows = db
+			.query<LatencySampleRow, number[]>(`SELECT * FROM latency_samples WHERE ts >= ? AND ts <= ?${ownerFilter} ORDER BY id DESC LIMIT ?`)
+			.all(from ?? 0, to ?? Date.now(), ...(ids ?? []), limit);
 	} else if (c.req.query("scope") === "all") {
-		rows = db.query<LatencySampleRow, number[]>(
-			`SELECT * FROM latency_samples WHERE 1=1${ownerFilter} ORDER BY id DESC LIMIT ?`,
-		).all(...(ids ?? []), limit);
+		rows = db
+			.query<LatencySampleRow, number[]>(`SELECT * FROM latency_samples WHERE 1=1${ownerFilter} ORDER BY id DESC LIMIT ?`)
+			.all(...(ids ?? []), limit);
 		rows.reverse();
 	} else {
-		rows = db.query<LatencySampleRow, number[]>(
-			`SELECT * FROM latency_samples WHERE ts >= ?${ownerFilter} ORDER BY id DESC LIMIT ?`,
-		).all(PROCESS_STARTED_AT, ...(ids ?? []), limit);
+		rows = db
+			.query<LatencySampleRow, number[]>(`SELECT * FROM latency_samples WHERE ts >= ?${ownerFilter} ORDER BY id DESC LIMIT ?`)
+			.all(PROCESS_STARTED_AT, ...(ids ?? []), limit);
 		rows.reverse();
 	}
 	return c.json(rows.filter((row) => row.bot_id !== null).map(latencyRowToSample));
@@ -201,9 +194,7 @@ interface BucketCount {
 	count: number;
 }
 
-const countSinceStmt = db.prepare<{ count: number }, [number]>(
-	"SELECT COUNT(*) as count FROM latency_samples WHERE ts >= ?",
-);
+const countSinceStmt = db.prepare<{ count: number }, [number]>("SELECT COUNT(*) as count FROM latency_samples WHERE ts >= ?");
 const countAllStmt = db.prepare<{ count: number }, []>("SELECT COUNT(*) as count FROM latency_samples");
 const dailyStmt = db.prepare<BucketCount, [number]>(
 	"SELECT strftime('%Y-%m-%d', ts/1000, 'unixepoch', 'localtime') as bucket, COUNT(*) as count FROM latency_samples WHERE ts >= ? GROUP BY bucket ORDER BY bucket ASC",
@@ -240,12 +231,18 @@ metricsRoute.get("/summary", (c) => {
 	}
 	if (ids.length === 0) return c.json({ totalMessages: 0, todayCount: 0, monthCount: 0, yearCount: 0, daily: [], monthly: [], yearly: [] });
 	const placeholders = ids.map(() => "?").join(",");
-	const count = (since?: number) => db.query<{ count: number }, number[]>(
-		`SELECT COUNT(*) AS count FROM latency_samples WHERE bot_id IN (${placeholders})${since === undefined ? "" : " AND ts >= ?"}`,
-	).get(...ids, ...(since === undefined ? [] : [since]))?.count ?? 0;
-	const buckets = (format: string, since?: number) => db.query<BucketCount, number[]>(
-		`SELECT strftime('${format}', ts/1000, 'unixepoch', 'localtime') AS bucket, COUNT(*) AS count FROM latency_samples WHERE bot_id IN (${placeholders})${since === undefined ? "" : " AND ts >= ?"} GROUP BY bucket ORDER BY bucket ASC`,
-	).all(...ids, ...(since === undefined ? [] : [since]));
+	const count = (since?: number) =>
+		db
+			.query<{ count: number }, number[]>(
+				`SELECT COUNT(*) AS count FROM latency_samples WHERE bot_id IN (${placeholders})${since === undefined ? "" : " AND ts >= ?"}`,
+			)
+			.get(...ids, ...(since === undefined ? [] : [since]))?.count ?? 0;
+	const buckets = (format: string, since?: number) =>
+		db
+			.query<BucketCount, number[]>(
+				`SELECT strftime('${format}', ts/1000, 'unixepoch', 'localtime') AS bucket, COUNT(*) AS count FROM latency_samples WHERE bot_id IN (${placeholders})${since === undefined ? "" : " AND ts >= ?"} GROUP BY bucket ORDER BY bucket ASC`,
+			)
+			.all(...ids, ...(since === undefined ? [] : [since]));
 	return c.json({
 		totalMessages: count(),
 		todayCount: count(startOfToday),

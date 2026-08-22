@@ -31,11 +31,12 @@ export function resolveFastSquarePollIntervalMs(
 	}
 	const configured = Number(configuredRaw);
 	if (!Number.isFinite(configured)) return DEFAULT_FAST_SQUARE_POLL_INTERVAL_MS;
-	const minimum = allowZeroMsRaw === "1"
-		? ZERO_DELAY_FAST_SQUARE_POLL_INTERVAL_MS
-		: allow50MsRaw === "1"
-			? ISOLATED_FAST_SQUARE_POLL_INTERVAL_MS
-			: DEFAULT_FAST_SQUARE_POLL_INTERVAL_MS;
+	const minimum =
+		allowZeroMsRaw === "1"
+			? ZERO_DELAY_FAST_SQUARE_POLL_INTERVAL_MS
+			: allow50MsRaw === "1"
+				? ISOLATED_FAST_SQUARE_POLL_INTERVAL_MS
+				: DEFAULT_FAST_SQUARE_POLL_INTERVAL_MS;
 	return Math.min(MAX_FAST_SQUARE_POLL_INTERVAL_MS, Math.max(minimum, Math.ceil(configured)));
 }
 
@@ -64,7 +65,7 @@ export function resolveFastSquarePollSlots(
 
 export const FAST_SQUARE_POLL_SLOTS = resolveFastSquarePollSlots(
 	process.env.SQUARE_FAST_POLL_SLOTS,
-	process.env.LINE_H2_LANES,
+	process.env.LINE_EFFECTIVE_H2_LANES ?? process.env.LINE_H2_LANES,
 	process.env.LINE_H2_SEND_RESERVED_LANES,
 );
 

@@ -19,18 +19,14 @@ export interface StartConfirmation {
 }
 
 const TTL_MS = 10 * 60_000;
-const getStmt = db.prepare<StartConfirmationRow, [string]>(
-	"SELECT * FROM start_confirmations WHERE token = ?",
-);
+const getStmt = db.prepare<StartConfirmationRow, [string]>("SELECT * FROM start_confirmations WHERE token = ?");
 const pendingForBotStmt = db.prepare<StartConfirmationRow, [number, number]>(
 	"SELECT * FROM start_confirmations WHERE bot_id = ? AND status = 'pending' AND created_at > ? LIMIT 1",
 );
 const insertStmt = db.prepare<null, [string, number, number]>(
 	"INSERT INTO start_confirmations (token, bot_id, status, created_at) VALUES (?, ?, 'pending', ?)",
 );
-const pruneStmt = db.prepare<null, [number]>(
-	"DELETE FROM start_confirmations WHERE status != 'pending' OR created_at <= ?",
-);
+const pruneStmt = db.prepare<null, [number]>("DELETE FROM start_confirmations WHERE status != 'pending' OR created_at <= ?");
 const resolveStmt = db.prepare<null, [StartConfirmationStatus, string, number]>(
 	"UPDATE start_confirmations SET status = ? WHERE token = ? AND status = 'pending' AND created_at > ?",
 );

@@ -370,9 +370,7 @@ export interface MessageIn {
  * because the feed now has two sources — the WS stream and the persisted
  * history endpoint — and `lib/` must not import from `components/`.
  */
-export type FeedItem =
-	| { kind: "in"; id: string; data: MessageIn }
-	| { kind: "out"; id: string; data: LatencySample };
+export type FeedItem = { kind: "in"; id: string; data: MessageIn } | { kind: "out"; id: string; data: LatencySample };
 
 export type WsEventType =
 	| "qr"

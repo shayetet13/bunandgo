@@ -65,10 +65,11 @@ describe("shouldProcessIncomingMessage", () => {
 			return {
 				base: {
 					square: {
-						getSquareChatMembers: () => Promise.resolve({
-							squareChatMembers: [{ squareMemberMid: ADMIN_MID, displayName: "Admin", role: 1 }],
-							continuationToken: "",
-						}),
+						getSquareChatMembers: () =>
+							Promise.resolve({
+								squareChatMembers: [{ squareMemberMid: ADMIN_MID, displayName: "Admin", role: 1 }],
+								continuationToken: "",
+							}),
 					},
 				},
 			} as unknown as Client;

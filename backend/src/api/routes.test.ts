@@ -37,14 +37,16 @@ async function requireAuth(c: Context, next: Next) {
 }
 
 function request(path: string, init: RequestInit = {}): Promise<Response> {
-	return Promise.resolve(app.request(path, {
-		...init,
-		headers: {
-			...(init.body ? { "content-type": "application/json" } : {}),
-			...(cookie ? { cookie } : {}),
-			...init.headers,
-		},
-	}));
+	return Promise.resolve(
+		app.request(path, {
+			...init,
+			headers: {
+				...(init.body ? { "content-type": "application/json" } : {}),
+				...(cookie ? { cookie } : {}),
+				...init.headers,
+			},
+		}),
+	);
 }
 
 beforeAll(async () => {
@@ -73,17 +75,21 @@ describe("API routes", () => {
 
 	test("validates and creates a bot", async () => {
 		expect((await request("/api/bots", { method: "POST", body: "{bad" })).status).toBe(400);
-		expect((await request("/api/bots", {
-			method: "POST",
-			body: JSON.stringify({ name: "bad device", device: "INVALID" }),
-		})).status).toBe(400);
+		expect(
+			(
+				await request("/api/bots", {
+					method: "POST",
+					body: JSON.stringify({ name: "bad device", device: "INVALID" }),
+				})
+			).status,
+		).toBe(400);
 
 		const response = await request("/api/bots", {
 			method: "POST",
 			body: JSON.stringify({ name: "E2E bot", device: "DESKTOPWIN" }),
 		});
 		expect(response.status).toBe(201);
-		const bot = await response.json() as { id: number; allowOwnerTesting: boolean };
+		const bot = (await response.json()) as { id: number; allowOwnerTesting: boolean };
 		botId = bot.id;
 		expect(bot.allowOwnerTesting).toBe(false);
 	});
@@ -94,7 +100,7 @@ describe("API routes", () => {
 			body: JSON.stringify({ allowOwnerTesting: true }),
 		});
 		expect(setting.status).toBe(200);
-		expect((await setting.json() as { allowOwnerTesting: boolean }).allowOwnerTesting).toBe(true);
+		expect(((await setting.json()) as { allowOwnerTesting: boolean }).allowOwnerTesting).toBe(true);
 
 		const invalidRule = {
 			surface: "invalid",
@@ -104,10 +110,14 @@ describe("API routes", () => {
 			enabled: true,
 			priority: 0,
 		};
-		expect((await request(`/api/bots/${botId}/rules`, {
-			method: "POST",
-			body: JSON.stringify(invalidRule),
-		})).status).toBe(400);
+		expect(
+			(
+				await request(`/api/bots/${botId}/rules`, {
+					method: "POST",
+					body: JSON.stringify(invalidRule),
+				})
+			).status,
+		).toBe(400);
 
 		for (const surface of ["talk", "square"]) {
 			const response = await request(`/api/bots/${botId}/rules`, {
@@ -117,12 +127,16 @@ describe("API routes", () => {
 			expect(response.status).toBe(201);
 		}
 
-		const rules = await (await request(`/api/bots/${botId}/rules`)).json() as unknown[];
+		const rules = (await (await request(`/api/bots/${botId}/rules`)).json()) as unknown[];
 		expect(rules).toHaveLength(2);
-		expect((await request(`/api/bots/${botId}/rules/999999`, {
-			method: "PUT",
-			body: JSON.stringify({ ...invalidRule, surface: "talk" }),
-		})).status).toBe(404);
+		expect(
+			(
+				await request(`/api/bots/${botId}/rules/999999`, {
+					method: "PUT",
+					body: JSON.stringify({ ...invalidRule, surface: "talk" }),
+				})
+			).status,
+		).toBe(404);
 		expect((await request(`/api/bots/${botId}/rules/999999`, { method: "DELETE" })).status).toBe(404);
 	});
 
@@ -135,10 +149,14 @@ describe("API routes", () => {
 	});
 
 	test("rejects invalid send targets and bounds metric limits", async () => {
-		expect((await request(`/api/bots/${botId}/test-send`, {
-			method: "POST",
-			body: JSON.stringify({ surface: "square", targetMid: "bad", text: "x" }),
-		})).status).toBe(400);
+		expect(
+			(
+				await request(`/api/bots/${botId}/test-send`, {
+					method: "POST",
+					body: JSON.stringify({ surface: "square", targetMid: "bad", text: "x" }),
+				})
+			).status,
+		).toBe(400);
 		expect((await request("/api/metrics/history?limit=-5")).status).toBe(200);
 		expect((await request("/api/metrics/fast-path?limit=99999")).status).toBe(200);
 	});
@@ -146,19 +164,19 @@ describe("API routes", () => {
 	test("includes persisted latency breakdowns in the admin lane history", async () => {
 		cookie = adminCookie;
 		const ts = Date.now();
-		db.run(`INSERT INTO latency_samples (
+		db.run(
+			`INSERT INTO latency_samples (
 			bot_id, ts, surface, target_mid, latency_ms, ok, source, text_preview,
 			inbound_ms, line_created_time, line_ms, code_ms, decrypt_ms, match_ms,
 			limiter_ms, routing_ms, protocol_prep_ms, relay_encode_ms, go_prep_ms,
 			relay_and_parse_ms, upstream_calls
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
-			botId, ts, "square", null, 18.5, 1, "auto", "answer", 4.2, ts,
-			14, 4.5, 0.1, 0.1, 0.1, 0.2, 2.5, 0.1, 0.2, 1.2, 1,
-		]);
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			[botId, ts, "square", null, 18.5, 1, "auto", "answer", 4.2, ts, 14, 4.5, 0.1, 0.1, 0.1, 0.2, 2.5, 0.1, 0.2, 1.2, 1],
+		);
 		try {
 			const response = await request("/api/metrics/lane-race");
 			expect(response.status).toBe(200);
-			const body = await response.json() as {
+			const body = (await response.json()) as {
 				latency: Array<{ botId: number; latencyMs: number; breakdown?: { lineMs: number; routingMs: number } }>;
 			};
 			const sample = body.latency.find((entry) => entry.botId === botId && entry.latencyMs === 18.5);
@@ -180,11 +198,15 @@ describe("API routes", () => {
 			body: JSON.stringify({ username: "alice", password: "alice-secure-123" }),
 		});
 		expect(aliceResponse.status).toBe(201);
-		const alice = await aliceResponse.json() as { id: number };
-		expect((await request("/api/users", {
-			method: "POST",
-			body: JSON.stringify({ username: "bob", password: "bob-secure-123" }),
-		})).status).toBe(201);
+		const alice = (await aliceResponse.json()) as { id: number };
+		expect(
+			(
+				await request("/api/users", {
+					method: "POST",
+					body: JSON.stringify({ username: "bob", password: "bob-secure-123" }),
+				})
+			).status,
+		).toBe(201);
 
 		const aliceLogin = await request("/api/auth/login", {
 			method: "POST",
@@ -195,9 +217,9 @@ describe("API routes", () => {
 			method: "POST",
 			body: JSON.stringify({ name: "Alice bot" }),
 		});
-		const aliceBot = await aliceBotResponse.json() as { id: number; ownerUserId: number };
+		const aliceBot = (await aliceBotResponse.json()) as { id: number; ownerUserId: number };
 		expect(aliceBot.ownerUserId).toBe(alice.id);
-		expect((await (await request("/api/bots")).json() as unknown[])).toHaveLength(1);
+		expect((await (await request("/api/bots")).json()) as unknown[]).toHaveLength(1);
 		expect((await request("/api/users")).status).toBe(403);
 
 		const bobLogin = await request("/api/auth/login", {
@@ -205,15 +227,19 @@ describe("API routes", () => {
 			body: JSON.stringify({ username: "bob", password: "bob-secure-123" }),
 		});
 		cookie = bobLogin.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
-		expect((await (await request("/api/bots")).json() as unknown[])).toHaveLength(0);
+		expect((await (await request("/api/bots")).json()) as unknown[]).toHaveLength(0);
 		expect((await request(`/api/bots/${aliceBot.id}/rules`)).status).toBe(403);
 
 		cookie = adminCookie;
-		expect((await (await request("/api/bots")).json() as unknown[])).toHaveLength(1);
-		expect((await request(`/api/users/${alice.id}`, {
-			method: "PATCH",
-			body: JSON.stringify({ active: false }),
-		})).status).toBe(200);
+		expect((await (await request("/api/bots")).json()) as unknown[]).toHaveLength(1);
+		expect(
+			(
+				await request(`/api/users/${alice.id}`, {
+					method: "PATCH",
+					body: JSON.stringify({ active: false }),
+				})
+			).status,
+		).toBe(200);
 		const stoppedLogin = await request("/api/auth/login", {
 			method: "POST",
 			body: JSON.stringify({ username: "alice", password: "alice-secure-123" }),
@@ -228,7 +254,7 @@ describe("API routes", () => {
 			method: "POST",
 			body: JSON.stringify({ username: "carol", password: "carol-secure-123" }),
 		});
-		const carol = await created.json() as { id: number; botQuota: number };
+		const carol = (await created.json()) as { id: number; botQuota: number };
 		expect(carol.botQuota).toBe(1);
 
 		const carolLogin = await request("/api/auth/login", {
@@ -239,24 +265,35 @@ describe("API routes", () => {
 
 		const carol1Response = await request("/api/bots", { method: "POST", body: JSON.stringify({ name: "carol 1" }) });
 		expect(carol1Response.status).toBe(201);
-		const carol1 = await carol1Response.json() as { id: number; rulesCopiedFrom: number };
+		const carol1 = (await carol1Response.json()) as { id: number; rulesCopiedFrom: number };
 		expect(carol1.rulesCopiedFrom).toBe(0); // no sibling exists yet to copy from
 		await request(`/api/bots/${carol1.id}/rules`, {
 			method: "POST",
-			body: JSON.stringify({ surface: "all", matchType: "equals", matchValue: "หวัดดี", replyText: "หวัดดีครับ", enabled: true, priority: 0 }),
+			body: JSON.stringify({
+				surface: "all",
+				matchType: "equals",
+				matchValue: "หวัดดี",
+				replyText: "หวัดดีครับ",
+				enabled: true,
+				priority: 0,
+			}),
 		});
 
 		const blocked = await request("/api/bots", { method: "POST", body: JSON.stringify({ name: "carol 2" }) });
 		expect(blocked.status).toBe(403);
-		const blockedBody = await blocked.json() as { quota: number; pricePerMonthThb: number };
+		const blockedBody = (await blocked.json()) as { quota: number; pricePerMonthThb: number };
 		expect(blockedBody.quota).toBe(1);
 		expect(blockedBody.pricePerMonthThb).toBe(100);
 
 		// A user cannot lift their own ceiling.
-		expect((await request(`/api/users/${carol.id}`, {
-			method: "PATCH",
-			body: JSON.stringify({ botQuota: 5 }),
-		})).status).toBe(403);
+		expect(
+			(
+				await request(`/api/users/${carol.id}`, {
+					method: "PATCH",
+					body: JSON.stringify({ botQuota: 5 }),
+				})
+			).status,
+		).toBe(403);
 
 		cookie = adminCookie;
 		const raised = await request(`/api/users/${carol.id}`, {
@@ -264,25 +301,29 @@ describe("API routes", () => {
 			body: JSON.stringify({ botQuota: 3 }),
 		});
 		expect(raised.status).toBe(200);
-		expect((await raised.json() as { botQuota: number }).botQuota).toBe(3);
-		expect((await request(`/api/users/${carol.id}`, {
-			method: "PATCH",
-			body: JSON.stringify({ botQuota: 6 }),
-		})).status).toBe(400);
+		expect(((await raised.json()) as { botQuota: number }).botQuota).toBe(3);
+		expect(
+			(
+				await request(`/api/users/${carol.id}`, {
+					method: "PATCH",
+					body: JSON.stringify({ botQuota: 6 }),
+				})
+			).status,
+		).toBe(400);
 
 		cookie = carolLogin.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
 		const carol2Response = await request("/api/bots", { method: "POST", body: JSON.stringify({ name: "carol 2" }) });
 		expect(carol2Response.status).toBe(201);
-		const carol2 = await carol2Response.json() as { id: number; rulesCopiedFrom: number };
+		const carol2 = (await carol2Response.json()) as { id: number; rulesCopiedFrom: number };
 		// carol 1 is the only sibling and had one rule — it copies straight over.
 		expect(carol2.rulesCopiedFrom).toBe(1);
-		const carol2Rules = await (await request(`/api/bots/${carol2.id}/rules`)).json() as Array<{ matchValue: string }>;
+		const carol2Rules = (await (await request(`/api/bots/${carol2.id}/rules`)).json()) as Array<{ matchValue: string }>;
 		expect(carol2Rules.map((r) => r.matchValue)).toEqual(["หวัดดี"]);
 
 		expect((await request("/api/bots", { method: "POST", body: JSON.stringify({ name: "carol 3" }) })).status).toBe(201);
 		expect((await request("/api/bots", { method: "POST", body: JSON.stringify({ name: "carol 4" }) })).status).toBe(403);
 
-		const me = await (await request("/api/auth/me")).json() as { botQuota: number; botPricePerMonthThb: number };
+		const me = (await (await request("/api/auth/me")).json()) as { botQuota: number; botPricePerMonthThb: number };
 		expect(me.botQuota).toBe(3);
 		expect(me.botPricePerMonthThb).toBe(100);
 		cookie = adminCookie;
@@ -314,14 +355,22 @@ describe("API routes", () => {
 		expect((await request("/api/bots")).status).toBe(401);
 		cookie = newCookie;
 		expect((await request("/api/bots")).status).toBe(200);
-		expect((await request("/api/auth/login", {
-			method: "POST",
-			body: JSON.stringify({ username: "grace", password: "grace-old-secure-123" }),
-		})).status).toBe(401);
-		expect((await request("/api/auth/login", {
-			method: "POST",
-			body: JSON.stringify({ username: "grace", password: "grace-new-secure-456" }),
-		})).status).toBe(200);
+		expect(
+			(
+				await request("/api/auth/login", {
+					method: "POST",
+					body: JSON.stringify({ username: "grace", password: "grace-old-secure-123" }),
+				})
+			).status,
+		).toBe(401);
+		expect(
+			(
+				await request("/api/auth/login", {
+					method: "POST",
+					body: JSON.stringify({ username: "grace", password: "grace-new-secure-456" }),
+				})
+			).status,
+		).toBe(200);
 		cookie = adminCookie;
 	});
 });
@@ -337,7 +386,7 @@ describe("PATCH /api/users/:id refuses bot-affecting changes for a user outside 
 			method: "POST",
 			body: JSON.stringify({ username: "dana", password: "dana-secure-123" }),
 		});
-		const dana = await created.json() as { id: number; botQuota: number };
+		const dana = (await created.json()) as { id: number; botQuota: number };
 		// Room to hold more than the quota we'll try to lower to.
 		await request(`/api/users/${dana.id}`, { method: "PATCH", body: JSON.stringify({ botQuota: 3 }) });
 
@@ -359,7 +408,7 @@ describe("PATCH /api/users/:id refuses bot-affecting changes for a user outside 
 
 		delete process.env.WORKER_OWNER_EXCLUDE;
 		const stillThree = await request(`/api/users/${dana.id}`, { method: "PATCH", body: JSON.stringify({ active: true }) });
-		expect((await stillThree.json() as { botQuota: number }).botQuota).toBe(3);
+		expect(((await stillThree.json()) as { botQuota: number }).botQuota).toBe(3);
 	});
 
 	test("active=false: refuses rather than silently skipping the stop for a bot outside scope", async () => {
@@ -368,7 +417,7 @@ describe("PATCH /api/users/:id refuses bot-affecting changes for a user outside 
 			method: "POST",
 			body: JSON.stringify({ username: "erin", password: "erin-secure-123" }),
 		});
-		const erin = await created.json() as { id: number };
+		const erin = (await created.json()) as { id: number };
 
 		const erinLogin = await request("/api/auth/login", {
 			method: "POST",
@@ -392,7 +441,7 @@ describe("PATCH /api/users/:id refuses bot-affecting changes for a user outside 
 			method: "POST",
 			body: JSON.stringify({ username: "frank", password: "frank-secure-123" }),
 		});
-		const frank = await created.json() as { id: number };
+		const frank = (await created.json()) as { id: number };
 		await request(`/api/users/${frank.id}`, { method: "PATCH", body: JSON.stringify({ botQuota: 2 }) });
 
 		const frankLogin = await request("/api/auth/login", {
@@ -400,7 +449,9 @@ describe("PATCH /api/users/:id refuses bot-affecting changes for a user outside 
 			body: JSON.stringify({ username: "frank", password: "frank-secure-123" }),
 		});
 		cookie = frankLogin.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
-		const bot = await (await request("/api/bots", { method: "POST", body: JSON.stringify({ name: "frank 1" }) })).json() as { id: number };
+		const bot = (await (await request("/api/bots", { method: "POST", body: JSON.stringify({ name: "frank 1" }) })).json()) as {
+			id: number;
+		};
 
 		cookie = adminCookie;
 		process.env.WORKER_OWNER_EXCLUDE = String(frank.id);

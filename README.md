@@ -47,7 +47,7 @@ right:
 - **Live feed** — pick a bot, watch its in/out messages in real time
 - **Settings** — admin account info and logout
 
-Add as many bots as needed; each is a fully separate LINE account (own
+Each bot is a fully separate LINE account (own
 session/tokens/E2EE keys, own chats, own race rules). The P95/throughput
 stats on Overview are global across all bots. UI is in Thai; click the
 **?** help button in the topbar for an in-app explanation of every
@@ -55,10 +55,11 @@ feature.
 
 ## Login
 
-Default admin credentials: **admin** / **Root#77**. Override via
-`ADMIN_USERNAME` / `ADMIN_PASSWORD` env vars before running the backend —
-strongly recommended for anything beyond local/dev use. Dashboard sessions
-persist in SQLite, renew while in use, and are revoked by explicit logout.
+Set `ADMIN_USERNAME` and a 12+ character `ADMIN_PASSWORD` before the first
+backend start. The process refuses to bootstrap a database without them and
+never resets an existing admin password from environment variables. Dashboard
+sessions persist in SQLite, renew while in use, and are revoked by explicit
+logout.
 
 ## Notes
 
@@ -84,6 +85,11 @@ persist in SQLite, renew while in use, and are revoked by explicit logout.
   Polls never overlap. Established bots retain their fast slots when sibling
   or other users' bots come online; only a bot beyond worker capacity uses the
   100ms overflow path instead of downgrading every bot in the process.
+- Production uses durable balanced owner assignment: the first owner goes to
+  Primary, the next to Shard B, then alternates by the least-loaded owner
+  count. Login, reconnect, restart, and lane health never move an existing
+  owner. Primary uses Server 2 local lanes; Shard B is relay-only through the
+  lane service on Server 3, which owns no bot/login session.
 - Data (bots, session tokens, rules, chats, latency history) lives in
   `backend/data/app.db` (SQLite), keyed by `bot_id` for full isolation
   between accounts.

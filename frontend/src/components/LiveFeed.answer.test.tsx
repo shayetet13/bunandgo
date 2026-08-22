@@ -44,10 +44,7 @@ describe("measureAnswers", () => {
 	});
 
 	test("keeps rooms independent", () => {
-		const answers = measureAnswers([
-			incoming("a-trigger", T, "roomA"),
-			incoming("b-reply", T + 40, "roomB"),
-		]);
+		const answers = measureAnswers([incoming("a-trigger", T, "roomA"), incoming("b-reply", T + 40, "roomB")]);
 
 		// roomB's message is the first in *its* room, so it is nobody's reply
 		// even though a message in another room preceded it.
@@ -63,11 +60,7 @@ describe("measureAnswers", () => {
 	test("our own reply does not become the next trigger", () => {
 		// Both bots answer the same trigger; ours landing first must not make
 		// the rival look 20ms fast when it actually took 80ms.
-		const answers = measureAnswers([
-			incoming("trigger", T),
-			outgoing("ours", T + 20),
-			incoming("rival", T + 80),
-		]);
+		const answers = measureAnswers([incoming("trigger", T), outgoing("ours", T + 20), incoming("rival", T + 80)]);
 
 		expect(answers.get("rival")).toBe(80);
 	});

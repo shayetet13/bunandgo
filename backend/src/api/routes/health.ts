@@ -77,8 +77,9 @@ async function server1Status(): Promise<ServerStatus> {
 	try {
 		const res = await fetch(SERVER1_STATUS_URL, { signal: AbortSignal.timeout(1_500) });
 		if (!res.ok) throw new Error(`status agent responded ${res.status}`);
-		const status = await res.json() as Partial<ServerStatus>;
-		if (status.id !== "server1" || !status.load || typeof status.load.capacityPercent !== "number") throw new Error("invalid status agent response");
+		const status = (await res.json()) as Partial<ServerStatus>;
+		if (status.id !== "server1" || !status.load || typeof status.load.capacityPercent !== "number")
+			throw new Error("invalid status agent response");
 		return {
 			id: "server1",
 			label: "Server 1",
@@ -118,10 +119,7 @@ healthRoute.get("/", async (c) => {
 		// relay box (see backend/src/relay/) most recently reported, so a
 		// second physical machine's lanes show up in the same list instead of
 		// only this process's own.
-		lanes: [
-			...laneStats().map((lane) => ({ ...lane, workerId: WORKER_ID })),
-			...remoteLaneStats(),
-		],
+		lanes: [...laneStats().map((lane) => ({ ...lane, workerId: WORKER_ID })), ...remoteLaneStats()],
 		// One listener per open /ws connection per event name is normal. A
 		// count that keeps climbing with the dashboard closed points at a
 		// socket whose close handler never ran — see api/server.ts's
@@ -129,9 +127,7 @@ healthRoute.get("/", async (c) => {
 		// every single reply, so a pile of dead listeners is a plausible read
 		// on "gets slower the longer the process has been up," not just a
 		// memory number nobody looks at.
-		wsListeners: Object.fromEntries(
-			botEvents.eventNames().map((name) => [String(name), botEvents.listenerCount(name)]),
-		),
+		wsListeners: Object.fromEntries(botEvents.eventNames().map((name) => [String(name), botEvents.listenerCount(name)])),
 		// heapUsed climbing = a real JS-level leak (something reachable that
 		// should have been dropped). external/arrayBuffers climbing instead
 		// points at native allocations (Buffers, TLS/socket internals) that

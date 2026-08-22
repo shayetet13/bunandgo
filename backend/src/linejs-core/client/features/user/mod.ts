@@ -1,9 +1,6 @@
 import type * as line from "@evex/linejs-types";
 import type { Client } from "../../mod.ts";
-import type {
-	CompactMessageResponse,
-	SendCompactMessageOptions,
-} from "../../../base/service/talk/mod.ts";
+import type { CompactMessageResponse, SendCompactMessageOptions } from "../../../base/service/talk/mod.ts";
 
 export interface UserInit {
 	client?: Client;
@@ -26,8 +23,7 @@ export class User {
 	 * constructed with a Client.
 	 */
 	async fetchCalendarEvents(
-		eventKinds?:
-			line.GetContactCalendarEventsRequest["requiredContactCalendarEvents"],
+		eventKinds?: line.GetContactCalendarEventsRequest["requiredContactCalendarEvents"],
 	): Promise<line.ContactCalendarEvent[]> {
 		const client = this.#requireClient("fetchCalendarEvents");
 		const res = await client.base.relation.getContactCalendarEvents({
@@ -45,9 +41,7 @@ export class User {
 	/**
 	 * Sends a compact talk message through `/CA5` or `/ECA5`.
 	 */
-	sendCompactMessage(
-		input: string | Omit<SendCompactMessageOptions, "to">,
-	): Promise<CompactMessageResponse> {
+	sendCompactMessage(input: string | Omit<SendCompactMessageOptions, "to">): Promise<CompactMessageResponse> {
 		const client = this.#requireClient("sendCompactMessage");
 		if (typeof input === "string") {
 			return client.base.talk.sendCompactMessage({
@@ -113,10 +107,7 @@ export class User {
 
 	#requireClient(method: string): Client {
 		if (!this.#client) {
-			throw new Error(
-				`User.${method}() requires a Client. ` +
-					`Construct User with { client, raw } to enable RPC helpers.`,
-			);
+			throw new Error(`User.${method}() requires a Client. ` + `Construct User with { client, raw } to enable RPC helpers.`);
 		}
 		return this.#client;
 	}

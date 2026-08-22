@@ -1,7 +1,23 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createServer, constants, type Http2Server, type ServerHttp2Stream, type IncomingHttpHeaders } from "node:http2";
 import { gzipSync } from "node:zlib";
-import { buildHeaders, decodeBody, degradedLaneCandidates, ensureLanes, H2_LANE_ROLE_HEADER, laneCandidates, laneFetch, laneStats, selectAgedLaneForRecycle, selectDegradedLaneForRepair, selectPollingLaneCandidate, sendCandidatesWithCrossover, shouldPreferFastestSendLane, shouldPreferLane, stopLanes } from "./h2-lanes.ts";
+import {
+	buildHeaders,
+	decodeBody,
+	degradedLaneCandidates,
+	ensureLanes,
+	H2_LANE_ROLE_HEADER,
+	laneCandidates,
+	laneFetch,
+	laneStats,
+	selectAgedLaneForRecycle,
+	selectDegradedLaneForRepair,
+	selectPollingLaneCandidate,
+	sendCandidatesWithCrossover,
+	shouldPreferFastestSendLane,
+	shouldPreferLane,
+	stopLanes,
+} from "./h2-lanes.ts";
 import { readResponseBytes } from "./raw-response.ts";
 
 type StreamHandler = (stream: ServerHttp2Stream, headers: IncomingHttpHeaders) => void;
@@ -124,7 +140,9 @@ describe("owned HTTP/2 lanes", () => {
 		let sendSession = -1;
 		let heldStream: ServerHttp2Stream | undefined;
 		let releaseHeld!: () => void;
-		const heldSeen = new Promise<void>((resolve) => { releaseHeld = resolve; });
+		const heldSeen = new Promise<void>((resolve) => {
+			releaseHeld = resolve;
+		});
 		const { origin, server } = await startServer((stream, headers) => {
 			const session = stream.session!;
 			let id = sessions.get(session);
@@ -214,9 +232,7 @@ describe("owned HTTP/2 lanes", () => {
 		running = server;
 
 		await ensureLanes(origin);
-		await expect(
-			laneFetch(`${origin}/SQ1`, { method: "POST", body: new Uint8Array([1]) as BodyInit }),
-		).rejects.toThrow();
+		await expect(laneFetch(`${origin}/SQ1`, { method: "POST", body: new Uint8Array([1]) as BodyInit })).rejects.toThrow();
 		expect(seen).toBe(1);
 	});
 
@@ -271,35 +287,31 @@ describe("owned HTTP/2 lanes", () => {
 
 describe("RTT-aware lane ranking", () => {
 	test("prefers a materially faster route even after accounting for one in-flight stream", () => {
-		expect(shouldPreferLane(
-			{ rttMs: 1.0, lastOkAt: 10, inFlight: 1 },
-			{ rttMs: 8.0, lastOkAt: 20, inFlight: 0 },
-			"send",
-		)).toBeTrue();
+		expect(shouldPreferLane({ rttMs: 1.0, lastOkAt: 10, inFlight: 1 }, { rttMs: 8.0, lastOkAt: 20, inFlight: 0 }, "send")).toBeTrue();
 	});
 
 	test("does not chase a slightly faster ping when that lane is occupied", () => {
-		expect(shouldPreferLane(
-			{ rttMs: 2.3, lastOkAt: 10, inFlight: 1 },
-			{ rttMs: 5.6, lastOkAt: 20, inFlight: 0 },
-			"send",
-		)).toBeFalse();
+		expect(shouldPreferLane({ rttMs: 2.3, lastOkAt: 10, inFlight: 1 }, { rttMs: 5.6, lastOkAt: 20, inFlight: 0 }, "send")).toBeFalse();
 	});
 
 	test("ranks send lanes by real application RTT before network ping", () => {
-		expect(shouldPreferLane(
-			{ rttMs: 5, sendRttMs: 12, lastOkAt: 10, inFlight: 0 },
-			{ rttMs: 2, sendRttMs: 25, lastOkAt: 20, inFlight: 0 },
-			"send",
-		)).toBeTrue();
+		expect(
+			shouldPreferLane(
+				{ rttMs: 5, sendRttMs: 12, lastOkAt: 10, inFlight: 0 },
+				{ rttMs: 2, sendRttMs: 25, lastOkAt: 20, inFlight: 0 },
+				"send",
+			),
+		).toBeTrue();
 	});
 
 	test("lets a recovered network route overcome its stale send result", () => {
-		expect(shouldPreferLane(
-			{ rttMs: 2, sendRttMs: 25, sendNetworkRttMs: 12, lastOkAt: 10, inFlight: 0 },
-			{ rttMs: 5, sendRttMs: 20, sendNetworkRttMs: 5, lastOkAt: 20, inFlight: 0 },
-			"send",
-		)).toBe(true);
+		expect(
+			shouldPreferLane(
+				{ rttMs: 2, sendRttMs: 25, sendNetworkRttMs: 12, lastOkAt: 10, inFlight: 0 },
+				{ rttMs: 5, sendRttMs: 20, sendNetworkRttMs: 5, lastOkAt: 20, inFlight: 0 },
+				"send",
+			),
+		).toBe(true);
 	});
 
 	test("calibrates poll lanes, exploits the fastest, then explores the stalest", () => {
@@ -317,9 +329,33 @@ describe("RTT-aware lane ranking", () => {
 
 	test("takes three samples from every new poll lane before ranking cold outliers", () => {
 		const lanes = [
-			{ id: 4, pollRttMs: 44, pollApplicationSamples: 1, consecutiveSlowApplicationSamples: 1, lastPollOkAt: 100, lastOkAt: 100, inFlight: 0 },
-			{ id: 5, pollRttMs: 14, pollApplicationSamples: 3, consecutiveSlowApplicationSamples: 0, lastPollOkAt: 200, lastOkAt: 200, inFlight: 0 },
-			{ id: 6, pollRttMs: 17, pollApplicationSamples: 2, consecutiveSlowApplicationSamples: 0, lastPollOkAt: 300, lastOkAt: 300, inFlight: 0 },
+			{
+				id: 4,
+				pollRttMs: 44,
+				pollApplicationSamples: 1,
+				consecutiveSlowApplicationSamples: 1,
+				lastPollOkAt: 100,
+				lastOkAt: 100,
+				inFlight: 0,
+			},
+			{
+				id: 5,
+				pollRttMs: 14,
+				pollApplicationSamples: 3,
+				consecutiveSlowApplicationSamples: 0,
+				lastPollOkAt: 200,
+				lastOkAt: 200,
+				inFlight: 0,
+			},
+			{
+				id: 6,
+				pollRttMs: 17,
+				pollApplicationSamples: 2,
+				consecutiveSlowApplicationSamples: 0,
+				lastPollOkAt: 300,
+				lastOkAt: 300,
+				inFlight: 0,
+			},
 		];
 		expect(selectPollingLaneCandidate(lanes, 4, false, 20, 23, 3, 3)?.id).toBe(6);
 		lanes[2]!.pollApplicationSamples = 3;
@@ -328,8 +364,24 @@ describe("RTT-aware lane ranking", () => {
 
 	test("rechecks one-off slow poll samples but discards a confirmed slow route", () => {
 		const lanes = [
-			{ id: 4, pollRttMs: 14, pollApplicationSamples: 4, consecutiveSlowApplicationSamples: 0, lastPollOkAt: 300, lastOkAt: 300, inFlight: 0 },
-			{ id: 5, pollRttMs: 31, pollApplicationSamples: 4, consecutiveSlowApplicationSamples: 1, lastPollOkAt: 100, lastOkAt: 100, inFlight: 0 },
+			{
+				id: 4,
+				pollRttMs: 14,
+				pollApplicationSamples: 4,
+				consecutiveSlowApplicationSamples: 0,
+				lastPollOkAt: 300,
+				lastOkAt: 300,
+				inFlight: 0,
+			},
+			{
+				id: 5,
+				pollRttMs: 31,
+				pollApplicationSamples: 4,
+				consecutiveSlowApplicationSamples: 1,
+				lastPollOkAt: 100,
+				lastOkAt: 100,
+				inFlight: 0,
+			},
 		];
 		expect(selectPollingLaneCandidate(lanes, 4, false, 20, 23, 3, 3)?.id).toBe(4);
 		expect(selectPollingLaneCandidate(lanes, 4, true, 20, 23, 3, 3)?.id).toBe(5);
@@ -357,16 +409,8 @@ describe("RTT-aware lane ranking", () => {
 	});
 
 	test("keeps freshness/load tie-breakers when RTTs differ only by noise", () => {
-		expect(shouldPreferLane(
-			{ rttMs: 2.3, lastOkAt: 10, inFlight: 0 },
-			{ rttMs: 2.8, lastOkAt: 20, inFlight: 0 },
-			"send",
-		)).toBeFalse();
-		expect(shouldPreferLane(
-			{ rttMs: 2.3, lastOkAt: 10, inFlight: 0 },
-			{ rttMs: 2.8, lastOkAt: 20, inFlight: 1 },
-			"poll",
-		)).toBeTrue();
+		expect(shouldPreferLane({ rttMs: 2.3, lastOkAt: 10, inFlight: 0 }, { rttMs: 2.8, lastOkAt: 20, inFlight: 0 }, "send")).toBeFalse();
+		expect(shouldPreferLane({ rttMs: 2.3, lastOkAt: 10, inFlight: 0 }, { rttMs: 2.8, lastOkAt: 20, inFlight: 1 }, "poll")).toBeTrue();
 	});
 });
 
@@ -463,16 +507,8 @@ describe("send-reserved lanes", () => {
 
 	test("switches at exactly 0.50ms but not at 0.49ms", () => {
 		const current = { sendRttMs: 22, lastSendOkAt: 100, lastOkAt: 100, inFlight: 0 };
-		expect(shouldPreferFastestSendLane(
-			{ pollRttMs: 21.5, lastPollOkAt: 100, lastOkAt: 100, inFlight: 0 },
-			current,
-			0.5,
-		)).toBeTrue();
-		expect(shouldPreferFastestSendLane(
-			{ pollRttMs: 21.51, lastPollOkAt: 101, lastOkAt: 101, inFlight: 0 },
-			current,
-			0.5,
-		)).toBeFalse();
+		expect(shouldPreferFastestSendLane({ pollRttMs: 21.5, lastPollOkAt: 100, lastOkAt: 100, inFlight: 0 }, current, 0.5)).toBeTrue();
+		expect(shouldPreferFastestSendLane({ pollRttMs: 21.51, lastPollOkAt: 101, lastOkAt: 101, inFlight: 0 }, current, 0.5)).toBeFalse();
 	});
 });
 
@@ -520,27 +556,108 @@ describe("rolling lane refresh", () => {
 
 	test("repairs only one idle degraded lane while a healthy standby exists", () => {
 		const lanes = [
-			{ id: 0, state: "ready" as const, inFlight: 0, openedAt: young, sendRttMs: 18, lastSendOkAt: now, lastOkAt: now, consecutiveSlowApplicationSamples: 0 },
-			{ id: 1, state: "ready" as const, inFlight: 0, openedAt: old, sendRttMs: 26, lastSendOkAt: now, lastOkAt: now, consecutiveSlowApplicationSamples: 3 },
-			{ id: 2, state: "ready" as const, inFlight: 0, openedAt: old, pollRttMs: 31, lastPollOkAt: now, lastOkAt: now, consecutiveSlowApplicationSamples: 3 },
-			{ id: 3, state: "ready" as const, inFlight: 1, openedAt: old, pollRttMs: 40, lastPollOkAt: now, lastOkAt: now, consecutiveSlowApplicationSamples: 3 },
+			{
+				id: 0,
+				state: "ready" as const,
+				inFlight: 0,
+				openedAt: young,
+				sendRttMs: 18,
+				lastSendOkAt: now,
+				lastOkAt: now,
+				consecutiveSlowApplicationSamples: 0,
+			},
+			{
+				id: 1,
+				state: "ready" as const,
+				inFlight: 0,
+				openedAt: old,
+				sendRttMs: 26,
+				lastSendOkAt: now,
+				lastOkAt: now,
+				consecutiveSlowApplicationSamples: 3,
+			},
+			{
+				id: 2,
+				state: "ready" as const,
+				inFlight: 0,
+				openedAt: old,
+				pollRttMs: 31,
+				lastPollOkAt: now,
+				lastOkAt: now,
+				consecutiveSlowApplicationSamples: 3,
+			},
+			{
+				id: 3,
+				state: "ready" as const,
+				inFlight: 1,
+				openedAt: old,
+				pollRttMs: 40,
+				lastPollOkAt: now,
+				lastOkAt: now,
+				consecutiveSlowApplicationSamples: 3,
+			},
 		];
 		expect(selectDegradedLaneForRepair(lanes, 23, 3)?.id).toBe(2);
 	});
 
 	test("keeps the fastest fallback and repairs only the worst lane when every route is over 23ms", () => {
 		const lanes = [
-			{ id: 0, state: "ready" as const, inFlight: 0, openedAt: old, sendRttMs: 24, lastSendOkAt: now, lastOkAt: now, consecutiveSlowApplicationSamples: 3 },
-			{ id: 1, state: "ready" as const, inFlight: 0, openedAt: old, pollRttMs: 31, lastPollOkAt: now, lastOkAt: now, consecutiveSlowApplicationSamples: 3 },
-			{ id: 2, state: "ready" as const, inFlight: 0, openedAt: old, pollRttMs: 27, lastPollOkAt: now, lastOkAt: now, consecutiveSlowApplicationSamples: 3 },
+			{
+				id: 0,
+				state: "ready" as const,
+				inFlight: 0,
+				openedAt: old,
+				sendRttMs: 24,
+				lastSendOkAt: now,
+				lastOkAt: now,
+				consecutiveSlowApplicationSamples: 3,
+			},
+			{
+				id: 1,
+				state: "ready" as const,
+				inFlight: 0,
+				openedAt: old,
+				pollRttMs: 31,
+				lastPollOkAt: now,
+				lastOkAt: now,
+				consecutiveSlowApplicationSamples: 3,
+			},
+			{
+				id: 2,
+				state: "ready" as const,
+				inFlight: 0,
+				openedAt: old,
+				pollRttMs: 27,
+				lastPollOkAt: now,
+				lastOkAt: now,
+				consecutiveSlowApplicationSamples: 3,
+			},
 		];
 		expect(selectDegradedLaneForRepair(lanes, 23, 3)?.id).toBe(1);
 	});
 
 	test("waits for three consecutive slow samples before repairing a lane", () => {
 		const lanes = [
-			{ id: 0, state: "ready" as const, inFlight: 0, openedAt: young, sendRttMs: 18, lastSendOkAt: now, lastOkAt: now, consecutiveSlowApplicationSamples: 0 },
-			{ id: 1, state: "ready" as const, inFlight: 0, openedAt: old, pollRttMs: 31, lastPollOkAt: now, lastOkAt: now, consecutiveSlowApplicationSamples: 2 },
+			{
+				id: 0,
+				state: "ready" as const,
+				inFlight: 0,
+				openedAt: young,
+				sendRttMs: 18,
+				lastSendOkAt: now,
+				lastOkAt: now,
+				consecutiveSlowApplicationSamples: 0,
+			},
+			{
+				id: 1,
+				state: "ready" as const,
+				inFlight: 0,
+				openedAt: old,
+				pollRttMs: 31,
+				lastPollOkAt: now,
+				lastOkAt: now,
+				consecutiveSlowApplicationSamples: 2,
+			},
 		];
 		expect(selectDegradedLaneForRepair(lanes, 23, 3)).toBeUndefined();
 		lanes[1]!.consecutiveSlowApplicationSamples = 3;
@@ -548,19 +665,53 @@ describe("rolling lane refresh", () => {
 	});
 
 	test("never repairs the only measured route", () => {
-		const lanes = [
-			{ id: 0, state: "ready" as const, inFlight: 0, openedAt: old, sendRttMs: 31, lastSendOkAt: now, lastOkAt: now },
-		];
+		const lanes = [{ id: 0, state: "ready" as const, inFlight: 0, openedAt: old, sendRttMs: 31, lastSendOkAt: now, lastOkAt: now }];
 		expect(selectDegradedLaneForRepair(lanes, 23)).toBeUndefined();
 	});
 
 	test("reports every simultaneously idle, over-ceiling lane -- not just the one it would repair next", () => {
 		const lanes = [
-			{ id: 0, state: "ready" as const, inFlight: 0, openedAt: young, sendRttMs: 18, lastSendOkAt: now, lastOkAt: now, consecutiveSlowApplicationSamples: 0 },
-			{ id: 1, state: "ready" as const, inFlight: 0, openedAt: old, sendRttMs: 26, lastSendOkAt: now, lastOkAt: now, consecutiveSlowApplicationSamples: 3 },
-			{ id: 2, state: "ready" as const, inFlight: 0, openedAt: old, pollRttMs: 40, lastPollOkAt: now, lastOkAt: now, consecutiveSlowApplicationSamples: 3 },
+			{
+				id: 0,
+				state: "ready" as const,
+				inFlight: 0,
+				openedAt: young,
+				sendRttMs: 18,
+				lastSendOkAt: now,
+				lastOkAt: now,
+				consecutiveSlowApplicationSamples: 0,
+			},
+			{
+				id: 1,
+				state: "ready" as const,
+				inFlight: 0,
+				openedAt: old,
+				sendRttMs: 26,
+				lastSendOkAt: now,
+				lastOkAt: now,
+				consecutiveSlowApplicationSamples: 3,
+			},
+			{
+				id: 2,
+				state: "ready" as const,
+				inFlight: 0,
+				openedAt: old,
+				pollRttMs: 40,
+				lastPollOkAt: now,
+				lastOkAt: now,
+				consecutiveSlowApplicationSamples: 3,
+			},
 			// Still mid-send: not idle, so it never counts toward the backlog.
-			{ id: 3, state: "ready" as const, inFlight: 1, openedAt: old, pollRttMs: 60, lastPollOkAt: now, lastOkAt: now, consecutiveSlowApplicationSamples: 3 },
+			{
+				id: 3,
+				state: "ready" as const,
+				inFlight: 1,
+				openedAt: old,
+				pollRttMs: 60,
+				lastPollOkAt: now,
+				lastOkAt: now,
+				consecutiveSlowApplicationSamples: 3,
+			},
 		];
 		const backlog = degradedLaneCandidates(lanes, 23, 3);
 		expect(backlog.map((lane) => lane.id)).toEqual([2, 1]);
@@ -569,8 +720,26 @@ describe("rolling lane refresh", () => {
 
 	test("backlog is empty with only one degraded lane, so a repair scheduler falls back to the conservative gap", () => {
 		const lanes = [
-			{ id: 0, state: "ready" as const, inFlight: 0, openedAt: young, sendRttMs: 18, lastSendOkAt: now, lastOkAt: now, consecutiveSlowApplicationSamples: 0 },
-			{ id: 1, state: "ready" as const, inFlight: 0, openedAt: old, pollRttMs: 31, lastPollOkAt: now, lastOkAt: now, consecutiveSlowApplicationSamples: 3 },
+			{
+				id: 0,
+				state: "ready" as const,
+				inFlight: 0,
+				openedAt: young,
+				sendRttMs: 18,
+				lastSendOkAt: now,
+				lastOkAt: now,
+				consecutiveSlowApplicationSamples: 0,
+			},
+			{
+				id: 1,
+				state: "ready" as const,
+				inFlight: 0,
+				openedAt: old,
+				pollRttMs: 31,
+				lastPollOkAt: now,
+				lastOkAt: now,
+				consecutiveSlowApplicationSamples: 3,
+			},
 		];
 		expect(degradedLaneCandidates(lanes, 23, 3)).toHaveLength(1);
 	});

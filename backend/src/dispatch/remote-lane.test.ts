@@ -19,8 +19,10 @@ beforeEach(() => {
 
 afterEach(() => {
 	resetRemoteLaneStateForTest();
-	if (originalUrl === undefined) delete process.env.LINE_RELAY_URL; else process.env.LINE_RELAY_URL = originalUrl;
-	if (originalToken === undefined) delete process.env.LINE_RELAY_TOKEN; else process.env.LINE_RELAY_TOKEN = originalToken;
+	if (originalUrl === undefined) delete process.env.LINE_RELAY_URL;
+	else process.env.LINE_RELAY_URL = originalUrl;
+	if (originalToken === undefined) delete process.env.LINE_RELAY_TOKEN;
+	else process.env.LINE_RELAY_TOKEN = originalToken;
 });
 
 describe("remoteDispatchConfig", () => {

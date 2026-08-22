@@ -42,9 +42,7 @@ export class ShopService implements BaseService {
 		);
 	}
 
-	async canReceivePresent(
-		...param: Parameters<typeof LINEStruct.canReceivePresent_args>
-	): Promise<void> {
+	async canReceivePresent(...param: Parameters<typeof LINEStruct.canReceivePresent_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.canReceivePresent_args(...param),
 			"canReceivePresent",
@@ -66,9 +64,7 @@ export class ShopService implements BaseService {
 		);
 	}
 
-	async getProductV2(
-		...param: Parameters<typeof LINEStruct.getProductV2_args>
-	): Promise<LINETypes.getProductV2_result["success"]> {
+	async getProductV2(...param: Parameters<typeof LINEStruct.getProductV2_args>): Promise<LINETypes.getProductV2_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.getProductV2_args(...param),
 			"getProductV2",
@@ -91,9 +87,7 @@ export class ShopService implements BaseService {
 	}
 
 	async placePurchaseOrderForFreeProduct(
-		...param: Parameters<
-			typeof LINEStruct.placePurchaseOrderForFreeProduct_args
-		>
+		...param: Parameters<typeof LINEStruct.placePurchaseOrderForFreeProduct_args>
 	): Promise<LINETypes.placePurchaseOrderForFreeProduct_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.placePurchaseOrderForFreeProduct_args(...param),
@@ -152,9 +146,7 @@ export class ShopService implements BaseService {
 		);
 	}
 
-	async notifyProductEvent(
-		...param: Parameters<typeof LINEStruct.notifyProductEvent_args>
-	): Promise<void> {
+	async notifyProductEvent(...param: Parameters<typeof LINEStruct.notifyProductEvent_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.notifyProductEvent_args(...param),
 			"notifyProductEvent",

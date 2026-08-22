@@ -6,7 +6,10 @@ interface Migration {
 }
 
 function hasColumn(db: Database, table: string, column: string): boolean {
-	return db.query<{ name: string }, []>(`PRAGMA table_info(${table})`).all().some((row) => row.name === column);
+	return db
+		.query<{ name: string }, []>(`PRAGMA table_info(${table})`)
+		.all()
+		.some((row) => row.name === column);
 }
 
 /**
@@ -165,12 +168,13 @@ const migrations: Migration[] = [
 			if (!hasColumn(db, "bots", "slot")) {
 				db.exec("ALTER TABLE bots ADD COLUMN slot INTEGER");
 			}
-			const unslotted = db.query<{ id: number }, []>(
-				"SELECT id FROM bots WHERE slot IS NULL ORDER BY created_at ASC, id ASC",
-			).all();
+			const unslotted = db.query<{ id: number }, []>("SELECT id FROM bots WHERE slot IS NULL ORDER BY created_at ASC, id ASC").all();
 			const setSlot = db.prepare<null, [number, number]>("UPDATE bots SET slot = ? WHERE id = ?");
 			const taken = new Set(
-				db.query<{ slot: number | null }, []>("SELECT slot FROM bots WHERE slot IS NOT NULL").all().map((r) => r.slot!),
+				db
+					.query<{ slot: number | null }, []>("SELECT slot FROM bots WHERE slot IS NOT NULL")
+					.all()
+					.map((r) => r.slot!),
 			);
 			let next = 1;
 			for (const { id } of unslotted) {
@@ -289,12 +293,17 @@ const migrations: Migration[] = [
 		// lets the two be told apart after the fact, from real traffic.
 		id: "020_latency_samples_breakdown",
 		up: (db) => {
-			for (
-				const column of [
-					"line_ms", "code_ms", "decrypt_ms", "match_ms", "limiter_ms",
-					"protocol_prep_ms", "relay_encode_ms", "go_prep_ms", "relay_and_parse_ms",
-				]
-			) {
+			for (const column of [
+				"line_ms",
+				"code_ms",
+				"decrypt_ms",
+				"match_ms",
+				"limiter_ms",
+				"protocol_prep_ms",
+				"relay_encode_ms",
+				"go_prep_ms",
+				"relay_and_parse_ms",
+			]) {
 				if (!hasColumn(db, "latency_samples", column)) {
 					db.exec(`ALTER TABLE latency_samples ADD COLUMN ${column} REAL`);
 				}
@@ -327,7 +336,9 @@ const migrations: Migration[] = [
 				)
 			`);
 			db.exec("CREATE INDEX IF NOT EXISTS idx_start_confirmations_bot ON start_confirmations(bot_id)");
-			db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_start_confirmations_pending_bot ON start_confirmations(bot_id) WHERE status = 'pending'");
+			db.exec(
+				"CREATE UNIQUE INDEX IF NOT EXISTS idx_start_confirmations_pending_bot ON start_confirmations(bot_id) WHERE status = 'pending'",
+			);
 		},
 	},
 	{
@@ -399,6 +410,25 @@ const migrations: Migration[] = [
 			`);
 		},
 	},
+	{
+		// A permanent owner-to-process home prevents the same LINE account from
+		// moving between workers after login/restart while still letting newly
+		// created owners be balanced evenly.
+		id: "030_owner_worker_assignments",
+		up: (db) => {
+			db.exec(`
+				CREATE TABLE IF NOT EXISTS owner_worker_assignments (
+					owner_user_id INTEGER PRIMARY KEY,
+					worker_id TEXT NOT NULL,
+					assigned_at INTEGER NOT NULL
+				)
+			`);
+			db.exec(`
+				CREATE INDEX IF NOT EXISTS idx_owner_worker_assignments_worker
+				ON owner_worker_assignments(worker_id, owner_user_id)
+			`);
+		},
+	},
 ];
 
 /**
@@ -417,7 +447,12 @@ export function runMigrations(db: Database): string[] {
 	const newlyApplied: string[] = [];
 	const applyAll = db.transaction(() => {
 		db.exec("CREATE TABLE IF NOT EXISTS schema_migrations (id TEXT PRIMARY KEY, applied_at INTEGER NOT NULL)");
-		const applied = new Set(db.query<{ id: string }, []>("SELECT id FROM schema_migrations").all().map((row) => row.id));
+		const applied = new Set(
+			db
+				.query<{ id: string }, []>("SELECT id FROM schema_migrations")
+				.all()
+				.map((row) => row.id),
+		);
 		const markApplied = db.prepare<null, [string, number]>("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)");
 		for (const migration of migrations) {
 			if (applied.has(migration.id)) continue;

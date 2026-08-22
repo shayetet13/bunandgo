@@ -3,13 +3,8 @@ import { createBot } from "./bots.ts";
 import { db } from "../db/sqlite.ts";
 
 process.env.DISPATCH_TOKEN ??= "start-confirmation-test-token";
-const {
-	acceptStartConfirmation,
-	clearStartConfirmationsForBot,
-	createStartConfirmation,
-	declineStartConfirmation,
-	getStartConfirmation,
-} = await import("./start-confirmation.ts");
+const { acceptStartConfirmation, clearStartConfirmationsForBot, createStartConfirmation, declineStartConfirmation, getStartConfirmation } =
+	await import("./start-confirmation.ts");
 
 beforeEach(() => db.exec("DELETE FROM start_confirmations"));
 afterEach(() => {

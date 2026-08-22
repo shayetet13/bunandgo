@@ -39,6 +39,18 @@ CREATE TABLE IF NOT EXISTS bots (
 	created_at INTEGER NOT NULL
 );
 
+-- One durable runtime home per owner. The assignment is created once when
+-- the owner's first bot is created and is never changed by login, reconnect,
+-- restart, or lane health. Keeping this separate from bots also preserves the
+-- same worker when an owner deletes and recreates a bot.
+CREATE TABLE IF NOT EXISTS owner_worker_assignments (
+	owner_user_id INTEGER PRIMARY KEY,
+	worker_id TEXT NOT NULL,
+	assigned_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_owner_worker_assignments_worker
+	ON owner_worker_assignments(worker_id, owner_user_id);
+
 CREATE TABLE IF NOT EXISTS kv (
 	bot_id INTEGER NOT NULL,
 	key TEXT NOT NULL,

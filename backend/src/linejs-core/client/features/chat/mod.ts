@@ -2,10 +2,7 @@ import type { Client } from "../../mod.ts";
 import type * as line from "@evex/linejs-types";
 import { TalkMessage } from "../message/talk.ts";
 import { createMessageFetcher, type MessageFetcher } from "./fetcher.ts";
-import type {
-	CompactMessageResponse,
-	SendCompactMessageOptions,
-} from "../../../base/service/talk/mod.ts";
+import type { CompactMessageResponse, SendCompactMessageOptions } from "../../../base/service/talk/mod.ts";
 
 interface ChatInit {
 	client: Client;
@@ -31,23 +28,25 @@ export class Chat {
 	 * Sends message to the chat(group).
 	 */
 	async sendMessage(
-		input: string | {
-			text?: string;
-			/**
-			 * If true, end2end encryption will be enabled.
-			 * @default true
-			 */
-			e2ee?: boolean;
-			/**
-			 * Related message mid. This is used for reply.
-			 */
-			relatedMessageId?: string;
+		input:
+			| string
+			| {
+					text?: string;
+					/**
+					 * If true, end2end encryption will be enabled.
+					 * @default true
+					 */
+					e2ee?: boolean;
+					/**
+					 * Related message mid. This is used for reply.
+					 */
+					relatedMessageId?: string;
 
-			contentType?: line.ContentType;
-			contentMetadata?: Record<string, string>;
-			location?: line.Location;
-			chunk?: string[];
-		},
+					contentType?: line.ContentType;
+					contentMetadata?: Record<string, string>;
+					location?: line.Location;
+					chunk?: string[];
+			  },
 	): Promise<TalkMessage> {
 		if (typeof input === "string") {
 			return this.sendMessage({ text: input });
@@ -62,18 +61,19 @@ export class Chat {
 			relatedMessageId: input.relatedMessageId,
 			location: input.location,
 		});
-		return TalkMessage.fromRawTalk({
-			...sent,
-			to: this.mid,
-		}, this.#client);
+		return TalkMessage.fromRawTalk(
+			{
+				...sent,
+				to: this.mid,
+			},
+			this.#client,
+		);
 	}
 
 	/**
 	 * Sends a compact talk message through `/CA5` or `/ECA5`.
 	 */
-	sendCompactMessage(
-		input: string | Omit<SendCompactMessageOptions, "to">,
-	): Promise<CompactMessageResponse> {
+	sendCompactMessage(input: string | Omit<SendCompactMessageOptions, "to">): Promise<CompactMessageResponse> {
 		if (typeof input === "string") {
 			return this.#client.base.talk.sendCompactMessage({
 				to: this.mid,
@@ -89,10 +89,7 @@ export class Chat {
 	/**
 	 * @description Update chat(group) status.
 	 */
-	async updateChat(options: {
-		chat: Partial<line.Chat>;
-		updatedAttribute: line.Pb1_O2;
-	}): Promise<line.Pb1_Zc> {
+	async updateChat(options: { chat: Partial<line.Chat>; updatedAttribute: line.Pb1_O2 }): Promise<line.Pb1_Zc> {
 		return await this.#client.base.talk.updateChat({
 			request: {
 				updatedAttribute: options.updatedAttribute,
@@ -115,9 +112,7 @@ export class Chat {
 	/**
 	 * @description Invite user.
 	 */
-	public async invite(
-		mids: string[],
-	): Promise<line.Pb1_J5> {
+	public async invite(mids: string[]): Promise<line.Pb1_J5> {
 		return await this.#client.base.talk.inviteIntoChat({
 			targetUserMids: mids,
 			chatMid: this.mid,
@@ -160,21 +155,18 @@ export class Chat {
 		if (!box) {
 			throw new Error("Message box not found.");
 		}
-		const messages = await this.#client.base.talk
-			.getPreviousMessagesV2WithRequest({
-				request: {
-					messageBoxId: box.id,
-					endMessageId: {
-						messageId: box.lastDeliveredMessageId.messageId,
-						deliveredTime: box.lastDeliveredMessageId.deliveredTime,
-					},
-					messagesCount: limit,
+		const messages = await this.#client.base.talk.getPreviousMessagesV2WithRequest({
+			request: {
+				messageBoxId: box.id,
+				endMessageId: {
+					messageId: box.lastDeliveredMessageId.messageId,
+					deliveredTime: box.lastDeliveredMessageId.deliveredTime,
 				},
-			});
+				messagesCount: limit,
+			},
+		});
 
-		return await Promise.all(
-			messages.map((message) => TalkMessage.fromRawTalk(message, this.#client)),
-		);
+		return await Promise.all(messages.map((message) => TalkMessage.fromRawTalk(message, this.#client)));
 	}
 
 	messageFetcher(): Promise<MessageFetcher> {

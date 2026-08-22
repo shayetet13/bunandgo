@@ -9,12 +9,7 @@
  */
 import { getBot } from "./bots.ts";
 import { createRule, listRules, type Rule } from "./rules.ts";
-import {
-	isChatAdminOnly,
-	listChatAdminAllowlist,
-	setChatAdminAllowlist,
-	setChatAdminOnly,
-} from "./chat-access.ts";
+import { isChatAdminOnly, listChatAdminAllowlist, setChatAdminAllowlist, setChatAdminOnly } from "./chat-access.ts";
 
 export interface CopyRulesResult {
 	rulesCopied: number;

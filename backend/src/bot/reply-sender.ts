@@ -37,12 +37,7 @@ function canUseCompact(to: string): boolean {
  *
  * Square keeps the thrift path because it has no compact endpoint.
  */
-export function sendReply(
-	client: Client,
-	surface: Surface,
-	message: TalkMessage | SquareMessage,
-	text: string,
-): Promise<unknown> {
+export function sendReply(client: Client, surface: Surface, message: TalkMessage | SquareMessage, text: string): Promise<unknown> {
 	if (surface === "square") {
 		const squareMessage = message as SquareMessage;
 		return client.base.square.sendMessage({

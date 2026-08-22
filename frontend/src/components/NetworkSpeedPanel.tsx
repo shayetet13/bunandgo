@@ -1,4 +1,5 @@
 import type { LaneStat } from "../lib/types.ts";
+import { rttToneClass } from "../lib/lane-tone.ts";
 
 interface NetworkSpeedPanelProps {
 	lanes: LaneStat[];
@@ -25,17 +26,6 @@ function stateChipClass(state: LaneStat["state"]): string {
 	return "chip--bad";
 }
 
-export function rttToneClass(applicationMeasurement: boolean, routingEligible: boolean): string {
-	// A lane with no real send/poll through it yet has nothing to judge —
-	// its PING can be low (an idle connection to a nearby host answers PING
-	// fast regardless) while telling us nothing about real routing health.
-	// Coloring that green looked identical to a lane actually proven fast
-	// under real traffic, which is exactly backwards for a relay box that
-	// may sit unused for long stretches by design (see NetworkSpeedPanel).
-	if (!applicationMeasurement) return "chip--idle";
-	return routingEligible ? "chip--go" : "chip--bad";
-}
-
 export function NetworkSpeedPanel({ lanes }: NetworkSpeedPanelProps) {
 	const live = lanes.filter((lane) => lane.state !== "dead");
 
@@ -43,7 +33,9 @@ export function NetworkSpeedPanel({ lanes }: NetworkSpeedPanelProps) {
 		<section className="panel" style={{ padding: "var(--space-md)" }}>
 			<div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: "var(--space-md)", flexWrap: "wrap" }}>
 				<div>
-					<div className="label" style={{ color: "var(--signal-go)" }}>NETWORK · LINE ↔ AKAMAI</div>
+					<div className="label" style={{ color: "var(--signal-go)" }}>
+						NETWORK · LINE ↔ AKAMAI
+					</div>
 					<div style={{ fontWeight: 700, marginTop: 3 }}>ความเร็วเครือข่ายแบบเรียลไทม์</div>
 					<p className="hint" style={{ margin: "0.35rem 0 0" }}>
 						RTT วัดจาก connection ที่ค้างไว้จริง (ไม่ใช่เปิดใหม่ทุกครั้ง) · อัปเดตทุก 5 วินาที
@@ -74,7 +66,10 @@ export function NetworkSpeedPanel({ lanes }: NetworkSpeedPanelProps) {
 							>
 								<div style={{ minWidth: 0 }}>
 									<div style={{ fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-										{shortOrigin(lane.origin)} <span className="hint" style={{ fontWeight: 400 }}>· lane {lane.id} · {lane.workerId}</span>
+										{shortOrigin(lane.origin)}{" "}
+										<span className="hint" style={{ fontWeight: 400 }}>
+											· lane {lane.id} · {lane.workerId}
+										</span>
 									</div>
 									<div className="hint" style={{ fontSize: "0.72rem" }}>
 										{lane.inFlight > 0 ? `กำลังส่ง ${lane.inFlight} คำขอ` : "ว่าง"}

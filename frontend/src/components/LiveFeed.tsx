@@ -25,8 +25,12 @@ export function LiveFeed({ items, botNameById, showBotTag, chatNameByMid }: Live
 	const newestFirstItems = useMemo(() => [...items].reverse(), [items]);
 	return (
 		<section className="panel" style={{ padding: "var(--space-md)", display: "flex", flexDirection: "column", height: "100%" }}>
-			<div className="label" style={{ marginBottom: "var(--space-xs)" }}>บันทึกสด</div>
-			<p className="hint" style={{ margin: "0 0 var(--space-sm)", color: "var(--text-primary)" }}>ข้อความเข้า-ออกของบอทที่เลือกอยู่ แบบเรียลไทม์</p>
+			<div className="label" style={{ marginBottom: "var(--space-xs)" }}>
+				บันทึกสด
+			</div>
+			<p className="hint" style={{ margin: "0 0 var(--space-sm)", color: "var(--text-primary)" }}>
+				ข้อความเข้า-ออกของบอทที่เลือกอยู่ แบบเรียลไทม์
+			</p>
 			<div style={{ overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
 				{items.length === 0 && (
 					<div style={{ color: "var(--text-dim)", fontSize: "var(--text-sm)", padding: "var(--space-sm) 0" }}>
@@ -69,7 +73,9 @@ function FeedRow({ item, answerMs, botName, roomName }: { item: FeedItem; answer
 		const { data } = item;
 		return (
 			<div style={row}>
-				<span className="mono" style={timeStyle}>{timeLabel(data.ts)}</span>
+				<span className="mono" style={timeStyle}>
+					{timeLabel(data.ts)}
+				</span>
 				{botName !== undefined && <BotTag name={botName} />}
 				{roomName !== undefined && <RoomTag name={roomName} />}
 				<span className="chip chip--idle" style={{ ...tagChipStyle, minWidth: 58, justifyContent: "center" }}>
@@ -100,21 +106,37 @@ function FeedRow({ item, answerMs, botName, roomName }: { item: FeedItem; answer
 	return (
 		<div style={{ ...row, display: "block" }}>
 			<div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)" }}>
-			<span className="mono" style={timeStyle}>{timeLabel(data.ts)}</span>
-			{botName !== undefined && <BotTag name={botName} />}
-			{roomName !== undefined && <RoomTag name={roomName} />}
-			<span className="chip chip--idle" style={{ ...tagChipStyle, minWidth: 58, justifyContent: "center" }}>
-				{data.surface}
-			</span>
-			<span style={{ color: "var(--signal-go)", fontSize: var_xs, fontWeight: 700 }}>ออก</span>
-			<span style={{ flex: 1, fontSize: "var(--text-sm)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-				{data.textPreview}
-			</span>
-			<span className={`chip ${tone} mono`} title="ผลรวมของ phase ที่ไม่ทับซ้อนกัน">{ms(totalMs)}</span>
-			<span className="label" style={{ color: "var(--text-primary)" }}>{data.source === "auto" ? "อัตโนมัติ" : "ทดสอบ"}</span>
+				<span className="mono" style={timeStyle}>
+					{timeLabel(data.ts)}
+				</span>
+				{botName !== undefined && <BotTag name={botName} />}
+				{roomName !== undefined && <RoomTag name={roomName} />}
+				<span className="chip chip--idle" style={{ ...tagChipStyle, minWidth: 58, justifyContent: "center" }}>
+					{data.surface}
+				</span>
+				<span style={{ color: "var(--signal-go)", fontSize: var_xs, fontWeight: 700 }}>ออก</span>
+				<span style={{ flex: 1, fontSize: "var(--text-sm)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+					{data.textPreview}
+				</span>
+				<span className={`chip ${tone} mono`} title="ผลรวมของ phase ที่ไม่ทับซ้อนกัน">
+					{ms(totalMs)}
+				</span>
+				<span className="label" style={{ color: "var(--text-primary)" }}>
+					{data.source === "auto" ? "อัตโนมัติ" : "ทดสอบ"}
+				</span>
 			</div>
 			{data.breakdown && (
-				<div className="mono" style={{ display: "flex", gap: "var(--space-md)", flexWrap: "wrap", margin: "0.35rem 0 0 98px", color: "var(--text-dim)", fontSize: "var(--text-xs)" }}>
+				<div
+					className="mono"
+					style={{
+						display: "flex",
+						gap: "var(--space-md)",
+						flexWrap: "wrap",
+						margin: "0.35rem 0 0 98px",
+						color: "var(--text-dim)",
+						fontSize: "var(--text-xs)",
+					}}
+				>
 					<strong style={{ color: "var(--text-primary)" }}>Σ {ms(measured!.totalMs)} =</strong>
 					<Metric label="LINE" value={data.breakdown.lineMs} budget={BUDGET.line} />
 					<Metric label="decrypt" value={data.breakdown.decryptMs} budget={BUDGET.code} />

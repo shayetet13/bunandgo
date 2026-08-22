@@ -6,7 +6,8 @@ import { createScheduledPost, getScheduledPost } from "./scheduled-posts.ts";
 // session-manager.ts requires DISPATCH_TOKEN at module load (shared secret
 // with backend/sender); set it before importing, same as routes.test.ts.
 process.env.DISPATCH_TOKEN ??= "test-dispatch-token";
-const { getRuntimeDiagnostics, scheduledPostBelongsToThisWorker, startBot, stopBot, syncScheduledPostTimer } = await import("./session-manager.ts");
+const { getRuntimeDiagnostics, scheduledPostBelongsToThisWorker, startBot, stopBot, syncScheduledPostTimer } =
+	await import("./session-manager.ts");
 
 // Narrow, focused coverage: only the worker-scope guards added to
 // startBot()/stopBot(). The rest of these functions drive a real LINE

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { rttToneClass } from "./NetworkSpeedPanel.tsx";
+import { rttToneClass } from "../lib/lane-tone.ts";
 
 describe("network speed panel RTT tone", () => {
 	test("shows an eligible, application-measured lane as go", () => {

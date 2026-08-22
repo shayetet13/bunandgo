@@ -1,3 +1,5 @@
+import { assignedWorkerForOwner, stickyAssignmentEnabled } from "./worker-assignment.ts";
+
 /**
  * Which bots this OS process is allowed to run, when the backend is split
  * across more than one process to use more than one CPU core.
@@ -53,9 +55,7 @@ export function resolveWorkerScope(): WorkerScopeConfig {
 	const includeRaw = process.env.WORKER_OWNER_SCOPE?.trim();
 	const excludeRaw = process.env.WORKER_OWNER_EXCLUDE?.trim();
 	if (includeRaw && excludeRaw) {
-		throw new Error(
-			"ตั้งค่าได้แค่ WORKER_OWNER_SCOPE หรือ WORKER_OWNER_EXCLUDE อย่างใดอย่างหนึ่ง ไม่ใช่ทั้งคู่พร้อมกัน",
-		);
+		throw new Error("ตั้งค่าได้แค่ WORKER_OWNER_SCOPE หรือ WORKER_OWNER_EXCLUDE อย่างใดอย่างหนึ่ง ไม่ใช่ทั้งคู่พร้อมกัน");
 	}
 	return {
 		include: includeRaw ? parseWorkerOwnerIds(includeRaw, "WORKER_OWNER_SCOPE") : undefined,
@@ -69,6 +69,18 @@ export function resolveWorkerScope(): WorkerScopeConfig {
  * (catch-all) process — never silently orphaned off of every process.
  */
 export function inWorkerScope(ownerUserId: number | null): boolean {
+	if (stickyAssignmentEnabled()) {
+		const currentWorker = process.env.WORKER_ID?.trim();
+		const primaryWorker = process.env.WORKER_PRIMARY_ID?.trim();
+		if (!currentWorker || !primaryWorker) {
+			throw new Error("balanced-sticky assignment requires WORKER_ID and WORKER_PRIMARY_ID");
+		}
+		// An owner without an assignment must enter through Primary. The bot
+		// creation route persists its final assignment before inserting the bot;
+		// every later request then resolves to exactly one process.
+		if (ownerUserId === null) return currentWorker === primaryWorker;
+		return (assignedWorkerForOwner(ownerUserId) ?? primaryWorker) === currentWorker;
+	}
 	const { include, exclude } = resolveWorkerScope();
 	if (include) return ownerUserId !== null && include.has(ownerUserId);
 	if (exclude) return ownerUserId === null || !exclude.has(ownerUserId);

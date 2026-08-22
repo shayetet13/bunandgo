@@ -17,7 +17,7 @@ export const REMOTE_LANE_ID = 900;
 /** How stale the relay's last self-report can be before its RTT is no
  * longer trusted as "current" — a few multiples of its own ~5s report
  * interval, generous enough to absorb one missed push. */
-const REPORT_STALE_MS = 20_000;
+const REPORT_STALE_MS = Math.max(3_000, Number(process.env.LINE_RELAY_STALE_MS ?? 3_000));
 
 export interface RemoteLaneMetrics {
 	readonly id: number;
@@ -119,12 +119,7 @@ export function recordRemoteDispatchStart(origin: string): void {
  * outlier must not permanently poison it, and repeated real slowness must
  * still show up as unmistakably slow.
  */
-export function recordRemoteDispatchEnd(
-	origin: string,
-	role: "send" | "poll",
-	elapsedMs: number,
-	discardCeilingMs: number,
-): void {
+export function recordRemoteDispatchEnd(origin: string, role: "send" | "poll", elapsedMs: number, discardCeilingMs: number): void {
 	const state = ensureOrigin(origin);
 	const m = state.metrics;
 	m.inFlight = Math.max(0, m.inFlight - 1);
@@ -148,16 +143,15 @@ export function resetRemoteLaneStateForTest(): void {
 }
 
 // ---- Wire protocol to the relay's /dispatch endpoint -----------------------
-// Shared by the production path (h2-lanes.ts, once a real send/poll picks
-// the remote candidate) and the admin test harness
-// (lane-relay-test-transport.ts) — both talk to the exact same endpoint, the
-// only difference is which token/URL config they hand in.
+// Shared by every production request that the worker pins to server3.
 
 function headersToRecord(source: RequestInit["headers"]): Record<string, string> {
 	const headers: Record<string, string> = {};
 	if (!source) return headers;
 	if (source instanceof Headers) {
-		source.forEach((value, key) => { headers[key] = value; });
+		source.forEach((value, key) => {
+			headers[key] = value;
+		});
 		return headers;
 	}
 	if (Array.isArray(source)) {
@@ -218,7 +212,7 @@ export async function dispatchViaRelay(
 		const text = await response.text().catch(() => "");
 		throw new Error(`lane relay dispatch failed: HTTP ${response.status} ${text}`);
 	}
-	const payload = await response.json() as {
+	const payload = (await response.json()) as {
 		status: number;
 		headers: Record<string, string>;
 		bodyBase64: string;

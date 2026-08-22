@@ -132,11 +132,13 @@ describe("sendReply — square", () => {
 
 		await sendReply(makeClient(rec), "square", message, "จองแล้ว");
 
-		expect(rec.square).toEqual([{
-			squareChatMid: mid("m", "ee"),
-			text: "จองแล้ว",
-			fastAck: false,
-		}]);
+		expect(rec.square).toEqual([
+			{
+				squareChatMid: mid("m", "ee"),
+				text: "จองแล้ว",
+				fastAck: false,
+			},
+		]);
 		expect(rec.compact).toHaveLength(0);
 	});
 });

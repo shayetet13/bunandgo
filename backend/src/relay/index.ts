@@ -27,8 +27,6 @@ export const server = Bun.serve({
 	fetch: relayRoute.fetch,
 });
 
-console.log(
-	`lane-relay: listening on http://${relayConfig.bindHost}:${relayConfig.port} as worker "${relayConfig.workerId}"`,
-);
+console.log(`lane-relay: listening on http://${relayConfig.bindHost}:${relayConfig.port} as worker "${relayConfig.workerId}"`);
 
 startLaneRelayReporting();

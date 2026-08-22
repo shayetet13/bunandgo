@@ -1,10 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { SquareEvent } from "../linejs-core/types/line_types.ts";
-import {
-	clearSquareForensics,
-	getSquareForensicSnapshot,
-	observeSquareForensicEvent,
-} from "./square-forensics.ts";
+import { clearSquareForensics, getSquareForensicSnapshot, observeSquareForensicEvent } from "./square-forensics.ts";
 
 const BOT_ID = 9001;
 const CHAT_MID = "m0000000000000000000000000000001";
@@ -55,10 +51,15 @@ describe("passive Square reply forensics", () => {
 	});
 
 	test("records a destroy event for the exact reply id", () => {
-		observeSquareForensicEvent(BOT_ID, {
-			type: "NOTIFIED_DESTROY_MESSAGE",
-			payload: { notifiedDestroyMessage: { squareChatMid: CHAT_MID, messageId: "ours" } },
-		} as unknown as SquareEvent, "push", 1_500);
+		observeSquareForensicEvent(
+			BOT_ID,
+			{
+				type: "NOTIFIED_DESTROY_MESSAGE",
+				payload: { notifiedDestroyMessage: { squareChatMid: CHAT_MID, messageId: "ours" } },
+			} as unknown as SquareEvent,
+			"push",
+			1_500,
+		);
 		const snapshot = getSquareForensicSnapshot({
 			botId: BOT_ID,
 			squareChatMid: CHAT_MID,

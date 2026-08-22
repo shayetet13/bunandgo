@@ -5,8 +5,7 @@ export const TALK_MESSAGE_RETRY_DELAYS_MS = [0, 25, 75, 150, 300, 600] as const;
 
 export function isRetryableTalkMessageError(error: unknown): boolean {
 	const message = error instanceof Error ? error.message : String(error);
-	return isTransientTransportFailure(message) ||
-		/The value of "offset" is out of range/i.test(message);
+	return isTransientTransportFailure(message) || /The value of "offset" is out of range/i.test(message);
 }
 
 function abortError(signal: AbortSignal): Error {
@@ -47,7 +46,7 @@ export async function retryTalkMessageOperation<T>(
 	} = {},
 ): Promise<T> {
 	const delays = options.delaysMs ?? TALK_MESSAGE_RETRY_DELAYS_MS;
-	for (let attempt = 0;; attempt++) {
+	for (let attempt = 0; ; attempt++) {
 		if (options.signal?.aborted) throw abortError(options.signal);
 		try {
 			return await operation();

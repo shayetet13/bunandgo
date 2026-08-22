@@ -31,8 +31,9 @@ export function isPollExpiry(message: string): boolean {
  * response is to re-issue the request against that same session.
  */
 export function isTransientTransportFailure(message: string): boolean {
-	return /GOAWAY|HTTP 50[234]\b|ECONNRESET|ECONNREFUSED|EPIPE|ETIMEDOUT|unexpected EOF|connection (?:closed|reset|refused)|socket hang up|fetch failed|Unable to connect/i
-		.test(message);
+	return /GOAWAY|HTTP 50[234]\b|ECONNRESET|ECONNREFUSED|EPIPE|ETIMEDOUT|unexpected EOF|connection (?:closed|reset|refused)|socket hang up|fetch failed|Unable to connect/i.test(
+		message,
+	);
 }
 
 /** How many broken connections one login RPC tolerates before giving up. */

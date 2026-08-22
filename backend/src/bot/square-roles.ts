@@ -45,57 +45,59 @@ export function isAdminRole(role: SquareMemberRole): boolean {
  * entire purpose is exclusivity.
  */
 export async function resolveSquareMemberRoles(client: Client, botId: number, squareChatMids: string[]): Promise<void> {
-	await Promise.all(squareChatMids.map(async (squareChatMid) => {
-		const members = new Map<string, SquareMemberInfo>();
-		try {
-			let continuationToken = "";
-			do {
-				const response = await client.base.square.getSquareChatMembers({
-					squareChatMid,
-					continuationToken,
-					limit: CHAT_MEMBERS_PAGE_SIZE,
-				});
-				for (const member of response.squareChatMembers) {
-					members.set(member.squareMemberMid, {
-						mid: member.squareMemberMid,
-						displayName: member.displayName,
-						role: member.role,
+	await Promise.all(
+		squareChatMids.map(async (squareChatMid) => {
+			const members = new Map<string, SquareMemberInfo>();
+			try {
+				let continuationToken = "";
+				do {
+					const response = await client.base.square.getSquareChatMembers({
+						squareChatMid,
+						continuationToken,
+						limit: CHAT_MEMBERS_PAGE_SIZE,
 					});
-				}
-				continuationToken = response.continuationToken;
-			} while (continuationToken);
-		} catch (err) {
-			// Previously swallowed outright. A room that silently resolves no
-			// members is indistinguishable from one that genuinely has no
-			// admins — and "no admins listed" is exactly what a room looks
-			// like when this call is the thing being refused, which is a
-			// symptom worth seeing rather than a blank badge.
-			recordAnomaly({
+					for (const member of response.squareChatMembers) {
+						members.set(member.squareMemberMid, {
+							mid: member.squareMemberMid,
+							displayName: member.displayName,
+							role: member.role,
+						});
+					}
+					continuationToken = response.continuationToken;
+				} while (continuationToken);
+			} catch (err) {
+				// Previously swallowed outright. A room that silently resolves no
+				// members is indistinguishable from one that genuinely has no
+				// admins — and "no admins listed" is exactly what a room looks
+				// like when this call is the thing being refused, which is a
+				// symptom worth seeing rather than a blank badge.
+				recordAnomaly({
+					botId,
+					kind: "members_unreadable",
+					severity: "warn",
+					chatMid: squareChatMid,
+					detail: `ดึงรายชื่อสมาชิก/สิทธิ์ไม่สำเร็จ: ${err instanceof Error ? err.message : String(err)}`,
+				});
+				return;
+			}
+			let byChat = rolesByBot.get(botId);
+			if (!byChat) {
+				byChat = new Map();
+				rolesByBot.set(botId, byChat);
+			}
+			byChat.set(squareChatMid, members);
+			// Who in this room can delete our messages at all. One row per room
+			// per connect, and the only place that answer is ever written down.
+			const admins = [...members.values()].filter((member) => isAdminRole(member.role));
+			logBotEvent(
 				botId,
-				kind: "members_unreadable",
-				severity: "warn",
-				chatMid: squareChatMid,
-				detail: `ดึงรายชื่อสมาชิก/สิทธิ์ไม่สำเร็จ: ${err instanceof Error ? err.message : String(err)}`,
-			});
-			return;
-		}
-		let byChat = rolesByBot.get(botId);
-		if (!byChat) {
-			byChat = new Map();
-			rolesByBot.set(botId, byChat);
-		}
-		byChat.set(squareChatMid, members);
-		// Who in this room can delete our messages at all. One row per room
-		// per connect, and the only place that answer is ever written down.
-		const admins = [...members.values()].filter((member) => isAdminRole(member.role));
-		logBotEvent(
-			botId,
-			"square_admins",
-			`ห้อง ${squareChatMid} · สมาชิก ${members.size} คน · admin/co-admin: ${
-				admins.map((admin) => `${admin.displayName}[${admin.role}]`).join(", ") || "ไม่พบ"
-			}`,
-		);
-	}));
+				"square_admins",
+				`ห้อง ${squareChatMid} · สมาชิก ${members.size} คน · admin/co-admin: ${
+					admins.map((admin) => `${admin.displayName}[${admin.role}]`).join(", ") || "ไม่พบ"
+				}`,
+			);
+		}),
+	);
 }
 
 /** O(1) Map lookup — safe to call from the reply hot path. */

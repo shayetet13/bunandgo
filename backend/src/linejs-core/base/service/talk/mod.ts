@@ -104,26 +104,13 @@ export class TalkService implements BaseService {
 		chunks?: string[] | Buffer[];
 		e2ee?: boolean;
 	}): Promise<LINETypes.Message> {
-		const {
-			to,
-			text,
-			contentType,
-			contentMetadata,
-			relatedMessageId,
-			location,
-			e2ee,
-			chunks,
-		} = {
+		const { to, text, contentType, contentMetadata, relatedMessageId, location, e2ee, chunks } = {
 			contentType: "NONE" as LINETypes.ContentType,
 			contentMetadata: {},
 			...options,
 		};
 		if ((e2ee && !chunks && location) || (e2ee && !chunks && text)) {
-			const chunks = await this.client.e2ee.encryptE2EEMessage(
-				to,
-				text || location || "invalid",
-				contentType,
-			);
+			const chunks = await this.client.e2ee.encryptE2EEMessage(to, text || location || "invalid", contentType);
 			const _contentMetadata = {
 				...contentMetadata,
 				...{
@@ -158,28 +145,18 @@ export class TalkService implements BaseService {
 				location,
 				chunks,
 				relatedMessageId,
-				...relatedMessageId
+				...(relatedMessageId
 					? {
-						messageRelationType: "REPLY",
-						relatedMessageServiceCode: "TALK",
-					}
-					: {},
+							messageRelationType: "REPLY",
+							relatedMessageServiceCode: "TALK",
+						}
+					: {}),
 			},
 		});
 		try {
-			return await this.client.request.request(
-				message,
-				"sendMessage",
-				this.protocolType,
-				true,
-				this.requestPath,
-			);
+			return await this.client.request.request(message, "sendMessage", this.protocolType, true, this.requestPath);
 		} catch (error) {
-			if (
-				error instanceof InternalError &&
-				(error.data?.code.toString()).includes("E2EE") &&
-				typeof e2ee === "undefined"
-			) {
+			if (error instanceof InternalError && (error.data?.code.toString()).includes("E2EE") && typeof e2ee === "undefined") {
 				options.e2ee = true;
 				return this.sendMessage(options);
 			} else {
@@ -188,12 +165,9 @@ export class TalkService implements BaseService {
 		}
 	}
 
-	sendCompactMessage(
-		options: SendCompactMessageOptions,
-	): Promise<CompactMessageResponse> {
+	sendCompactMessage(options: SendCompactMessageOptions): Promise<CompactMessageResponse> {
 		if (options.e2ee === true) this.#rememberE2eeTarget(options.to);
-		const knownTarget = this.#e2eeTargets.has(options.to) ||
-			this.#checkedE2eeTargets.has(options.to);
+		const knownTarget = this.#e2eeTargets.has(options.to) || this.#checkedE2eeTargets.has(options.to);
 		if (!knownTarget && options.e2ee !== true) return this.#sendCompactMessageCold(options);
 		const requiresE2ee = options.e2ee === true || this.#e2eeTargets.has(options.to);
 		if (options.chunks || requiresE2ee) {
@@ -203,10 +177,10 @@ export class TalkService implements BaseService {
 			throw new TypeError("sendCompactMessage requires text or chunks");
 		}
 		return this.sendCompactPlainMessage({
-				to: options.to,
-				text: options.text,
-				fastAck: options.fastAck,
-			}).catch((error) => {
+			to: options.to,
+			text: options.text,
+			fastAck: options.fastAck,
+		}).catch((error) => {
 			const code = compactMessageErrorCode(error);
 			if (options.e2ee === undefined && (code === 82 || code === 99)) {
 				// This target requires encryption. Remember it for the lifetime of
@@ -231,7 +205,7 @@ export class TalkService implements BaseService {
 		if (this.#e2eeTargets.has(to)) return true;
 		if (this.#checkedE2eeTargets.has(to)) return false;
 		this.#checkedE2eeTargets.add(to);
-		if (await this.client.storage.get(COMPACT_E2EE_TARGET_KEY_PREFIX + to) === true) {
+		if ((await this.client.storage.get(COMPACT_E2EE_TARGET_KEY_PREFIX + to)) === true) {
 			this.#e2eeTargets.add(to);
 			return true;
 		}
@@ -247,7 +221,7 @@ export class TalkService implements BaseService {
 
 	/** Warms persisted E2EE key/crypto state without sending a message. */
 	async prewarmCompactE2EETarget(to: string): Promise<boolean> {
-		if (!await this.#requiresE2ee(to)) return false;
+		if (!(await this.#requiresE2ee(to))) return false;
 		await this.client.e2ee.encryptE2EEMessage(to, "warm");
 		return true;
 	}
@@ -256,7 +230,7 @@ export class TalkService implements BaseService {
 	async prewarmCompactSendTarget(to: string): Promise<void> {
 		if (!/^[urc][0-9a-f]{32}$/i.test(to)) return;
 		const requiresE2ee = await this.#requiresE2ee(to);
-		const seqId = this.client.takeReqseq() ?? await this.client.getReqseq();
+		const seqId = this.client.takeReqseq() ?? (await this.client.getReqseq());
 		if (requiresE2ee) {
 			const chunks = await this.client.e2ee.encryptE2EEMessage(to, "warm");
 			packCompactE2EEMessage(seqId, to, chunks);
@@ -268,28 +242,14 @@ export class TalkService implements BaseService {
 		await Promise.resolve();
 	}
 
-	sendCompactPlainMessage(options: {
-		to: string;
-		text: string;
-		fastAck?: boolean;
-	}): Promise<CompactMessageResponse> {
+	sendCompactPlainMessage(options: { to: string; text: string; fastAck?: boolean }): Promise<CompactMessageResponse> {
 		const seqId = this.client.takeReqseq();
 		if (seqId === undefined) return this.#sendCompactPlainMessageCold(options);
 		const body = packCompactPlainMessage(seqId, options.to, options.text);
-		return this.#requestCompactMessage(
-			COMPACT_PLAIN_MESSAGE_ENDPOINT,
-			seqId,
-			body,
-			false,
-			options.fastAck,
-		);
+		return this.#requestCompactMessage(COMPACT_PLAIN_MESSAGE_ENDPOINT, seqId, body, false, options.fastAck);
 	}
 
-	async #sendCompactPlainMessageCold(options: {
-		to: string;
-		text: string;
-		fastAck?: boolean;
-	}): Promise<CompactMessageResponse> {
+	async #sendCompactPlainMessageCold(options: { to: string; text: string; fastAck?: boolean }): Promise<CompactMessageResponse> {
 		await this.client.getReqseq("__compact_warm");
 		return this.sendCompactPlainMessage(options);
 	}
@@ -305,20 +265,11 @@ export class TalkService implements BaseService {
 			if (options.text === undefined) {
 				throw new TypeError("sendCompactE2EEMessage requires text or chunks");
 			}
-			chunks = await this.client.e2ee.encryptE2EEMessage(
-				options.to,
-				options.text,
-			);
+			chunks = await this.client.e2ee.encryptE2EEMessage(options.to, options.text);
 		}
-		const seqId = this.client.takeReqseq() ?? await this.client.getReqseq();
+		const seqId = this.client.takeReqseq() ?? (await this.client.getReqseq());
 		const body = packCompactE2EEMessage(seqId, options.to, chunks);
-		return this.#requestCompactMessage(
-			COMPACT_E2EE_MESSAGE_ENDPOINT,
-			seqId,
-			body,
-			false,
-			options.fastAck,
-		);
+		return this.#requestCompactMessage(COMPACT_E2EE_MESSAGE_ENDPOINT, seqId, body, false, options.fastAck);
 	}
 
 	async #requestCompactMessage(
@@ -329,10 +280,7 @@ export class TalkService implements BaseService {
 		fastAck = false,
 	): Promise<CompactMessageResponse> {
 		if (this.client?.disabled) {
-			throw new InternalError(
-				"ClientClosed",
-				"Request aborted: client has been disabled (logged out)",
-			);
+			throw new InternalError("ClientClosed", "Request aborted: client has been disabled (logged out)");
 		}
 		const headers = {
 			...this.client.request.getHeader("POST"),
@@ -345,23 +293,18 @@ export class TalkService implements BaseService {
 				body,
 			});
 		}
-		const response = await this.client.fetchHot(
-			`https://${this.client.request.endpoint}${path}`,
-			{
-				method: "POST",
-				headers,
-				signal: AbortSignal.timeout(this.client.config.timeout),
-				body: body as BodyInit,
-			},
-		);
+		const response = await this.client.fetchHot(`https://${this.client.request.endpoint}${path}`, {
+			method: "POST",
+			headers,
+			signal: AbortSignal.timeout(this.client.config.timeout),
+			body: body as BodyInit,
+		});
 		const nextToken = response.headers.get("x-line-next-access");
 		if (nextToken) {
 			this.client.emit("update:authtoken", nextToken);
 		}
 		const responseBody = readResponseBytes(response);
-		const parsedBody = responseBody instanceof Uint8Array
-			? responseBody
-			: await responseBody;
+		const parsedBody = responseBody instanceof Uint8Array ? responseBody : await responseBody;
 		if (this.client.debugLogsEnabled) {
 			this.client.log("compactMessageResponse", {
 				path,
@@ -370,11 +313,9 @@ export class TalkService implements BaseService {
 			});
 		}
 		if (!response.ok) {
-			throw new InternalError(
-				"CompactMessageRequestError",
-				`Compact message request failed: status=${response.status}`,
-				{ status: response.status },
-			);
+			throw new InternalError("CompactMessageRequestError", `Compact message request failed: status=${response.status}`, {
+				status: response.status,
+			});
 		}
 		if (fastAck && parsedBody[0] === 1) {
 			return { sequenceId: seqId, messageId: 0n, createdTime: 0 };
@@ -383,11 +324,7 @@ export class TalkService implements BaseService {
 			return decodeCompactMessageResponse(parsedBody);
 		} catch (error) {
 			const code = compactMessageErrorCode(error);
-			if (
-				code === 119 &&
-				!isRetry &&
-				await this.client.storage.get("refreshToken")
-			) {
+			if (code === 119 && !isRetry && (await this.client.storage.get("refreshToken"))) {
 				await this.client.auth.tryRefreshToken();
 				return await this.#requestCompactMessage(path, seqId, body, true, fastAck);
 			}
@@ -395,9 +332,7 @@ export class TalkService implements BaseService {
 		}
 	}
 
-	async getProfile(
-		...param: Parameters<typeof LINEStruct.getProfile_args>
-	): Promise<LINETypes.getProfile_result["success"]> {
+	async getProfile(...param: Parameters<typeof LINEStruct.getProfile_args>): Promise<LINETypes.getProfile_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.getProfile_args(...param),
 			"getProfile",
@@ -407,9 +342,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async getSettings(
-		...param: Parameters<typeof LINEStruct.getSettings_args>
-	): Promise<LINETypes.getSettings_result["success"]> {
+	async getSettings(...param: Parameters<typeof LINEStruct.getSettings_args>): Promise<LINETypes.getSettings_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.getSettings_args(...param),
 			"getSettings",
@@ -419,9 +352,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async sendChatChecked(
-		...param: Parameters<typeof LINEStruct.sendChatChecked_args>
-	): Promise<void> {
+	async sendChatChecked(...param: Parameters<typeof LINEStruct.sendChatChecked_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.sendChatChecked_args(...param),
 			"sendChatChecked",
@@ -431,9 +362,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async unsendMessage(
-		...param: Parameters<typeof LINEStruct.unsendMessage_args>
-	): Promise<void> {
+	async unsendMessage(...param: Parameters<typeof LINEStruct.unsendMessage_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.unsendMessage_args(...param),
 			"unsendMessage",
@@ -455,12 +384,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async inviteIntoChat(
-		options: {
-			chatMid: string;
-			targetUserMids: string[];
-		},
-	): Promise<LINETypes.inviteIntoChat_result["success"]> {
+	async inviteIntoChat(options: { chatMid: string; targetUserMids: string[] }): Promise<LINETypes.inviteIntoChat_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.inviteIntoChat_args({
 				request: {
@@ -536,9 +460,7 @@ export class TalkService implements BaseService {
 	}
 
 	async acceptChatInvitationByTicket(
-		...param: Parameters<
-			typeof LINEStruct.acceptChatInvitationByTicket_args
-		>
+		...param: Parameters<typeof LINEStruct.acceptChatInvitationByTicket_args>
 	): Promise<LINETypes.acceptChatInvitationByTicket_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.acceptChatInvitationByTicket_args(...param),
@@ -549,16 +471,8 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async updateChat(
-		...param: Parameters<typeof LINEStruct.updateChat_args>
-	): Promise<LINETypes.updateChat_result["success"]> {
-		return await this.client.request.request(
-			LINEStruct.updateChat_args(...param),
-			"updateChat",
-			this.protocolType,
-			true,
-			this.requestPath,
-		);
+	async updateChat(...param: Parameters<typeof LINEStruct.updateChat_args>): Promise<LINETypes.updateChat_result["success"]> {
+		return await this.client.request.request(LINEStruct.updateChat_args(...param), "updateChat", this.protocolType, true, this.requestPath);
 	}
 
 	async getAllContactIds(
@@ -597,9 +511,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async sendPostback(
-		...param: Parameters<typeof LINEStruct.sendPostback_args>
-	): Promise<void> {
+	async sendPostback(...param: Parameters<typeof LINEStruct.sendPostback_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.sendPostback_args(...param),
 			"sendPostback",
@@ -621,11 +533,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async getChatRoomAnnouncementsBulk(
-		...param: Parameters<
-			typeof LINEStruct.getChatRoomAnnouncementsBulk_args
-		>
-	): Promise<void> {
+	async getChatRoomAnnouncementsBulk(...param: Parameters<typeof LINEStruct.getChatRoomAnnouncementsBulk_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.getChatRoomAnnouncementsBulk_args(...param),
 			"getChatRoomAnnouncementsBulk",
@@ -647,9 +555,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async removeChatRoomAnnouncement(
-		...param: Parameters<typeof LINEStruct.removeChatRoomAnnouncement_args>
-	): Promise<void> {
+	async removeChatRoomAnnouncement(...param: Parameters<typeof LINEStruct.removeChatRoomAnnouncement_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.removeChatRoomAnnouncement_args(...param),
 			"removeChatRoomAnnouncement",
@@ -671,33 +577,15 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async leaveRoom(
-		...param: Parameters<typeof LINEStruct.leaveRoom_args>
-	): Promise<void> {
-		return await this.client.request.request(
-			LINEStruct.leaveRoom_args(...param),
-			"leaveRoom",
-			this.protocolType,
-			true,
-			this.requestPath,
-		);
+	async leaveRoom(...param: Parameters<typeof LINEStruct.leaveRoom_args>): Promise<void> {
+		return await this.client.request.request(LINEStruct.leaveRoom_args(...param), "leaveRoom", this.protocolType, true, this.requestPath);
 	}
 
-	async getRoomsV2(
-		...param: Parameters<typeof LINEStruct.getRoomsV2_args>
-	): Promise<LINETypes.getRoomsV2_result["success"]> {
-		return await this.client.request.request(
-			LINEStruct.getRoomsV2_args(...param),
-			"getRoomsV2",
-			this.protocolType,
-			true,
-			this.requestPath,
-		);
+	async getRoomsV2(...param: Parameters<typeof LINEStruct.getRoomsV2_args>): Promise<LINETypes.getRoomsV2_result["success"]> {
+		return await this.client.request.request(LINEStruct.getRoomsV2_args(...param), "getRoomsV2", this.protocolType, true, this.requestPath);
 	}
 
-	async createRoomV2(
-		...param: Parameters<typeof LINEStruct.createRoomV2_args>
-	): Promise<LINETypes.createRoomV2_result["success"]> {
+	async createRoomV2(...param: Parameters<typeof LINEStruct.createRoomV2_args>): Promise<LINETypes.createRoomV2_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.createRoomV2_args(...param),
 			"createRoomV2",
@@ -707,9 +595,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async getCountries(
-		...param: Parameters<typeof LINEStruct.getCountries_args>
-	): Promise<LINETypes.getCountries_result["success"]> {
+	async getCountries(...param: Parameters<typeof LINEStruct.getCountries_args>): Promise<LINETypes.getCountries_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.getCountries_args(...param),
 			"getCountries",
@@ -731,9 +617,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async blockContact(
-		...param: Parameters<typeof LINEStruct.blockContact_args>
-	): Promise<void> {
+	async blockContact(...param: Parameters<typeof LINEStruct.blockContact_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.blockContact_args(...param),
 			"blockContact",
@@ -743,9 +627,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async unblockContact(
-		...param: Parameters<typeof LINEStruct.unblockContact_args>
-	): Promise<void> {
+	async unblockContact(...param: Parameters<typeof LINEStruct.unblockContact_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.unblockContact_args(...param),
 			"unblockContact",
@@ -838,16 +720,8 @@ export class TalkService implements BaseService {
 			this.requestPath,
 		);
 	}
-	public async getE2EEPublicKeys(): Promise<
-		LINETypes.getE2EEPublicKeys_result["success"]
-	> {
-		return await this.client.request.request(
-			[],
-			"getE2EEPublicKeys",
-			this.protocolType,
-			false,
-			this.requestPath,
-		);
+	public async getE2EEPublicKeys(): Promise<LINETypes.getE2EEPublicKeys_result["success"]> {
+		return await this.client.request.request([], "getE2EEPublicKeys", this.protocolType, false, this.requestPath);
 	}
 
 	async registerE2EEPublicKey(
@@ -922,10 +796,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async react(options: {
-		id: bigint | number;
-		reaction: LINETypes.MessageReactionType;
-	}): Promise<void> {
+	async react(options: { id: bigint | number; reaction: LINETypes.MessageReactionType }): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.react_args({
 				reactRequest: {
@@ -943,21 +814,11 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async createChat(
-		...param: Parameters<typeof LINEStruct.createChat_args>
-	): Promise<LINETypes.createChat_result["success"]> {
-		return await this.client.request.request(
-			LINEStruct.createChat_args(...param),
-			"createChat",
-			this.protocolType,
-			true,
-			this.requestPath,
-		);
+	async createChat(...param: Parameters<typeof LINEStruct.createChat_args>): Promise<LINETypes.createChat_result["success"]> {
+		return await this.client.request.request(LINEStruct.createChat_args(...param), "createChat", this.protocolType, true, this.requestPath);
 	}
 
-	async setChatHiddenStatus(
-		...param: Parameters<typeof LINEStruct.setChatHiddenStatus_args>
-	): Promise<void> {
+	async setChatHiddenStatus(...param: Parameters<typeof LINEStruct.setChatHiddenStatus_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.setChatHiddenStatus_args(...param),
 			"setChatHiddenStatus",
@@ -967,9 +828,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async getFollowers(
-		...param: Parameters<typeof LINEStruct.getFollowers_args>
-	): Promise<LINETypes.getFollowers_result["success"]> {
+	async getFollowers(...param: Parameters<typeof LINEStruct.getFollowers_args>): Promise<LINETypes.getFollowers_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.getFollowers_args(...param),
 			"getFollowers",
@@ -979,9 +838,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async getFollowings(
-		...param: Parameters<typeof LINEStruct.getFollowings_args>
-	): Promise<LINETypes.getFollowings_result["success"]> {
+	async getFollowings(...param: Parameters<typeof LINEStruct.getFollowings_args>): Promise<LINETypes.getFollowings_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.getFollowings_args(...param),
 			"getFollowings",
@@ -991,9 +848,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async removeFollower(
-		...param: Parameters<typeof LINEStruct.removeFollower_args>
-	): Promise<void> {
+	async removeFollower(...param: Parameters<typeof LINEStruct.removeFollower_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.removeFollower_args(...param),
 			"removeFollower",
@@ -1003,40 +858,16 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async follow(
-		...param: Parameters<typeof LINEStruct.follow_args>
-	): Promise<void> {
-		return await this.client.request.request(
-			LINEStruct.follow_args(...param),
-			"follow",
-			this.protocolType,
-			true,
-			this.requestPath,
-		);
+	async follow(...param: Parameters<typeof LINEStruct.follow_args>): Promise<void> {
+		return await this.client.request.request(LINEStruct.follow_args(...param), "follow", this.protocolType, true, this.requestPath);
 	}
 
-	async unfollow(
-		...param: Parameters<typeof LINEStruct.unfollow_args>
-	): Promise<void> {
-		return await this.client.request.request(
-			LINEStruct.unfollow_args(...param),
-			"unfollow",
-			this.protocolType,
-			true,
-			this.requestPath,
-		);
+	async unfollow(...param: Parameters<typeof LINEStruct.unfollow_args>): Promise<void> {
+		return await this.client.request.request(LINEStruct.unfollow_args(...param), "unfollow", this.protocolType, true, this.requestPath);
 	}
 
-	async bulkFollow(
-		...param: Parameters<typeof LINEStruct.bulkFollow_args>
-	): Promise<LINETypes.bulkFollow_result["success"]> {
-		return await this.client.request.request(
-			LINEStruct.bulkFollow_args(...param),
-			"bulkFollow",
-			this.protocolType,
-			true,
-			this.requestPath,
-		);
+	async bulkFollow(...param: Parameters<typeof LINEStruct.bulkFollow_args>): Promise<LINETypes.bulkFollow_result["success"]> {
+		return await this.client.request.request(LINEStruct.bulkFollow_args(...param), "bulkFollow", this.protocolType, true, this.requestPath);
 	}
 
 	async decryptFollowEMid(
@@ -1087,9 +918,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async blockRecommendation(
-		...param: Parameters<typeof LINEStruct.blockRecommendation_args>
-	): Promise<void> {
+	async blockRecommendation(...param: Parameters<typeof LINEStruct.blockRecommendation_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.blockRecommendation_args(...param),
 			"blockRecommendation",
@@ -1099,9 +928,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async unblockRecommendation(
-		...param: Parameters<typeof LINEStruct.unblockRecommendation_args>
-	): Promise<void> {
+	async unblockRecommendation(...param: Parameters<typeof LINEStruct.unblockRecommendation_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.unblockRecommendation_args(...param),
 			"unblockRecommendation",
@@ -1135,11 +962,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async updateExtendedProfileAttribute(
-		...param: Parameters<
-			typeof LINEStruct.updateExtendedProfileAttribute_args
-		>
-	): Promise<void> {
+	async updateExtendedProfileAttribute(...param: Parameters<typeof LINEStruct.updateExtendedProfileAttribute_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.updateExtendedProfileAttribute_args(...param),
 			"updateExtendedProfileAttribute",
@@ -1149,9 +972,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async setNotificationsEnabled(
-		...param: Parameters<typeof LINEStruct.setNotificationsEnabled_args>
-	): Promise<void> {
+	async setNotificationsEnabled(...param: Parameters<typeof LINEStruct.setNotificationsEnabled_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.setNotificationsEnabled_args(...param),
 			"setNotificationsEnabled",
@@ -1161,9 +982,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async syncContacts(
-		...param: Parameters<typeof LINEStruct.syncContacts_args>
-	): Promise<LINETypes.syncContacts_result["success"]> {
+	async syncContacts(...param: Parameters<typeof LINEStruct.syncContacts_args>): Promise<LINETypes.syncContacts_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.syncContacts_args(...param),
 			"syncContacts",
@@ -1197,9 +1016,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async updateContactSetting(
-		...param: Parameters<typeof LINEStruct.updateContactSetting_args>
-	): Promise<void> {
+	async updateContactSetting(...param: Parameters<typeof LINEStruct.updateContactSetting_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.updateContactSetting_args(...param),
 			"updateContactSetting",
@@ -1221,9 +1038,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async verifyQrcode(
-		...param: Parameters<typeof LINEStruct.verifyQrcode_args>
-	): Promise<LINETypes.verifyQrcode_result["success"]> {
+	async verifyQrcode(...param: Parameters<typeof LINEStruct.verifyQrcode_args>): Promise<LINETypes.verifyQrcode_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.verifyQrcode_args(...param),
 			"verifyQrcode",
@@ -1233,9 +1048,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async reportAbuseEx(
-		...param: Parameters<typeof LINEStruct.reportAbuseEx_args>
-	): Promise<LINETypes.reportAbuseEx_result["success"]> {
+	async reportAbuseEx(...param: Parameters<typeof LINEStruct.reportAbuseEx_args>): Promise<LINETypes.reportAbuseEx_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.reportAbuseEx_args(...param),
 			"reportAbuseEx",
@@ -1245,9 +1058,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async updateProfileAttributes(
-		...param: Parameters<typeof LINEStruct.updateProfileAttributes_args>
-	): Promise<void> {
+	async updateProfileAttributes(...param: Parameters<typeof LINEStruct.updateProfileAttributes_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.updateProfileAttributes_args(...param),
 			"updateProfileAttributes",
@@ -1257,9 +1068,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async updateNotificationToken(
-		...param: Parameters<typeof LINEStruct.updateNotificationToken_args>
-	): Promise<void> {
+	async updateNotificationToken(...param: Parameters<typeof LINEStruct.updateNotificationToken_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.updateNotificationToken_args(...param),
 			"updateNotificationToken",
@@ -1269,9 +1078,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async tryFriendRequest(
-		...param: Parameters<typeof LINEStruct.tryFriendRequest_args>
-	): Promise<void> {
+	async tryFriendRequest(...param: Parameters<typeof LINEStruct.tryFriendRequest_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.tryFriendRequest_args(...param),
 			"tryFriendRequest",
@@ -1305,9 +1112,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async resendPinCode(
-		...param: Parameters<typeof LINEStruct.resendPinCode_args>
-	): Promise<void> {
+	async resendPinCode(...param: Parameters<typeof LINEStruct.resendPinCode_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.resendPinCode_args(...param),
 			"resendPinCode",
@@ -1317,9 +1122,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async notifyRegistrationComplete(
-		...param: Parameters<typeof LINEStruct.notifyRegistrationComplete_args>
-	): Promise<void> {
+	async notifyRegistrationComplete(...param: Parameters<typeof LINEStruct.notifyRegistrationComplete_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.notifyRegistrationComplete_args(...param),
 			"notifyRegistrationComplete",
@@ -1329,9 +1132,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async getInstantNews(
-		...param: Parameters<typeof LINEStruct.getInstantNews_args>
-	): Promise<LINETypes.getInstantNews_result["success"]> {
+	async getInstantNews(...param: Parameters<typeof LINEStruct.getInstantNews_args>): Promise<LINETypes.getInstantNews_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.getInstantNews_args(...param),
 			"getInstantNews",
@@ -1365,9 +1166,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async notifyInstalled(
-		...param: Parameters<typeof LINEStruct.notifyInstalled_args>
-	): Promise<void> {
+	async notifyInstalled(...param: Parameters<typeof LINEStruct.notifyInstalled_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.notifyInstalled_args(...param),
 			"notifyInstalled",
@@ -1377,9 +1176,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async reportDeviceState(
-		...param: Parameters<typeof LINEStruct.reportDeviceState_args>
-	): Promise<void> {
+	async reportDeviceState(...param: Parameters<typeof LINEStruct.reportDeviceState_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.reportDeviceState_args(...param),
 			"reportDeviceState",
@@ -1389,9 +1186,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async sendChatRemoved(
-		...param: Parameters<typeof LINEStruct.sendChatRemoved_args>
-	): Promise<void> {
+	async sendChatRemoved(...param: Parameters<typeof LINEStruct.sendChatRemoved_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.sendChatRemoved_args(...param),
 			"sendChatRemoved",
@@ -1413,9 +1208,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async inviteIntoRoom(
-		...param: Parameters<typeof LINEStruct.inviteIntoRoom_args>
-	): Promise<void> {
+	async inviteIntoRoom(...param: Parameters<typeof LINEStruct.inviteIntoRoom_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.inviteIntoRoom_args(...param),
 			"inviteIntoRoom",
@@ -1425,9 +1218,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async removeFriendRequest(
-		...param: Parameters<typeof LINEStruct.removeFriendRequest_args>
-	): Promise<void> {
+	async removeFriendRequest(...param: Parameters<typeof LINEStruct.removeFriendRequest_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.removeFriendRequest_args(...param),
 			"removeFriendRequest",
@@ -1437,9 +1228,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async reportProfile(
-		...param: Parameters<typeof LINEStruct.reportProfile_args>
-	): Promise<void> {
+	async reportProfile(...param: Parameters<typeof LINEStruct.reportProfile_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.reportProfile_args(...param),
 			"reportProfile",
@@ -1473,9 +1262,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async reportSettings(
-		...param: Parameters<typeof LINEStruct.reportSettings_args>
-	): Promise<void> {
+	async reportSettings(...param: Parameters<typeof LINEStruct.reportSettings_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.reportSettings_args(...param),
 			"reportSettings",
@@ -1509,9 +1296,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async registerUserid(
-		...param: Parameters<typeof LINEStruct.registerUserid_args>
-	): Promise<LINETypes.registerUserid_result["success"]> {
+	async registerUserid(...param: Parameters<typeof LINEStruct.registerUserid_args>): Promise<LINETypes.registerUserid_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.registerUserid_args(...param),
 			"registerUserid",
@@ -1521,9 +1306,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async finishUpdateVerification(
-		...param: Parameters<typeof LINEStruct.finishUpdateVerification_args>
-	): Promise<void> {
+	async finishUpdateVerification(...param: Parameters<typeof LINEStruct.finishUpdateVerification_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.finishUpdateVerification_args(...param),
 			"finishUpdateVerification",
@@ -1533,9 +1316,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async clearRingtone(
-		...param: Parameters<typeof LINEStruct.clearRingtone_args>
-	): Promise<void> {
+	async clearRingtone(...param: Parameters<typeof LINEStruct.clearRingtone_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.clearRingtone_args(...param),
 			"clearRingtone",
@@ -1545,9 +1326,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async notifyUpdated(
-		...param: Parameters<typeof LINEStruct.notifyUpdated_args>
-	): Promise<void> {
+	async notifyUpdated(...param: Parameters<typeof LINEStruct.notifyUpdated_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.notifyUpdated_args(...param),
 			"notifyUpdated",
@@ -1557,9 +1336,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async reportPushRecvReports(
-		...param: Parameters<typeof LINEStruct.reportPushRecvReports_args>
-	): Promise<void> {
+	async reportPushRecvReports(...param: Parameters<typeof LINEStruct.reportPushRecvReports_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.reportPushRecvReports_args(...param),
 			"reportPushRecvReports",
@@ -1581,9 +1358,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async addToFollowBlacklist(
-		...param: Parameters<typeof LINEStruct.addToFollowBlacklist_args>
-	): Promise<void> {
+	async addToFollowBlacklist(...param: Parameters<typeof LINEStruct.addToFollowBlacklist_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.addToFollowBlacklist_args(...param),
 			"addToFollowBlacklist",
@@ -1593,9 +1368,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async removeFromFollowBlacklist(
-		...param: Parameters<typeof LINEStruct.removeFromFollowBlacklist_args>
-	): Promise<void> {
+	async removeFromFollowBlacklist(...param: Parameters<typeof LINEStruct.removeFromFollowBlacklist_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.removeFromFollowBlacklist_args(...param),
 			"removeFromFollowBlacklist",
@@ -1629,9 +1402,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async createSession(
-		...param: Parameters<typeof LINEStruct.createSession_args>
-	): Promise<LINETypes.createSession_result["success"]> {
+	async createSession(...param: Parameters<typeof LINEStruct.createSession_args>): Promise<LINETypes.createSession_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.createSession_args(...param),
 			"createSession",
@@ -1641,9 +1412,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async cancelReaction(
-		...param: Parameters<typeof LINEStruct.cancelReaction_args>
-	): Promise<void> {
+	async cancelReaction(...param: Parameters<typeof LINEStruct.cancelReaction_args>): Promise<void> {
 		return await this.client.request.request(
 			LINEStruct.cancelReaction_args(...param),
 			"cancelReaction",
@@ -1665,13 +1434,11 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async getChats(
-		options: {
-			chatMids: string[];
-			withInvitees?: boolean;
-			withMembers?: boolean;
-		},
-	): Promise<LINETypes.getChats_result["success"]> {
+	async getChats(options: {
+		chatMids: string[];
+		withInvitees?: boolean;
+		withMembers?: boolean;
+	}): Promise<LINETypes.getChats_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.getChats_args({
 				request: {
@@ -1688,11 +1455,7 @@ export class TalkService implements BaseService {
 		);
 	}
 
-	async getChat(options: {
-		chatMid: string;
-		withInvitees?: boolean;
-		withMembers?: boolean;
-	}): Promise<LINETypes.Chat> {
+	async getChat(options: { chatMid: string; withInvitees?: boolean; withMembers?: boolean }): Promise<LINETypes.Chat> {
 		const res = await this.getChats({
 			chatMids: [options.chatMid],
 			withInvitees: options.withInvitees,
@@ -1701,9 +1464,7 @@ export class TalkService implements BaseService {
 		return res.chats[0];
 	}
 
-	async getAllChatMids(
-		...param: Parameters<typeof LINEStruct.getAllChatMids_args>
-	): Promise<LINETypes.getAllChatMids_result["success"]> {
+	async getAllChatMids(...param: Parameters<typeof LINEStruct.getAllChatMids_args>): Promise<LINETypes.getAllChatMids_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.getAllChatMids_args(...param),
 			"getAllChatMids",
@@ -1714,9 +1475,7 @@ export class TalkService implements BaseService {
 	}
 
 	async getPreviousMessagesV2WithRequest(
-		...param: Parameters<
-			typeof LINEStruct.getPreviousMessagesV2WithRequest_args
-		>
+		...param: Parameters<typeof LINEStruct.getPreviousMessagesV2WithRequest_args>
 	): Promise<LINETypes.getPreviousMessagesV2WithRequest_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.getPreviousMessagesV2WithRequest_args(...param),
@@ -1731,75 +1490,39 @@ export class TalkService implements BaseService {
 	 * @description Gets the server time
 	 */
 	public async getServerTime(): Promise<number> {
-		return await this.client.request.request(
-			[],
-			"getServerTime",
-			this.protocolType,
-			true,
-			this.requestPath,
-		);
+		return await this.client.request.request([], "getServerTime", this.protocolType, true, this.requestPath);
 	}
 	/**
 	 * @description Get user information from mid.
 	 */
-	async getContact(
-		options: {
-			mid: string;
-		},
-	): Promise<LINETypes.Contact> {
+	async getContact(options: { mid: string }): Promise<LINETypes.Contact> {
 		const { mid } = { ...options };
-		return await this.client.request.request(
-			[[11, 2, mid]],
-			"getContact",
-			this.protocolType,
-			"Contact",
-			this.requestPath,
-		);
+		return await this.client.request.request([[11, 2, mid]], "getContact", this.protocolType, "Contact", this.requestPath);
 	}
 	/**
 	 * @description Get users information from mids.
 	 */
-	public async getContacts(
-		options: {
-			mids: string[];
-		},
-	): Promise<LINETypes.Contact[]> {
+	public async getContacts(options: { mids: string[] }): Promise<LINETypes.Contact[]> {
 		const { mids } = { ...options };
-		const response = (await this.client.request.request<LooseType[]>(
-			[[15, 2, [11, mids]]],
-			"getContacts",
-			this.protocolType,
-			false,
-			this.requestPath,
-		)).map((e) =>
-			this.client.thrift.rename_thrift("Contact", e)
-		) as LINETypes.Contact[];
+		const response = (
+			await this.client.request.request<LooseType[]>([[15, 2, [11, mids]]], "getContacts", this.protocolType, false, this.requestPath)
+		).map((e) => this.client.thrift.rename_thrift("Contact", e)) as LINETypes.Contact[];
 		return response;
 	}
-	public async getContactsV2(
-		options: {
-			mids: string[];
-		},
-	): Promise<LINETypes.GetContactsV2Response> {
+	public async getContactsV2(options: { mids: string[] }): Promise<LINETypes.GetContactsV2Response> {
 		const { mids } = { ...options };
 
-		return (await this.client.request.request(
+		return await this.client.request.request(
 			[[12, 1, [[15, 1, [11, mids]]]]],
 			"getContactsV2",
 			this.protocolType,
 			"GetContactsV2Response",
 			this.requestPath,
-		));
+		);
 	}
 
 	async noop(): Promise<void> {
-		return await this.client.request.request(
-			[],
-			"noop",
-			this.protocolType,
-			true,
-			this.requestPath,
-		);
+		return await this.client.request.request([], "noop", this.protocolType, true, this.requestPath);
 	}
 }
 

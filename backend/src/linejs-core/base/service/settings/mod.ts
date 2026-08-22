@@ -18,9 +18,7 @@ export class SettingsService implements BaseService {
 		this.client = client;
 	}
 
-	async bulkGetSetting(
-		...param: Parameters<typeof LINEStruct.bulkGetSetting_args>
-	): Promise<LINETypes.bulkGetSetting_result["success"]> {
+	async bulkGetSetting(...param: Parameters<typeof LINEStruct.bulkGetSetting_args>): Promise<LINETypes.bulkGetSetting_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.bulkGetSetting_args(...param),
 			"bulkGetSetting",
@@ -30,9 +28,7 @@ export class SettingsService implements BaseService {
 		);
 	}
 
-	async bulkSetSetting(
-		...param: Parameters<typeof LINEStruct.bulkSetSetting_args>
-	): Promise<LINETypes.bulkSetSetting_result["success"]> {
+	async bulkSetSetting(...param: Parameters<typeof LINEStruct.bulkSetSetting_args>): Promise<LINETypes.bulkSetSetting_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.bulkSetSetting_args(...param),
 			"bulkSetSetting",

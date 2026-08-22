@@ -23,7 +23,7 @@ export const FORWARDED_EVENTS = [
 	"id_lock_mismatch",
 ] as const;
 
-export type ForwardedEventName = typeof FORWARDED_EVENTS[number];
+export type ForwardedEventName = (typeof FORWARDED_EVENTS)[number];
 const FORWARDED_EVENT_SET = new Set<string>(FORWARDED_EVENTS);
 
 export function eventBotId(data: unknown): number | undefined {
@@ -100,13 +100,14 @@ workerEventsRoute.post("/", async (c) => {
 	if (topology.ownerRoutes.size === 0 || !hasValidControlToken(c)) {
 		return c.json({ error: "forbidden" }, 403);
 	}
-	const envelope = await c.req.json().catch(() => undefined) as Partial<RelayEnvelope> | undefined;
+	const envelope = (await c.req.json().catch(() => undefined)) as Partial<RelayEnvelope> | undefined;
 	if (!envelope || typeof envelope.workerId !== "string" || !Array.isArray(envelope.events) || envelope.events.length > 100) {
 		return c.json({ error: "invalid event batch" }, 400);
 	}
 	let accepted = 0;
 	for (const event of envelope.events) {
-		if (!event || typeof event.id !== "string" || event.id.length < 8 || event.id.length > 100 || !FORWARDED_EVENT_SET.has(event.type)) continue;
+		if (!event || typeof event.id !== "string" || event.id.length < 8 || event.id.length > 100 || !FORWARDED_EVENT_SET.has(event.type))
+			continue;
 		const botId = eventBotId(event.data);
 		if (botId === undefined) continue;
 		const bot = getBot(botId);
@@ -138,9 +139,7 @@ let relaySequence = 0;
 
 function makeRoomForCriticalEvent(): void {
 	if (queue.length < MAX_QUEUE) return;
-	const expendable = queue.findIndex((event) =>
-		event.type === "send_result" || event.type === "fast_path" || event.type === "message_in"
-	);
+	const expendable = queue.findIndex((event) => event.type === "send_result" || event.type === "fast_path" || event.type === "message_in");
 	queue.splice(expendable >= 0 ? expendable : 0, 1);
 }
 

@@ -18,9 +18,7 @@ export class PrimarySeamlessLoginService implements BaseService {
 		this.client = client;
 	}
 
-	async permitLogin(
-		...param: Parameters<typeof LINEStruct.permitLogin_args>
-	): Promise<LINETypes.permitLogin_result["success"]> {
+	async permitLogin(...param: Parameters<typeof LINEStruct.permitLogin_args>): Promise<LINETypes.permitLogin_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.permitLogin_args(...param),
 			"permitLogin",

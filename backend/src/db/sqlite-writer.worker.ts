@@ -56,18 +56,12 @@ function flush(): void {
 			line_ms, code_ms, decrypt_ms, match_ms, limiter_ms, routing_ms, protocol_prep_ms, relay_encode_ms, go_prep_ms, relay_and_parse_ms, upstream_calls
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 	);
-	const botEventStmt = db.prepare(
-		"INSERT INTO bot_events (bot_id, ts, type, message) VALUES (?, ?, ?, ?)",
-	);
-	const userActionStmt = db.prepare(
-		"INSERT INTO user_actions (user_id, username, ts, action, detail) VALUES (?, ?, ?, ?, ?)",
-	);
+	const botEventStmt = db.prepare("INSERT INTO bot_events (bot_id, ts, type, message) VALUES (?, ?, ?, ?)");
+	const userActionStmt = db.prepare("INSERT INTO user_actions (user_id, username, ts, action, detail) VALUES (?, ?, ?, ?, ?)");
 	const messageInStmt = db.prepare(
 		"INSERT INTO messages_in (bot_id, ts, surface, target_mid, text, created_time, from_mid) VALUES (?, ?, ?, ?, ?, ?, ?)",
 	);
-	const anomalyStmt = db.prepare(
-		"INSERT INTO anomalies (bot_id, ts, kind, severity, chat_mid, detail) VALUES (?, ?, ?, ?, ?, ?)",
-	);
+	const anomalyStmt = db.prepare("INSERT INTO anomalies (bot_id, ts, kind, severity, chat_mid, detail) VALUES (?, ?, ?, ?, ?, ?)");
 	const laneRaceStmt = db.prepare(
 		"INSERT INTO lane_race_events (ts, worker_id, origin, lane_id, role, result, rtt_ms) VALUES (?, ?, ?, ?, ?, ?, ?)",
 	);
@@ -157,7 +151,7 @@ function flush(): void {
 		const delay = Math.min(BASE_RETRY_DELAY_MS * 2 ** (consecutiveFailures - 1), MAX_RETRY_DELAY_MS);
 		console.error(
 			`[sqlite-writer] flush failed (attempt ${consecutiveFailures}, retrying in ${delay}ms): ` +
-			`${error instanceof Error ? error.message : String(error)}`,
+				`${error instanceof Error ? error.message : String(error)}`,
 		);
 		flushTimer = setTimeout(flush, delay);
 	}

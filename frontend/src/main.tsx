@@ -11,8 +11,4 @@ if (!rootEl) throw new Error("#root not found");
 // all, so it's rendered standalone instead of going through App's auth gate.
 const confirmMatch = window.location.pathname.match(/^\/confirm\/([^/]+)\/?$/);
 
-createRoot(rootEl).render(
-	<StrictMode>
-		{confirmMatch ? <ConfirmStartPage token={confirmMatch[1]!} /> : <App />}
-	</StrictMode>,
-);
+createRoot(rootEl).render(<StrictMode>{confirmMatch ? <ConfirmStartPage token={confirmMatch[1]!} /> : <App />}</StrictMode>);

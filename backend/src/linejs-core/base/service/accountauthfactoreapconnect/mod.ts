@@ -42,9 +42,7 @@ export class AccountAuthFactorEapConnectService implements BaseService {
 		);
 	}
 
-	async openSession(
-		...param: Parameters<typeof LINEStruct.openSession_args>
-	): Promise<LINETypes.openSession_result["success"]> {
+	async openSession(...param: Parameters<typeof LINEStruct.openSession_args>): Promise<LINETypes.openSession_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.openSession_args(...param),
 			"openSession",
@@ -54,9 +52,7 @@ export class AccountAuthFactorEapConnectService implements BaseService {
 		);
 	}
 
-	async verifyEapLogin(
-		...param: Parameters<typeof LINEStruct.verifyEapLogin_args>
-	): Promise<LINETypes.verifyEapLogin_result["success"]> {
+	async verifyEapLogin(...param: Parameters<typeof LINEStruct.verifyEapLogin_args>): Promise<LINETypes.verifyEapLogin_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.verifyEapLogin_args(...param),
 			"verifyEapLogin",

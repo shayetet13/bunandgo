@@ -20,15 +20,7 @@ export function bangkokInputToEpochMs(value: string): number | undefined {
 	const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/.exec(value);
 	if (!match) return undefined;
 	const [, y, mo, d, h, mi, s, ms] = match;
-	const utcMs = Date.UTC(
-		Number(y),
-		Number(mo) - 1,
-		Number(d),
-		Number(h),
-		Number(mi),
-		Number(s ?? 0),
-		ms ? Number(ms.padEnd(3, "0")) : 0,
-	);
+	const utcMs = Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s ?? 0), ms ? Number(ms.padEnd(3, "0")) : 0);
 	return utcMs - BANGKOK_OFFSET_MS;
 }
 

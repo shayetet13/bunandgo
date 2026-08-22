@@ -9,9 +9,7 @@ describe("dashboard sessions", () => {
 		const token = createSession();
 		try {
 			expect(isValidSession(token)).toBe(true);
-			const stored = db.prepare<{ token_hash: string }, []>(
-				"SELECT token_hash FROM auth_sessions ORDER BY created_at DESC LIMIT 1",
-			).get();
+			const stored = db.prepare<{ token_hash: string }, []>("SELECT token_hash FROM auth_sessions ORDER BY created_at DESC LIMIT 1").get();
 			expect(stored?.token_hash).toHaveLength(64);
 			expect(stored?.token_hash).not.toBe(token);
 		} finally {
@@ -23,8 +21,7 @@ describe("dashboard sessions", () => {
 	test("expires an idle admin session on the server", () => {
 		const token = createSession();
 		const tokenHash = createHash("sha256").update(token).digest("hex");
-		db.prepare("UPDATE auth_sessions SET last_seen_at = ? WHERE token_hash = ?")
-			.run(Date.now() - 31 * 60 * 1000, tokenHash);
+		db.prepare("UPDATE auth_sessions SET last_seen_at = ? WHERE token_hash = ?").run(Date.now() - 31 * 60 * 1000, tokenHash);
 		expect(isValidSession(token)).toBe(false);
 		expect(db.prepare("SELECT 1 FROM auth_sessions WHERE token_hash = ?").get(tokenHash)).toBeNull();
 	});
@@ -32,8 +29,11 @@ describe("dashboard sessions", () => {
 	test("enforces the admin absolute lifetime even if recently active", () => {
 		const token = createSession();
 		const tokenHash = createHash("sha256").update(token).digest("hex");
-		db.prepare("UPDATE auth_sessions SET created_at = ?, last_seen_at = ? WHERE token_hash = ?")
-			.run(Date.now() - 13 * 60 * 60 * 1000, Date.now(), tokenHash);
+		db.prepare("UPDATE auth_sessions SET created_at = ?, last_seen_at = ? WHERE token_hash = ?").run(
+			Date.now() - 13 * 60 * 60 * 1000,
+			Date.now(),
+			tokenHash,
+		);
 		expect(isValidSession(token)).toBe(false);
 	});
 });
@@ -57,8 +57,7 @@ describe("listActiveSessions", () => {
 		const token = createSession();
 		const tokenHash = createHash("sha256").update(token).digest("hex");
 		try {
-			db.prepare("UPDATE auth_sessions SET last_seen_at = ? WHERE token_hash = ?")
-				.run(Date.now() - 31 * 60 * 1000, tokenHash);
+			db.prepare("UPDATE auth_sessions SET last_seen_at = ? WHERE token_hash = ?").run(Date.now() - 31 * 60 * 1000, tokenHash);
 			expect(listActiveSessions().some((s) => s.userId === bootstrapAdminUser.id && s.createdAt >= since)).toBe(false);
 			// Read-only, unlike getSessionUser: an expired row stays put for an
 			// admin to still see who was logged in, rather than vanishing the

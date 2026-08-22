@@ -38,22 +38,24 @@ export interface WarmResult {
 }
 
 async function warmDirect(hosts: readonly string[]): Promise<WarmResult[]> {
-	return Promise.all(hosts.map(async (host): Promise<WarmResult> => {
-		const started = performance.now();
-		try {
-			const response = await globalThis.fetch(`https://${host}/`, {
-				method: "HEAD",
-				signal: AbortSignal.timeout(10_000),
-			});
-			return { host: `bun:${host}`, tookMs: performance.now() - started, status: response.status };
-		} catch (error) {
-			return {
-				host: `bun:${host}`,
-				tookMs: performance.now() - started,
-				error: error instanceof Error ? error.message : String(error),
-			};
-		}
-	}));
+	return Promise.all(
+		hosts.map(async (host): Promise<WarmResult> => {
+			const started = performance.now();
+			try {
+				const response = await globalThis.fetch(`https://${host}/`, {
+					method: "HEAD",
+					signal: AbortSignal.timeout(10_000),
+				});
+				return { host: `bun:${host}`, tookMs: performance.now() - started, status: response.status };
+			} catch (error) {
+				return {
+					host: `bun:${host}`,
+					tookMs: performance.now() - started,
+					error: error instanceof Error ? error.message : String(error),
+				};
+			}
+		}),
+	);
 }
 
 async function warmGo(config: DispatchConfig, hosts: readonly string[]): Promise<WarmResult[]> {
@@ -95,10 +97,7 @@ async function warmLanes(): Promise<void> {
 }
 
 /** Keeps every connection pool used by the selected transport warm. */
-export async function warmOnce(
-	config: DispatchConfig,
-	hosts: readonly string[] = WARM_HOSTS,
-): Promise<WarmResult[]> {
+export async function warmOnce(config: DispatchConfig, hosts: readonly string[] = WARM_HOSTS): Promise<WarmResult[]> {
 	const transport = process.env.LINE_TRANSPORT ?? "hybrid";
 	if (transport === "go") return warmGo(config, hosts);
 	if (transport === "direct") {
@@ -106,11 +105,7 @@ export async function warmOnce(
 		return directResults;
 	}
 
-	const [goResults, directResults] = await Promise.all([
-		warmGo(config, hosts),
-		warmDirect(hosts),
-		warmLanes(),
-	]);
+	const [goResults, directResults] = await Promise.all([warmGo(config, hosts), warmDirect(hosts), warmLanes()]);
 	return [...goResults, ...directResults];
 }
 
@@ -127,29 +122,29 @@ export function hasWarmHotSendRoute(results: readonly WarmResult[]): boolean {
 export function ensureWarm(config: DispatchConfig): Promise<WarmResult[]> {
 	if (Date.now() - lastWarmSuccessAt < WARM_INTERVAL_MS) return Promise.resolve([]);
 	if (warmInFlight) return warmInFlight;
-	warmInFlight = warmOnce(config).then((results) => {
-		// `gf` is used by LEGY-wrapped control/login calls, but it is not on the
-		// automatic-reply path. Some networks accept TCP/TLS to that origin yet
-		// never answer `HEAD /`; treating that optional probe as a failure kept
-		// the whole warmer red and could stop an otherwise-ready bot from being
-		// published online. The readiness gate only requires at least one warm
-		// route to the origin that actually carries `/SQ1`, `/CA5`, and `/ECA5`.
-		const hotSendReady = hasWarmHotSendRoute(results);
-		if (!hotSendReady) {
-			const failures = results.filter((result) => result.host.endsWith(HOT_SEND_HOST));
-			throw new Error(
-				failures.length
-					? failures.map((result) =>
-						`${result.host}: ${result.error ?? "no successful warm route"}`
-					).join("; ")
-					: `${HOT_SEND_HOST}: no warm result`,
-			);
-		}
-		lastWarmSuccessAt = Date.now();
-		return results;
-	}).finally(() => {
-		warmInFlight = undefined;
-	});
+	warmInFlight = warmOnce(config)
+		.then((results) => {
+			// `gf` is used by LEGY-wrapped control/login calls, but it is not on the
+			// automatic-reply path. Some networks accept TCP/TLS to that origin yet
+			// never answer `HEAD /`; treating that optional probe as a failure kept
+			// the whole warmer red and could stop an otherwise-ready bot from being
+			// published online. The readiness gate only requires at least one warm
+			// route to the origin that actually carries `/SQ1`, `/CA5`, and `/ECA5`.
+			const hotSendReady = hasWarmHotSendRoute(results);
+			if (!hotSendReady) {
+				const failures = results.filter((result) => result.host.endsWith(HOT_SEND_HOST));
+				throw new Error(
+					failures.length
+						? failures.map((result) => `${result.host}: ${result.error ?? "no successful warm route"}`).join("; ")
+						: `${HOT_SEND_HOST}: no warm result`,
+				);
+			}
+			lastWarmSuccessAt = Date.now();
+			return results;
+		})
+		.finally(() => {
+			warmInFlight = undefined;
+		});
 	return warmInFlight;
 }
 

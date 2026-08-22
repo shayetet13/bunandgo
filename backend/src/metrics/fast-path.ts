@@ -153,19 +153,16 @@ class FastPathTracker extends EventEmitter {
 		if (this.#count < RING_SIZE) {
 			return this.#ring.slice(0, this.#count) as FastPathSample[];
 		}
-		return [
-			...this.#ring.slice(this.#next),
-			...this.#ring.slice(0, this.#next),
-		] as FastPathSample[];
+		return [...this.#ring.slice(this.#next), ...this.#ring.slice(0, this.#next)] as FastPathSample[];
 	}
 
 	record(trace: FastPathTrace, dropped = false, dropReason?: string): FastPathSnapshot {
 		const internalMs = dropped
 			? performance.now() - trace.receivedAt
-			// Subtract only time measured inside Go's upstream round trips.
-			// Everything left is owned by this application, including Bun↔Go
-			// loopback, serialization, crypto and event-loop scheduling.
-			: Math.max(0, performance.now() - trace.receivedAt - trace.upstreamMs);
+			: // Subtract only time measured inside Go's upstream round trips.
+				// Everything left is owned by this application, including Bun↔Go
+				// loopback, serialization, crypto and event-loop scheduling.
+				Math.max(0, performance.now() - trace.receivedAt - trace.upstreamMs);
 		const sample: FastPathSample = {
 			...trace,
 			ts: Date.now(),

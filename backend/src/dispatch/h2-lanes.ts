@@ -2,14 +2,12 @@ import { connect as connectHttp2, constants, type ClientHttp2Session, type Clien
 import { gunzipSync, inflateSync, brotliDecompressSync } from "node:zlib";
 import { attachRawDispatchBody } from "./raw-response.ts";
 import { laneRaceScore, recordLaneRace, shouldScorePollLane, type LaneRaceScore } from "./lane-race.ts";
-import { fetchViaLaneRelayTest, isLaneRelayTestActive } from "./lane-relay-test-transport.ts";
 import {
 	dispatchViaRelay,
 	recordRemoteDispatchEnd,
 	recordRemoteDispatchStart,
 	remoteDispatchConfig,
 	remoteLaneCandidate,
-	type RemoteLaneMetrics,
 } from "./remote-lane.ts";
 
 /**
@@ -39,6 +37,10 @@ import {
 // sessions without turning every account into its own connection pool.
 const LANE_COUNT = Math.max(0, Number(process.env.LINE_H2_LANES ?? 6));
 
+function relayOnlyEnabled(): boolean {
+	return process.env.LINE_RELAY_MODE === "always";
+}
+
 /**
  * How many low-numbered lanes carry sends only, with poll traffic kept off
  * them entirely.
@@ -56,16 +58,13 @@ const LANE_COUNT = Math.max(0, Number(process.env.LINE_H2_LANES ?? 6));
  * the benefit is unmeasured: two earlier attempts to tune this path both
  * regressed, and reply latency on identical code varies from 18ms to 80ms,
  * which is more than enough to manufacture a convincing result. Turn it on
- * only behind interleaved A/B samples — see `scripts/ab-latency.sh`.
+ * only behind interleaved application samples recorded by the lane metrics.
  *
  * Clamped to leave at least one lane for polling, and the reservation is
  * only ever a preference: if every reserved lane is down a send still uses
  * whatever is usable rather than failing.
  */
-const SEND_RESERVED_LANES = Math.min(
-	Math.max(0, Number(process.env.LINE_H2_SEND_RESERVED_LANES ?? 0)),
-	Math.max(0, LANE_COUNT - 1),
-);
+const SEND_RESERVED_LANES = Math.min(Math.max(0, Number(process.env.LINE_H2_SEND_RESERVED_LANES ?? 0)), Math.max(0, LANE_COUNT - 1));
 
 /**
  * Frequent enough that a broken path is discovered long before a message
@@ -91,14 +90,8 @@ function recycleInterval(raw: string | undefined, fallback: number): number {
 	return value === 0 ? 0 : Math.max(60_000, value);
 }
 
-const LANE_MAX_AGE_MS = recycleInterval(
-	process.env.LINE_H2_LANE_MAX_AGE_MS,
-	15 * 60_000,
-);
-const LANE_RECYCLE_MIN_GAP_MS = recycleInterval(
-	process.env.LINE_H2_LANE_RECYCLE_GAP_MS,
-	60_000,
-);
+const LANE_MAX_AGE_MS = recycleInterval(process.env.LINE_H2_LANE_MAX_AGE_MS, 15 * 60_000);
+const LANE_RECYCLE_MIN_GAP_MS = recycleInterval(process.env.LINE_H2_LANE_RECYCLE_GAP_MS, 60_000);
 
 /** A recent real LINE request, not edge-only H2 PING, gates hot routing.
  * 20/21 (not the older 18/20) on purpose: with a second, genuinely
@@ -110,11 +103,7 @@ const LANE_RECYCLE_MIN_GAP_MS = recycleInterval(
  * so the source default stops silently lying about what's actually live. */
 const APPLICATION_HOT_CEILING_MS = Math.max(
 	0,
-	Number(
-		process.env.LINE_H2_APPLICATION_HOT_CEILING_MS ??
-		process.env.LINE_H2_APPLICATION_LANE_CEILING_MS ??
-		20,
-	),
+	Number(process.env.LINE_H2_APPLICATION_HOT_CEILING_MS ?? process.env.LINE_H2_APPLICATION_LANE_CEILING_MS ?? 20),
 );
 /** Known routes at or above this RTT are removed from foreground sends.
  * Widened from 21 back to 23 on purpose: the lane relay's own real,
@@ -127,10 +116,7 @@ const APPLICATION_DISCARD_CEILING_MS = Math.max(
 	APPLICATION_HOT_CEILING_MS,
 	Number(process.env.LINE_H2_APPLICATION_DISCARD_CEILING_MS ?? 23),
 );
-const APPLICATION_SAMPLE_MAX_AGE_MS = Math.max(
-	1_000,
-	Number(process.env.LINE_H2_APPLICATION_SAMPLE_MAX_AGE_MS ?? 30_000),
-);
+const APPLICATION_SAMPLE_MAX_AGE_MS = Math.max(1_000, Number(process.env.LINE_H2_APPLICATION_SAMPLE_MAX_AGE_MS ?? 30_000));
 // Floor is a sanity minimum, not a policy default: repairDegradedLane() only
 // ever retires an idle, already-known-slow lane in the background (never the
 // fastest one, never one with inFlight work), so tightening this cannot slow
@@ -138,18 +124,9 @@ const APPLICATION_SAMPLE_MAX_AGE_MS = Math.max(
 // The 60s *default* (unset env) is unchanged; only the previously-hardcoded
 // lower bound is relaxed so LINE_H2_DEGRADED_REPAIR_GAP_MS can actually lower
 // it when that's deliberately chosen.
-const DEGRADED_REPAIR_MIN_GAP_MS = Math.max(
-	5_000,
-	Number(process.env.LINE_H2_DEGRADED_REPAIR_GAP_MS ?? 60_000),
-);
-const DEGRADED_REPAIR_MIN_SAMPLES = Math.max(
-	1,
-	Math.floor(Number(process.env.LINE_H2_DEGRADED_REPAIR_MIN_SAMPLES ?? 3)),
-);
-const POLL_LANE_CALIBRATION_SAMPLES = Math.max(
-	1,
-	Math.floor(Number(process.env.LINE_H2_POLL_CALIBRATION_SAMPLES ?? 3)),
-);
+const DEGRADED_REPAIR_MIN_GAP_MS = Math.max(5_000, Number(process.env.LINE_H2_DEGRADED_REPAIR_GAP_MS ?? 60_000));
+const DEGRADED_REPAIR_MIN_SAMPLES = Math.max(1, Math.floor(Number(process.env.LINE_H2_DEGRADED_REPAIR_MIN_SAMPLES ?? 3)));
+const POLL_LANE_CALIBRATION_SAMPLES = Math.max(1, Math.floor(Number(process.env.LINE_H2_POLL_CALIBRATION_SAMPLES ?? 3)));
 
 const CONNECT_TIMEOUT_MS = 10_000;
 /** Backoff ceiling for a host that is refusing connections outright. */
@@ -240,10 +217,7 @@ let pingTimer: ReturnType<typeof setInterval> | undefined;
 // pinning forever to yesterday's winner would never discover a recovered
 // standby. The interval is configurable so a wider pool still refreshes every
 // route inside the application-sample freshness window.
-const POLL_LANE_EXPLORE_INTERVAL_MS = Math.max(
-	1_000,
-	Number(process.env.LINE_H2_POLL_EXPLORE_INTERVAL_MS ?? 5_000),
-);
+const POLL_LANE_EXPLORE_INTERVAL_MS = Math.max(1_000, Number(process.env.LINE_H2_POLL_EXPLORE_INTERVAL_MS ?? 5_000));
 const LOG_POLL_LANE_EXPLORATION = process.env.LINE_H2_LOG_POLL_EXPLORE === "1";
 
 function isUsable(lane: Lane): boolean {
@@ -279,15 +253,9 @@ function requestRole(init: RequestInit | undefined): LaneRole {
  * reservation exists to keep the two workloads off each other, never to
  * fail a request that some connection could still carry.
  */
-export function laneCandidates<T extends { id: number }>(
-	usable: T[],
-	role: LaneRole,
-	reserved: number = SEND_RESERVED_LANES,
-): T[] {
+export function laneCandidates<T extends { id: number }>(usable: T[], role: LaneRole, reserved: number = SEND_RESERVED_LANES): T[] {
 	if (reserved === 0 || role === undefined || usable.length === 0) return usable;
-	const preferred = usable.filter((lane) =>
-		role === "send" ? lane.id < reserved : lane.id >= reserved
-	);
+	const preferred = usable.filter((lane) => (role === "send" ? lane.id < reserved : lane.id >= reserved));
 	return preferred.length > 0 ? preferred : usable;
 }
 
@@ -311,10 +279,7 @@ function pickPollingLane(lanes: Lane[]): Lane | undefined {
 		// one available. Silent when explore happens to land on the best lane
 		// anyway, so this stays rare instead of firing every 5s regardless.
 		const bestRtt = Math.min(...candidates.map((lane) => lane.pollRttMs!));
-		if (
-			LOG_POLL_LANE_EXPLORATION && next.pollRttMs !== undefined &&
-			next.pollRttMs - bestRtt > RTT_SWITCH_MARGIN_MS
-		) {
+		if (LOG_POLL_LANE_EXPLORATION && next.pollRttMs !== undefined && next.pollRttMs - bestRtt > RTT_SWITCH_MARGIN_MS) {
 			console.log(
 				`[h2-lanes] poll explore: lane ${next.id} rtt=${next.pollRttMs.toFixed(1)}ms ` +
 					`vs best available rtt=${bestRtt.toFixed(1)}ms (origin=${origin})`,
@@ -329,16 +294,11 @@ function pickLane(lanes: Lane[], role: LaneRole): Lane | undefined {
 	if (role === "poll") return pickPollingLane(lanes);
 	const origin = lanes[0]?.origin;
 	const usable = lanes.filter(isUsable);
-	const candidates = role === "send"
-		? sendCandidatesWithCrossover(usable)
-		: laneCandidates(usable, role);
+	const candidates = role === "send" ? sendCandidatesWithCrossover(usable) : laneCandidates(usable, role);
 
 	let best: Lane | undefined;
 	for (const lane of candidates) {
-		if (
-			best === undefined ||
-			(role === "send" ? shouldPreferFastestSendLane(lane, best, 0) : isBetterLane(lane, best, role))
-		) {
+		if (best === undefined || (role === "send" ? shouldPreferFastestSendLane(lane, best, 0) : isBetterLane(lane, best, role))) {
 			best = lane;
 		}
 	}
@@ -347,9 +307,7 @@ function pickLane(lanes: Lane[], role: LaneRole): Lane | undefined {
 	const preferredId = preferredSendLaneIds.get(origin);
 	// Looked up among the candidates, not every lane: when a reservation is
 	// in force, affinity held from before must not pin sends to a poll lane.
-	const preferred = preferredId === undefined
-		? undefined
-		: candidates.find((lane) => lane.id === preferredId);
+	const preferred = preferredId === undefined ? undefined : candidates.find((lane) => lane.id === preferredId);
 	if (!preferred && preferredId !== undefined) preferredSendLaneIds.delete(origin);
 
 	// Soft affinity preserves the application-warm connection while still
@@ -377,14 +335,8 @@ interface LaneChoiceMetrics {
 	inFlight: number;
 }
 
-const APPLICATION_SWITCH_MARGIN_MS = Math.max(
-	0,
-	Number(process.env.LINE_H2_APPLICATION_SWITCH_MARGIN_MS ?? 0.5),
-);
-const IN_FLIGHT_PENALTY_MS = Math.max(
-	0,
-	Number(process.env.LINE_H2_IN_FLIGHT_PENALTY_MS ?? 4),
-);
+const APPLICATION_SWITCH_MARGIN_MS = Math.max(0, Number(process.env.LINE_H2_APPLICATION_SWITCH_MARGIN_MS ?? 0.5));
+const IN_FLIGHT_PENALTY_MS = Math.max(0, Number(process.env.LINE_H2_IN_FLIGHT_PENALTY_MS ?? 4));
 
 function estimatedSendRtt(lane: LaneChoiceMetrics): number | undefined {
 	if (lane.sendRttMs !== undefined) {
@@ -403,9 +355,7 @@ function estimatedSendRtt(lane: LaneChoiceMetrics): number | undefined {
 function measuredApplicationRtt(lane: LaneChoiceMetrics): number | undefined {
 	if (lane.sendRttMs === undefined) return lane.pollRttMs;
 	if (lane.pollRttMs === undefined) return lane.sendRttMs;
-	return (lane.lastPollOkAt ?? 0) > (lane.lastSendOkAt ?? 0)
-		? lane.pollRttMs
-		: lane.sendRttMs;
+	return (lane.lastPollOkAt ?? 0) > (lane.lastSendOkAt ?? 0) ? lane.pollRttMs : lane.sendRttMs;
 }
 
 function applicationSampleAt(lane: LaneChoiceMetrics): number {
@@ -440,13 +390,10 @@ export function sendCandidatesWithCrossover<T extends LaneChoiceMetrics & { id: 
 	discardCeilingMs: number = APPLICATION_DISCARD_CEILING_MS,
 	maxAgeMs: number = APPLICATION_SAMPLE_MAX_AGE_MS,
 ): T[] {
-	const hot = usable.filter((lane) =>
-		hasFreshEligibleApplicationSample(lane, now, hotCeilingMs, maxAgeMs)
-	);
+	const hot = usable.filter((lane) => hasFreshEligibleApplicationSample(lane, now, hotCeilingMs, maxAgeMs));
 	const warm = usable.filter((lane) => {
 		const rtt = measuredApplicationRtt(lane);
-		return rtt !== undefined && rtt >= hotCeilingMs &&
-			hasFreshEligibleApplicationSample(lane, now, discardCeilingMs, maxAgeMs);
+		return rtt !== undefined && rtt >= hotCeilingMs && hasFreshEligibleApplicationSample(lane, now, discardCeilingMs, maxAgeMs);
 	});
 	const idleHot = hot.filter((lane) => lane.inFlight === 0);
 	if (idleHot.length > 0) return idleHot;
@@ -504,13 +451,9 @@ export function shouldPreferFastestSendLane(
 }
 
 /** Pure lane-ranking rule, exported so the latency preference is testable. */
-export function shouldPreferLane(
-	candidate: LaneChoiceMetrics,
-	current: LaneChoiceMetrics,
-	role: LaneRole,
-): boolean {
-	const candidateRtt = role === "send" ? estimatedSendRtt(candidate) : candidate.pollRttMs ?? candidate.rttMs;
-	const currentRtt = role === "send" ? estimatedSendRtt(current) : current.pollRttMs ?? current.rttMs;
+export function shouldPreferLane(candidate: LaneChoiceMetrics, current: LaneChoiceMetrics, role: LaneRole): boolean {
+	const candidateRtt = role === "send" ? estimatedSendRtt(candidate) : (candidate.pollRttMs ?? candidate.rttMs);
+	const currentRtt = role === "send" ? estimatedSendRtt(current) : (current.pollRttMs ?? current.rttMs);
 	if (candidateRtt !== undefined && currentRtt === undefined) return true;
 	if (candidateRtt !== undefined && currentRtt !== undefined) {
 		const margin = role === "send" ? APPLICATION_SWITCH_MARGIN_MS : RTT_SWITCH_MARGIN_MS;
@@ -521,10 +464,8 @@ export function shouldPreferLane(
 	}
 
 	return role === "send"
-		? candidate.lastOkAt > current.lastOkAt ||
-			(candidate.lastOkAt === current.lastOkAt && candidate.inFlight < current.inFlight)
-		: candidate.inFlight < current.inFlight ||
-			(candidate.inFlight === current.inFlight && candidate.lastOkAt > current.lastOkAt);
+		? candidate.lastOkAt > current.lastOkAt || (candidate.lastOkAt === current.lastOkAt && candidate.inFlight < current.inFlight)
+		: candidate.inFlight < current.inFlight || (candidate.inFlight === current.inFlight && candidate.lastOkAt > current.lastOkAt);
 }
 
 /** Pure adaptive poll decision used by the live pool and focused tests. */
@@ -541,9 +482,9 @@ export function selectPollingLaneCandidate<T extends LaneChoiceMetrics & { id: n
 	// A connection's first application response is commonly a cold outlier.
 	// Give every physical route a tiny fixed calibration window before normal
 	// ranking; these are the same polls the room already issues, not probes.
-	const calibrating = candidates.filter((lane) =>
-		lane.pollRttMs === undefined ||
-		(lane.pollApplicationSamples !== undefined && lane.pollApplicationSamples < calibrationSamples)
+	const calibrating = candidates.filter(
+		(lane) =>
+			lane.pollRttMs === undefined || (lane.pollApplicationSamples !== undefined && lane.pollApplicationSamples < calibrationSamples),
 	);
 	if (calibrating.length > 0) {
 		return calibrating.find((lane) => lane.id > cursor) ?? calibrating[0];
@@ -557,14 +498,13 @@ export function selectPollingLaneCandidate<T extends LaneChoiceMetrics & { id: n
 		// A route that crossed 23ms once remains send-ineligible, but polling
 		// gives it enough spaced confirmations to distinguish a transient spike
 		// from a path that really needs reconnecting.
-		const suspects = candidates.filter((lane) =>
-			lane.pollRttMs! >= discardCeilingMs &&
-			(lane.consecutiveSlowApplicationSamples ?? discardConfirmationSamples) < discardConfirmationSamples
+		const suspects = candidates.filter(
+			(lane) =>
+				lane.pollRttMs! >= discardCeilingMs &&
+				(lane.consecutiveSlowApplicationSamples ?? discardConfirmationSamples) < discardConfirmationSamples,
 		);
 		const explorePool = warm.length > 0 ? [...warm, ...suspects] : selectable;
-		return [...explorePool].sort((left, right) =>
-			left.lastPollOkAt - right.lastPollOkAt || left.id - right.id
-		)[0];
+		return [...explorePool].sort((left, right) => left.lastPollOkAt - right.lastPollOkAt || left.id - right.id)[0];
 	}
 	let best = selectable[0]!;
 	for (const candidate of selectable.slice(1)) {
@@ -587,9 +527,7 @@ function recordLaneRtt(lane: Lane, sampleMs: number): void {
 function recordApplicationRtt(lane: Lane, role: LaneRole, sampleMs: number): void {
 	if (!Number.isFinite(sampleMs) || sampleMs < 0) return;
 	const now = Date.now();
-	lane.consecutiveSlowApplicationSamples = sampleMs >= APPLICATION_DISCARD_CEILING_MS
-		? lane.consecutiveSlowApplicationSamples + 1
-		: 0;
+	lane.consecutiveSlowApplicationSamples = sampleMs >= APPLICATION_DISCARD_CEILING_MS ? lane.consecutiveSlowApplicationSamples + 1 : 0;
 	if (role === "poll") {
 		// Follow recovery quickly: cold first responses must not poison a lane
 		// for minutes. Three samples at this weight reduce a one-off outlier to
@@ -645,20 +583,26 @@ export function degradedLaneCandidates<T extends RecyclableLane & LaneChoiceMetr
 	const ready = lanes.filter((lane) => lane.state === "ready");
 	const measured = ready.filter((lane) => measuredApplicationRtt(lane) !== undefined);
 	if (measured.length < 2) return [];
-	const fastest = [...measured].sort((left, right) =>
-		measuredApplicationRtt(left)! - measuredApplicationRtt(right)! || left.id - right.id
+	const fastest = [...measured].sort(
+		(left, right) => measuredApplicationRtt(left)! - measuredApplicationRtt(right)! || left.id - right.id,
 	)[0]!;
 
 	return measured
 		.filter((lane) => {
 			const rtt = measuredApplicationRtt(lane);
-			return lane.id !== fastest.id && lane.inFlight === 0 && rtt !== undefined && rtt >= ceilingMs &&
-				(lane.consecutiveSlowApplicationSamples ?? 0) >= minimumSlowSamples;
+			return (
+				lane.id !== fastest.id &&
+				lane.inFlight === 0 &&
+				rtt !== undefined &&
+				rtt >= ceilingMs &&
+				(lane.consecutiveSlowApplicationSamples ?? 0) >= minimumSlowSamples
+			);
 		})
-		.sort((left, right) =>
-			(measuredApplicationRtt(right)! - measuredApplicationRtt(left)!) ||
-			applicationSampleAt(left) - applicationSampleAt(right) ||
-			left.id - right.id
+		.sort(
+			(left, right) =>
+				measuredApplicationRtt(right)! - measuredApplicationRtt(left)! ||
+				applicationSampleAt(left) - applicationSampleAt(right) ||
+				left.id - right.id,
 		);
 }
 
@@ -678,11 +622,7 @@ export function selectDegradedLaneForRepair<T extends RecyclableLane & LaneChoic
 function repairDegradedLane(lanes: Lane[], now: number): boolean {
 	if (lanes.length === 0) return false;
 	const origin = lanes[0]!.origin;
-	const candidates = degradedLaneCandidates(
-		lanes.filter(isUsable),
-		APPLICATION_DISCARD_CEILING_MS,
-		DEGRADED_REPAIR_MIN_SAMPLES,
-	);
+	const candidates = degradedLaneCandidates(lanes.filter(isUsable), APPLICATION_DISCARD_CEILING_MS, DEGRADED_REPAIR_MIN_SAMPLES);
 	if (candidates.length === 0) return false;
 
 	// A lone degraded lane gets the full conservative gap -- no reason to
@@ -733,7 +673,7 @@ export function selectAgedLaneForRecycle<T extends RecyclableLane>(
 		const hasSamePartitionStandby = ready.some((lane) => {
 			if (lane.id === candidate.id) return false;
 			if (reservedSendLanes === 0) return true;
-			return (lane.id < reservedSendLanes) === candidateIsSend;
+			return lane.id < reservedSendLanes === candidateIsSend;
 		});
 		if (hasSamePartitionStandby) return candidate;
 	}
@@ -744,17 +684,12 @@ function recycleAgedLane(lanes: Lane[], now: number): void {
 	if (LANE_MAX_AGE_MS === 0 || LANE_RECYCLE_MIN_GAP_MS === 0 || lanes.length === 0) return;
 	const origin = lanes[0]!.origin;
 	if (now - (lastLaneRecycleAt.get(origin) ?? 0) < LANE_RECYCLE_MIN_GAP_MS) return;
-	const candidate = selectAgedLaneForRecycle(
-		lanes.filter(isUsable),
-		now,
-		LANE_MAX_AGE_MS,
-	);
+	const candidate = selectAgedLaneForRecycle(lanes.filter(isUsable), now, LANE_MAX_AGE_MS);
 	if (!candidate) return;
 
 	lastLaneRecycleAt.set(origin, now);
 	console.log(
-		`[h2-lanes] refreshing aged idle lane ${candidate.id} ` +
-			`(age=${Math.round((now - candidate.openedAt) / 1_000)}s, origin=${origin})`,
+		`[h2-lanes] refreshing aged idle lane ${candidate.id} ` + `(age=${Math.round((now - candidate.openedAt) / 1_000)}s, origin=${origin})`,
 	);
 	// The selector requires inFlight=0 and a ready standby in the same
 	// partition. "draining" rechecks that invariant in retireLane before the
@@ -945,13 +880,7 @@ export async function ensureLanes(origin: string): Promise<void> {
 	}
 }
 
-export function buildHeaders(
-	authority: string,
-	scheme: string,
-	path: string,
-	method: string,
-	init?: RequestInit,
-): OutgoingHttpHeaders {
+export function buildHeaders(authority: string, scheme: string, path: string, method: string, init?: RequestInit): OutgoingHttpHeaders {
 	const headers: OutgoingHttpHeaders = {
 		":method": method,
 		":path": path,
@@ -959,11 +888,12 @@ export function buildHeaders(
 		":authority": authority,
 	};
 	const source = init?.headers;
-	const entries: Array<[string, string]> = source instanceof Headers
-		? [...source.entries()]
-		: Array.isArray(source)
-		? source as Array<[string, string]>
-		: Object.entries((source ?? {}) as Record<string, string>);
+	const entries: Array<[string, string]> =
+		source instanceof Headers
+			? [...source.entries()]
+			: Array.isArray(source)
+				? (source as Array<[string, string]>)
+				: Object.entries((source ?? {}) as Record<string, string>);
 
 	for (const [rawKey, value] of entries) {
 		if (value === undefined || value === null) continue;
@@ -971,9 +901,14 @@ export function buildHeaders(
 		// Connection-specific headers are illegal in HTTP/2, and `host` is
 		// carried by `:authority`.
 		if (
-			key === "host" || key === "connection" || key === "keep-alive" ||
-			key === "transfer-encoding" || key === "upgrade" || key === "proxy-connection" ||
-			key === "accept-encoding" || key === H2_LANE_ROLE_HEADER
+			key === "host" ||
+			key === "connection" ||
+			key === "keep-alive" ||
+			key === "transfer-encoding" ||
+			key === "upgrade" ||
+			key === "proxy-connection" ||
+			key === "accept-encoding" ||
+			key === H2_LANE_ROLE_HEADER
 		) {
 			continue;
 		}
@@ -1028,13 +963,7 @@ function sendOnLane(
 ): Promise<Response | undefined> {
 	const session = lane.session!;
 	const startedAt = performance.now();
-	const headers = buildHeaders(
-		lane.authority,
-		url.protocol.slice(0, -1),
-		`${url.pathname}${url.search}`,
-		init?.method ?? "GET",
-		init,
-	);
+	const headers = buildHeaders(lane.authority, url.protocol.slice(0, -1), `${url.pathname}${url.search}`, init?.method ?? "GET", init);
 
 	return new Promise<Response | undefined>((resolve, reject) => {
 		let stream: ClientHttp2Stream;
@@ -1091,8 +1020,7 @@ function sendOnLane(
 		stream.once("response", (received) => {
 			status = Number(received[":status"] ?? 0);
 			responseHeaders = Object.fromEntries(
-				Object.entries(received)
-					.filter((entry): entry is [string, string] => !entry[0].startsWith(":") && typeof entry[1] === "string"),
+				Object.entries(received).filter((entry): entry is [string, string] => !entry[0].startsWith(":") && typeof entry[1] === "string"),
 			);
 		});
 		stream.on("data", (chunk: Uint8Array) => chunks.push(chunk));
@@ -1103,45 +1031,47 @@ function sendOnLane(
 		stream.on("error", (error: Error) => {
 			streamError ??= error;
 		});
-		stream.once("close", () => settle(() => {
-			const rstCode = stream.rstCode ?? constants.NGHTTP2_NO_ERROR;
-			// A missing `:status` is the reliable signal that this stream
-			// produced no response. Bun leaves `rstCode` at 0 on a reset
-			// stream and does not surface its `error` event, so neither can
-			// be the thing this decision rests on.
-			if (rstCode !== constants.NGHTTP2_NO_ERROR || status === 0) {
-				const detail = streamError?.message ?? `stream closed without a response (RST ${rstCode})`;
-				reject(streamError ?? new Error(`lane ${lane.id} request failed: ${detail}`));
-				return;
-			}
-			try {
-				const raw = chunks.length === 1 ? chunks[0]! : new Uint8Array(Buffer.concat(chunks));
-				const decoded = decodeBody(raw, responseHeaders["content-encoding"]);
-				lane.lastOkAt = Date.now();
-				const elapsedMs = performance.now() - startedAt;
-				recordApplicationRtt(lane, role, elapsedMs);
-				// Same repair rule the ping timer runs, fired the instant a sample
-				// crosses the ceiling instead of waiting up to PING_INTERVAL_MS for
-				// the next tick to notice. Deferred past this reply's own resolve()
-				// below so a degraded-lane retirement never adds latency to the
-				// request that just measured it.
-				setImmediate(() => repairDegradedLane(lanesForOrigin(lane.origin), Date.now()));
-				const shouldScore = role === "send" || (role === "poll" && shouldScorePollLane(lane.origin, lane.id));
-				if (shouldScore && role !== undefined) {
-					setImmediate(() => {
-						const metric = role === "send" ? "sendRttMs" : "pollRttMs";
-						const known = lanesForOrigin(lane.origin)
-							.map((candidate) => candidate[metric])
-							.filter((rtt): rtt is number => rtt !== undefined);
-						recordLaneRace(role, lane.origin, lane.id, elapsedMs, known.length > 0 ? Math.min(...known) : undefined);
-					});
+		stream.once("close", () =>
+			settle(() => {
+				const rstCode = stream.rstCode ?? constants.NGHTTP2_NO_ERROR;
+				// A missing `:status` is the reliable signal that this stream
+				// produced no response. Bun leaves `rstCode` at 0 on a reset
+				// stream and does not surface its `error` event, so neither can
+				// be the thing this decision rests on.
+				if (rstCode !== constants.NGHTTP2_NO_ERROR || status === 0) {
+					const detail = streamError?.message ?? `stream closed without a response (RST ${rstCode})`;
+					reject(streamError ?? new Error(`lane ${lane.id} request failed: ${detail}`));
+					return;
 				}
-				const response = new Response(decoded as BodyInit, { status, headers: responseHeaders });
-				resolve(attachRawDispatchBody(response, decoded));
-			} catch (error) {
-				reject(error instanceof Error ? error : new Error(String(error)));
-			}
-		}));
+				try {
+					const raw = chunks.length === 1 ? chunks[0]! : new Uint8Array(Buffer.concat(chunks));
+					const decoded = decodeBody(raw, responseHeaders["content-encoding"]);
+					lane.lastOkAt = Date.now();
+					const elapsedMs = performance.now() - startedAt;
+					recordApplicationRtt(lane, role, elapsedMs);
+					// Same repair rule the ping timer runs, fired the instant a sample
+					// crosses the ceiling instead of waiting up to PING_INTERVAL_MS for
+					// the next tick to notice. Deferred past this reply's own resolve()
+					// below so a degraded-lane retirement never adds latency to the
+					// request that just measured it.
+					setImmediate(() => repairDegradedLane(lanesForOrigin(lane.origin), Date.now()));
+					const shouldScore = role === "send" || (role === "poll" && shouldScorePollLane(lane.origin, lane.id));
+					if (shouldScore && role !== undefined) {
+						setImmediate(() => {
+							const metric = role === "send" ? "sendRttMs" : "pollRttMs";
+							const known = lanesForOrigin(lane.origin)
+								.map((candidate) => candidate[metric])
+								.filter((rtt): rtt is number => rtt !== undefined);
+							recordLaneRace(role, lane.origin, lane.id, elapsedMs, known.length > 0 ? Math.min(...known) : undefined);
+						});
+					}
+					const response = new Response(decoded as BodyInit, { status, headers: responseHeaders });
+					resolve(attachRawDispatchBody(response, decoded));
+				} catch (error) {
+					reject(error instanceof Error ? error : new Error(String(error)));
+				}
+			}),
+		);
 
 		if (body !== undefined) stream.end(body);
 	});
@@ -1179,21 +1109,19 @@ function lanesForOrigin(origin: string): Lane[] {
  * validation history.
  */
 export function laneFetch(info: RequestInfo | URL, init?: RequestInit): Promise<Response | undefined> {
-	// TEMPORARY — see lane-relay-test-transport.ts. Only ever set inside the
-	// async call tree of testLaneRelayBurst's own sendMessage calls; every
-	// other caller on this process is completely unaffected.
-	if (isLaneRelayTestActive()) {
-		return fetchViaLaneRelayTest(info, init, requestRole(init));
-	}
 	const url = info instanceof URL ? info : new URL(typeof info === "string" ? info : info.url);
 	// Polls identify themselves explicitly. Every other hot one-shot call is
 	// a send/control request and should benefit from send affinity.
 	const role = requestRole(init) ?? "send";
+	if (relayOnlyEnabled()) {
+		const relayConfig = remoteDispatchConfig();
+		if (!relayConfig) return Promise.reject(new Error("relay-only worker has no relay dispatch configuration"));
+		return dispatchViaRemoteLane(relayConfig, url, init, role, true);
+	}
 	const lanes = LANE_COUNT === 0 ? undefined : pools.get(url.origin);
 	const lane = lanes ? pickLane(lanes, role) : undefined;
 
-	const localExhausted = !lane ||
-		(measuredApplicationRtt(lane) ?? -Infinity) >= APPLICATION_DISCARD_CEILING_MS;
+	const localExhausted = !lane || (measuredApplicationRtt(lane) ?? -Infinity) >= APPLICATION_DISCARD_CEILING_MS;
 	if (localExhausted) {
 		const relayConfig = remoteDispatchConfig();
 		if (relayConfig) {
@@ -1204,8 +1132,7 @@ export function laneFetch(info: RequestInfo | URL, init?: RequestInit): Promise<
 			// almost always a genuinely fast one among them, so overflow traffic
 			// no longer needs to accept a merely-warm remote route the way it did
 			// when server3 had far fewer lanes to pick the best of.
-			const remoteEligible = remote !== undefined &&
-				hasFreshEligibleApplicationSample(remote, now, APPLICATION_HOT_CEILING_MS);
+			const remoteEligible = remote !== undefined && hasFreshEligibleApplicationSample(remote, now, APPLICATION_HOT_CEILING_MS);
 			if (remoteEligible) {
 				return dispatchViaRemoteLane(relayConfig, url, init, role);
 			}
@@ -1221,12 +1148,14 @@ async function dispatchViaRemoteLane(
 	url: URL,
 	init: RequestInit | undefined,
 	role: LaneRole,
+	required = false,
 ): Promise<Response | undefined> {
 	recordRemoteDispatchStart(url.origin);
 	const startedAt = performance.now();
 	const scoredRole = role === "poll" ? "poll" : "send";
 	try {
 		const response = await dispatchViaRelay(config, url, init, role);
+		if (required && !response) throw new Error("lane relay unavailable before dispatch");
 		recordRemoteDispatchEnd(url.origin, scoredRole, performance.now() - startedAt, APPLICATION_DISCARD_CEILING_MS);
 		return response;
 	} catch (error) {

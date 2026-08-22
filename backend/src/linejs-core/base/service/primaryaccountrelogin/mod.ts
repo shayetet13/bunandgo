@@ -18,9 +18,7 @@ export class PrimaryAccountReLoginService implements BaseService {
 		this.client = client;
 	}
 
-	async createSession(
-		...param: Parameters<typeof LINEStruct.createSession_args>
-	): Promise<LINETypes.createSession_result["success"]> {
+	async createSession(...param: Parameters<typeof LINEStruct.createSession_args>): Promise<LINETypes.createSession_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.createSession_args(...param),
 			"createSession",
@@ -30,9 +28,7 @@ export class PrimaryAccountReLoginService implements BaseService {
 		);
 	}
 
-	async getCountryInfo(
-		...param: Parameters<typeof LINEStruct.getCountryInfo_args>
-	): Promise<LINETypes.getCountryInfo_result["success"]> {
+	async getCountryInfo(...param: Parameters<typeof LINEStruct.getCountryInfo_args>): Promise<LINETypes.getCountryInfo_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.getCountryInfo_args(...param),
 			"getCountryInfo",
@@ -66,9 +62,7 @@ export class PrimaryAccountReLoginService implements BaseService {
 		);
 	}
 
-	async verifyEapLogin(
-		...param: Parameters<typeof LINEStruct.verifyEapLogin_args>
-	): Promise<LINETypes.verifyEapLogin_result["success"]> {
+	async verifyEapLogin(...param: Parameters<typeof LINEStruct.verifyEapLogin_args>): Promise<LINETypes.verifyEapLogin_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.verifyEapLogin_args(...param),
 			"verifyEapLogin",

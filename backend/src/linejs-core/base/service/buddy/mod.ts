@@ -54,9 +54,7 @@ export class BuddyService implements BaseService {
 		);
 	}
 
-	async getBuddyDetail(
-		...param: Parameters<typeof LINEStruct.getBuddyDetail_args>
-	): Promise<LINETypes.getBuddyDetail_result["success"]> {
+	async getBuddyDetail(...param: Parameters<typeof LINEStruct.getBuddyDetail_args>): Promise<LINETypes.getBuddyDetail_result["success"]> {
 		return await this.client.request.request(
 			LINEStruct.getBuddyDetail_args(...param),
 			"getBuddyDetail",

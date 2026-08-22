@@ -106,9 +106,7 @@ function priorityBotRooms(now: number): PriorityBotRoom[] {
  */
 const wins = new Map<number, number>();
 
-const hydrateWinsStmt = db.prepare<{ bot_id: number; wins: number }, []>(
-	"SELECT bot_id, wins FROM priority_answers",
-);
+const hydrateWinsStmt = db.prepare<{ bot_id: number; wins: number }, []>("SELECT bot_id, wins FROM priority_answers");
 for (const row of hydrateWinsStmt.all()) {
 	wins.set(row.bot_id, row.wins);
 }

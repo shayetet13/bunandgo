@@ -50,13 +50,7 @@ const DEDUPE_WINDOW_MS = 10 * 60 * 1000;
 const SEND_TIMEOUT_MS = 8000;
 
 export type AlertKind =
-	| "offline"
-	| "recovered"
-	| "login_required"
-	| "reply_blocked"
-	| "system_overload"
-	| "system_recovered"
-	| "security_intrusion";
+	"offline" | "recovered" | "login_required" | "reply_blocked" | "system_overload" | "system_recovered" | "security_intrusion";
 
 const lastSentAt = new Map<string, number>();
 
@@ -72,11 +66,7 @@ export function alertsConfigured(): boolean {
  * a bot stuck in the QR-retry loop used to produce one every few seconds.
  * Exported so the policy is testable without a network call.
  */
-export function shouldSendAlert(
-	key: string,
-	nowMs: number,
-	seen: Map<string, number> = lastSentAt,
-): boolean {
+export function shouldSendAlert(key: string, nowMs: number, seen: Map<string, number> = lastSentAt): boolean {
 	const previous = seen.get(key);
 	if (previous !== undefined && nowMs - previous < DEDUPE_WINDOW_MS) return false;
 	// Security alerts may contain an attacker-controlled IP/path fingerprint.
@@ -137,26 +127,21 @@ async function post(url: string, body: unknown): Promise<void> {
  * a monitoring path that can itself take the process down is worse than no
  * monitoring at all.
  */
-export function sendAlert(
-	kind: AlertKind,
-	botId: number,
-	botName: string,
-	detail?: string,
-	dedupeKey?: string,
-): void {
+export function sendAlert(kind: AlertKind, botId: number, botName: string, detail?: string, dedupeKey?: string): void {
 	if (!alertsConfigured()) return;
 	const key = dedupeKey ?? `${botId}:${kind}`;
 	if (!shouldSendAlert(key, Date.now())) return;
 	// Coming back up makes the matching failure newsworthy again, and vice versa.
-	const opposite = kind === "recovered"
-		? "offline"
-		: kind === "offline"
-		? "recovered"
-		: kind === "system_recovered"
-		? "system_overload"
-		: kind === "system_overload"
-		? "system_recovered"
-		: undefined;
+	const opposite =
+		kind === "recovered"
+			? "offline"
+			: kind === "offline"
+				? "recovered"
+				: kind === "system_recovered"
+					? "system_overload"
+					: kind === "system_overload"
+						? "system_recovered"
+						: undefined;
 	if (opposite) clearAlertDedupe(`${botId}:${opposite}`);
 
 	const text = format(kind, botName, detail);
@@ -166,11 +151,13 @@ export function sendAlert(
 		const deliveries: Promise<void>[] = [];
 		if (telegram) {
 			for (const chatId of telegram.chatIds) {
-				deliveries.push(post(`https://api.telegram.org/bot${telegram.token}/sendMessage`, {
-					chat_id: chatId,
-					text,
-					disable_notification: kind === "recovered" || kind === "system_recovered",
-				}));
+				deliveries.push(
+					post(`https://api.telegram.org/bot${telegram.token}/sendMessage`, {
+						chat_id: chatId,
+						text,
+						disable_notification: kind === "recovered" || kind === "system_recovered",
+					}),
+				);
 			}
 		}
 		for (const webhook of webhooks) {

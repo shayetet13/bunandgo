@@ -23,9 +23,7 @@ export function LinePinConfirm({ pincode, onCancel }: LinePinConfirmProps) {
 			<div className="line-pin-accent" aria-hidden="true" />
 			<div className="line-pin-body">
 				<h2 className="line-pin-title">ยืนยันการเข้าสู่ระบบบน PC</h2>
-				<p className="line-pin-text">
-					คุณต้องยืนยันด้วยตนเองเมื่อเข้าสู่ระบบ LINE เวอร์ชั่น PC เป็นครั้งแรกของทุกอุปกรณ์เพื่อความปลอดภัย
-				</p>
+				<p className="line-pin-text">คุณต้องยืนยันด้วยตนเองเมื่อเข้าสู่ระบบ LINE เวอร์ชั่น PC เป็นครั้งแรกของทุกอุปกรณ์เพื่อความปลอดภัย</p>
 				<p className="line-pin-text">โปรดใส่รหัสนี้บนสมาร์ทโฟน</p>
 
 				<strong className="line-pin-code mono">{pincode}</strong>

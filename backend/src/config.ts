@@ -13,7 +13,10 @@ const DEFAULT_DEV_ORIGIN = "http://localhost:5173";
 
 function parseOrigins(raw: string | undefined): string[] {
 	if (!raw || !raw.trim()) return [DEFAULT_DEV_ORIGIN];
-	return raw.split(",").map((origin) => origin.trim()).filter(Boolean);
+	return raw
+		.split(",")
+		.map((origin) => origin.trim())
+		.filter(Boolean);
 }
 
 function parsePort(raw: string | undefined): number {

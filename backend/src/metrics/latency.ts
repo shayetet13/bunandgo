@@ -46,9 +46,10 @@ export interface LatencyBreakdown {
  * Adds only mutually-exclusive phases. `codeMs` is intentionally excluded:
  * it is the subtotal produced by this function, not another phase to add.
  */
-export function sumLatencyBreakdown(
-	breakdown: Omit<LatencyBreakdown, "codeMs" | "inboundMs" | "upstreamCalls">,
-): { codeMs: number; totalMs: number } {
+export function sumLatencyBreakdown(breakdown: Omit<LatencyBreakdown, "codeMs" | "inboundMs" | "upstreamCalls">): {
+	codeMs: number;
+	totalMs: number;
+} {
 	const codeMs =
 		breakdown.decryptMs +
 		breakdown.matchMs +
@@ -69,6 +70,51 @@ export interface LatencySnapshot {
 	count: number;
 	windowSize: number;
 	last: LatencySample;
+	guardrails: LatencyGuardrails;
+}
+
+export const LATENCY_THRESHOLDS_MS = {
+	target: 40,
+	p95Limit: 50,
+	p99Limit: 60,
+	incident: 80,
+	severe: 90,
+	critical: 100,
+} as const;
+
+export interface LatencyGuardrails {
+	thresholdsMs: typeof LATENCY_THRESHOLDS_MS;
+	targetRate: number;
+	over50: number;
+	over60: number;
+	over80: number;
+	over90: number;
+	over100: number;
+	level: "normal" | "warning" | "incident" | "severe" | "critical";
+}
+
+export function summarizeLatencyGuardrails(values: number[]): LatencyGuardrails {
+	const countOver = (ceiling: number) => values.filter((value) => value > ceiling).length;
+	const max = values.length ? Math.max(...values) : 0;
+	return {
+		thresholdsMs: LATENCY_THRESHOLDS_MS,
+		targetRate: values.length ? (values.filter((value) => value <= LATENCY_THRESHOLDS_MS.target).length / values.length) * 100 : 100,
+		over50: countOver(LATENCY_THRESHOLDS_MS.p95Limit),
+		over60: countOver(LATENCY_THRESHOLDS_MS.p99Limit),
+		over80: countOver(LATENCY_THRESHOLDS_MS.incident),
+		over90: countOver(LATENCY_THRESHOLDS_MS.severe),
+		over100: countOver(LATENCY_THRESHOLDS_MS.critical),
+		level:
+			max > LATENCY_THRESHOLDS_MS.critical
+				? "critical"
+				: max > LATENCY_THRESHOLDS_MS.severe
+					? "severe"
+					: max > LATENCY_THRESHOLDS_MS.incident
+						? "incident"
+						: max > LATENCY_THRESHOLDS_MS.p99Limit
+							? "warning"
+							: "normal",
+	};
 }
 
 function percentile(sortedAsc: number[], p: number): number {
@@ -124,10 +170,7 @@ class LatencyTracker extends EventEmitter {
 		if (this.#count < RING_SIZE) {
 			return this.#ring.slice(0, this.#count) as LatencySample[];
 		}
-		return [
-			...this.#ring.slice(this.#next),
-			...this.#ring.slice(0, this.#next),
-		] as LatencySample[];
+		return [...this.#ring.slice(this.#next), ...this.#ring.slice(0, this.#next)] as LatencySample[];
 	}
 
 	record(sample: LatencySample): LatencySnapshot {
@@ -149,6 +192,7 @@ class LatencyTracker extends EventEmitter {
 			count: this.#count,
 			windowSize: RING_SIZE,
 			last: last ?? this.#last()!,
+			guardrails: summarizeLatencyGuardrails(this.#sorted),
 		};
 	}
 

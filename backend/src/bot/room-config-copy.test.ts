@@ -1,13 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createBot } from "./bots.ts";
 import { createRule, listRules } from "./rules.ts";
-import {
-	isChatAdminOnly,
-	listChatAdminAllowlist,
-	setChatAdminAllowlist,
-	setChatAdminOnly,
-	setChatEnabled,
-} from "./chat-access.ts";
+import { isChatAdminOnly, listChatAdminAllowlist, setChatAdminAllowlist, setChatAdminOnly, setChatEnabled } from "./chat-access.ts";
 import { db } from "../db/sqlite.ts";
 import { copyRoomConfig, copyRules } from "./room-config-copy.ts";
 

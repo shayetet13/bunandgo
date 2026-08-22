@@ -8,8 +8,8 @@ After=network-online.target
 # host as linebot-worker.service, not a different physical server.
 #
 # Deliberate cutover gate, same pattern as linebot-worker.service: nothing
-# here starts a LINE session until an operator creates this file after
-# choosing which owners move to WORKER_OWNER_SCOPE in worker-shard-b.env.
+# here starts a LINE session until an operator creates this file after the
+# shared sticky topology has been installed.
 ConditionPathExists=/etc/linebot/worker-shard-b-enabled
 
 [Service]
@@ -29,7 +29,7 @@ Environment=CONTROL_PLANE_URL=
 Environment=CONTROL_PLANE_TOKEN=
 EnvironmentFile=/etc/linebot/worker-shard-b.env
 # Both services share a release directory, so auto-loading its .env would
-# merge the primary worker's scope into this shard. Use only EnvironmentFile.
+# merge primary settings into this shard. Use only EnvironmentFile.
 ExecStart=/usr/local/bin/bun run --no-env-file src/index.ts
 Restart=on-failure
 RestartSec=3

@@ -2,7 +2,12 @@ import { type CSSProperties, type FormEvent, useEffect, useState } from "react";
 import type { ChatRow, ScheduledPost, Surface } from "../lib/types.ts";
 import { previewReplyText } from "../lib/text-preview.ts";
 import { bangkokInputToEpochMs, epochMsToBangkokInput, formatBangkokDateTime } from "../lib/bangkok-time.ts";
-import { isScheduledPostRunAtValid, isScheduledPostToggleable, SCHEDULED_POST_STATUS_LABEL, scheduledPostStatusOf } from "../lib/scheduled-post-status.ts";
+import {
+	isScheduledPostRunAtValid,
+	isScheduledPostToggleable,
+	SCHEDULED_POST_STATUS_LABEL,
+	scheduledPostStatusOf,
+} from "../lib/scheduled-post-status.ts";
 
 interface ScheduledPostEditorProps {
 	chats: ChatRow[];
@@ -127,8 +132,8 @@ export function ScheduledPostEditor({ chats, posts, onCreate, onUpdate, onToggle
 			</div>
 			<p className="hint" style={{ margin: "0 0 var(--space-sm)" }}>
 				ตั้งวัน เดือน ปี และเวลา (เวลาไทย) ละเอียดถึงมิลลิวินาที — เช่น 14:00:00.000 — พอถึงเวลาที่ตั้งเป๊ะ
-				บอทจะยิงข้อความที่เตรียมไว้ทันทีโดยไม่ต้องรอ keyword ใดๆ และไม่มีการหน่วงเพิ่มใดๆ ในระบบก่อนส่ง
-				(ส่งเร็วกว่าเวลาที่ตั้งไม่ได้ แต่จะไม่ช้ากว่านั้นเกินกว่าที่ตัวเครื่อง/เครือข่ายจะจำกัดไว้)
+				บอทจะยิงข้อความที่เตรียมไว้ทันทีโดยไม่ต้องรอ keyword ใดๆ และไม่มีการหน่วงเพิ่มใดๆ ในระบบก่อนส่ง (ส่งเร็วกว่าเวลาที่ตั้งไม่ได้
+				แต่จะไม่ช้ากว่านั้นเกินกว่าที่ตัวเครื่อง/เครือข่ายจะจำกัดไว้)
 			</p>
 
 			<form onSubmit={submit} style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-xs)", marginBottom: "var(--space-sm)" }}>
@@ -148,9 +153,13 @@ export function ScheduledPostEditor({ chats, posts, onCreate, onUpdate, onToggle
 					onChange={(e) => setDraft({ ...draft, targetMid: e.target.value })}
 					style={{ ...inputStyle, flex: "1 1 160px" }}
 				>
-					<option value="" disabled>— เลือกห้องแชท —</option>
+					<option value="" disabled>
+						— เลือกห้องแชท —
+					</option>
 					{chatsFor(draft.surface).map((chat) => (
-						<option key={chat.mid} value={chat.mid}>{chat.name ?? chat.mid}</option>
+						<option key={chat.mid} value={chat.mid}>
+							{chat.name ?? chat.mid}
+						</option>
 					))}
 				</select>
 				<input
@@ -187,7 +196,9 @@ export function ScheduledPostEditor({ chats, posts, onCreate, onUpdate, onToggle
 
 			<div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)", maxHeight: 320, overflowY: "auto" }}>
 				{posts.length === 0 && (
-					<p className="hint" style={{ margin: 0 }}>ยังไม่มีรายการโพสตามเวลา</p>
+					<p className="hint" style={{ margin: 0 }}>
+						ยังไม่มีรายการโพสตามเวลา
+					</p>
 				)}
 				{posts.map((post) => {
 					const chat = chats.find((c) => c.mid === post.targetMid);
@@ -222,9 +233,13 @@ export function ScheduledPostEditor({ chats, posts, onCreate, onUpdate, onToggle
 								onChange={(e) => setEditDraft({ ...editDraft, targetMid: e.target.value })}
 								style={{ ...inputStyle, flex: "1 1 140px" }}
 							>
-								<option value="" disabled>— เลือกห้องแชท —</option>
+								<option value="" disabled>
+									— เลือกห้องแชท —
+								</option>
 								{chatsFor(editDraft.surface).map((c) => (
-									<option key={c.mid} value={c.mid}>{c.name ?? c.mid}</option>
+									<option key={c.mid} value={c.mid}>
+										{c.name ?? c.mid}
+									</option>
 								))}
 							</select>
 							<input
@@ -241,8 +256,12 @@ export function ScheduledPostEditor({ chats, posts, onCreate, onUpdate, onToggle
 								rows={2}
 								style={{ ...textareaStyle, flex: "1 1 140px" }}
 							/>
-							<button onClick={() => saveEdit(post)} style={saveBtnStyle}>บันทึก</button>
-							<button onClick={cancelEdit} style={deleteBtnStyle}>ยกเลิก</button>
+							<button onClick={() => saveEdit(post)} style={saveBtnStyle}>
+								บันทึก
+							</button>
+							<button onClick={cancelEdit} style={deleteBtnStyle}>
+								ยกเลิก
+							</button>
 						</div>
 					) : (
 						<div
@@ -265,15 +284,22 @@ export function ScheduledPostEditor({ chats, posts, onCreate, onUpdate, onToggle
 								{STATUS_LABEL[status]}
 							</span>
 							<span style={{ fontSize: "var(--text-sm)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-								<span className="mono">{post.surface} · {chat?.name ?? post.targetMid}</span> → {previewReplyText(post.text)}
+								<span className="mono">
+									{post.surface} · {chat?.name ?? post.targetMid}
+								</span>{" "}
+								→ {previewReplyText(post.text)}
 							</span>
 							{isScheduledPostToggleable(status) && (
 								<button onClick={() => onToggle(post)} style={toggleBtnStyle(post.enabled)}>
 									{post.enabled ? "ปิดใช้งาน" : "เปิดใช้งาน"}
 								</button>
 							)}
-							<button onClick={() => startEdit(post)} style={editBtnStyle}>แก้ไข</button>
-							<button onClick={() => onDelete(post.id)} style={deleteBtnStyle}>✕</button>
+							<button onClick={() => startEdit(post)} style={editBtnStyle}>
+								แก้ไข
+							</button>
+							<button onClick={() => onDelete(post.id)} style={deleteBtnStyle}>
+								✕
+							</button>
 						</div>
 					);
 				})}

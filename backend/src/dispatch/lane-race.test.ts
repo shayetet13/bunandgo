@@ -34,8 +34,6 @@ describe("scoreLaneSend", () => {
 			avgRttMs: 22,
 			lastResult: "banana",
 		});
-		expect(laneRaceSnapshot().events).toEqual(expect.arrayContaining([
-			expect.objectContaining({ origin, laneId: 7, role: "send" }),
-		]));
+		expect(laneRaceSnapshot().events).toEqual(expect.arrayContaining([expect.objectContaining({ origin, laneId: 7, role: "send" })]));
 	});
 });

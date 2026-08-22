@@ -31,16 +31,7 @@ export const MAX_RESENDS = Number(process.env.REPLY_DEFENSE_MAX_RESENDS ?? 2);
 const ZWSP = "​";
 const ZWNJ = "‌";
 const WORD_JOINER = "⁠";
-const VARIANT_MARKS = [
-	"",
-	ZWSP,
-	ZWNJ,
-	WORD_JOINER,
-	ZWSP + ZWSP,
-	ZWSP + ZWNJ,
-	ZWNJ + WORD_JOINER,
-	WORD_JOINER + ZWSP,
-];
+const VARIANT_MARKS = ["", ZWSP, ZWNJ, WORD_JOINER, ZWSP + ZWSP, ZWSP + ZWNJ, ZWNJ + WORD_JOINER, WORD_JOINER + ZWSP];
 
 /** How long the same reply text counts as a repeat worth varying. */
 const REPEAT_WINDOW_MS = Number(process.env.REPLY_UNIQUIFY_WINDOW_MS ?? 5 * 60_000);
@@ -67,14 +58,7 @@ function evictExpired(now: number): void {
 }
 
 /** Registers a just-sent auto-reply so a destroy of it can be answered. */
-export function trackSentReply(
-	botId: number,
-	squareChatMid: string,
-	messageId: string,
-	text: string,
-	attempt = 0,
-	now = Date.now(),
-): void {
+export function trackSentReply(botId: number, squareChatMid: string, messageId: string, text: string, attempt = 0, now = Date.now()): void {
 	evictExpired(now);
 	tracked.set(key(botId, squareChatMid, messageId), { botId, text, attempt, expiresAt: now + TTL_MS });
 }

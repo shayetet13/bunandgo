@@ -63,7 +63,11 @@ export function TestSendPanel({ botId, selectedChats = [] }: TestSendPanelProps)
 		setStatus(undefined);
 		try {
 			const res = await api.testSend(botId, surface, targetMid.trim(), text);
-			setStatus(res.ok ? { ok: true, message: "ส่งสำเร็จ — ดูผลได้ที่ค่า P95 ด้านบนและบันทึกสด" } : { ok: false, message: res.error ?? "ส่งไม่สำเร็จ" });
+			setStatus(
+				res.ok
+					? { ok: true, message: "ส่งสำเร็จ — ดูผลได้ที่ค่า P95 ด้านบนและบันทึกสด" }
+					: { ok: false, message: res.error ?? "ส่งไม่สำเร็จ" },
+			);
 		} catch (err) {
 			setStatus({ ok: false, message: err instanceof Error ? err.message : String(err) });
 		} finally {
@@ -82,7 +86,9 @@ export function TestSendPanel({ botId, selectedChats = [] }: TestSendPanelProps)
 
 	return (
 		<section className="panel" style={{ padding: "var(--space-md)" }}>
-			<div className="label" style={{ marginBottom: "var(--space-xs)" }}>ทดสอบส่งข้อความ</div>
+			<div className="label" style={{ marginBottom: "var(--space-xs)" }}>
+				ทดสอบส่งข้อความ
+			</div>
 			<p className="hint" style={{ margin: "0 0 var(--space-sm)" }}>
 				ยิงข้อความทดสอบโดยไม่ต้องรอข้อความจริง ผลจะถูกนับรวมในค่า P95 เหมือนของจริง
 			</p>
@@ -90,11 +96,7 @@ export function TestSendPanel({ botId, selectedChats = [] }: TestSendPanelProps)
 			{hasMultiTargets && (
 				<div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem", marginBottom: "var(--space-sm)" }}>
 					{selectedChats.map((chat) => (
-						<span
-							key={chat.mid}
-							className="chip chip--idle"
-							style={{ fontSize: "var(--text-xs)", padding: "0.25rem 0.55rem" }}
-						>
+						<span key={chat.mid} className="chip chip--idle" style={{ fontSize: "var(--text-xs)", padding: "0.25rem 0.55rem" }}>
 							{chat.surface} · {chat.name ?? chat.mid}
 						</span>
 					))}
@@ -146,7 +148,9 @@ export function TestSendPanel({ botId, selectedChats = [] }: TestSendPanelProps)
 				</button>
 			</form>
 			{status && (
-				<div style={{ marginTop: "var(--space-xs)", fontSize: "var(--text-sm)", color: status.ok ? "var(--signal-go)" : "var(--signal-bad)" }}>
+				<div
+					style={{ marginTop: "var(--space-xs)", fontSize: "var(--text-sm)", color: status.ok ? "var(--signal-go)" : "var(--signal-bad)" }}
+				>
 					{status.message}
 				</div>
 			)}
