@@ -113,13 +113,38 @@ laneRelayEventsRoute.post("/", async (c) => {
 	// against even before this process has dispatched anything through it —
 	// see remote-lane.ts's own docs for why this never adds a network round
 	// trip to a live send/poll decision.
-	const bestByOrigin = new Map<string, number>();
+	//
+	// A lane only ever gets an applicationRttMs once a real send/poll has
+	// gone through it — which, for a relay box, only happens once it has
+	// already been picked as a remote candidate at least once. Requiring
+	// applicationRttMs here made that impossible to bootstrap: every lane
+	// stayed "no sample yet" forever, so this origin could never seed a
+	// candidate, so it could never be picked, so no lane ever got a sample.
+	// Falling back to the lane's own PING rttMs (always present once a lane
+	// reaches "ready", real traffic or not) breaks that deadlock with a
+	// same-network, if less precise, stand-in. It's a one-time bootstrap
+	// only: the instant a real dispatch lands, recordRemoteDispatchEnd's
+	// measurement wins over this report unconditionally (see
+	// remoteLaneCandidate's hasOwnMeasurement check), so a proven real
+	// sample is never displaced by a rougher ping-only one from some other
+	// still-unused lane on the same box.
+	const bestApplicationByOrigin = new Map<string, number>();
+	const bestPingByOrigin = new Map<string, number>();
 	for (const lane of lanes as LaneStat[]) {
-		if (lane.state !== "ready" || lane.applicationRttMs === undefined) continue;
-		const best = bestByOrigin.get(lane.origin);
-		if (best === undefined || lane.applicationRttMs < best) bestByOrigin.set(lane.origin, lane.applicationRttMs);
+		if (lane.state !== "ready") continue;
+		if (lane.applicationRttMs !== undefined) {
+			const best = bestApplicationByOrigin.get(lane.origin);
+			if (best === undefined || lane.applicationRttMs < best) bestApplicationByOrigin.set(lane.origin, lane.applicationRttMs);
+		} else if (lane.rttMs !== undefined) {
+			const best = bestPingByOrigin.get(lane.origin);
+			if (best === undefined || lane.rttMs < best) bestPingByOrigin.set(lane.origin, lane.rttMs);
+		}
 	}
-	for (const [origin, bestRttMs] of bestByOrigin) updateRemoteLaneFromReport(origin, bestRttMs, receivedAt);
+	const reportedOrigins = new Set([...bestApplicationByOrigin.keys(), ...bestPingByOrigin.keys()]);
+	for (const origin of reportedOrigins) {
+		const bestRttMs = bestApplicationByOrigin.get(origin) ?? bestPingByOrigin.get(origin);
+		if (bestRttMs !== undefined) updateRemoteLaneFromReport(origin, bestRttMs, receivedAt);
+	}
 
 	return c.json({ accepted: true }, 202);
 });

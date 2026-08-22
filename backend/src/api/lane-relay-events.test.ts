@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import type { LaneStat, LaneRaceLaneView } from "../dispatch/h2-lanes.ts";
+import { remoteLaneCandidate, resetRemoteLaneStateForTest } from "../dispatch/remote-lane.ts";
 import {
 	LANE_RELAY_TOKEN_HEADER,
 	MAX_TRACKED_WORKERS,
@@ -11,11 +12,18 @@ import {
 } from "./lane-relay-events.ts";
 
 const originalToken = process.env.LANE_RELAY_TOKEN;
+const originalRelayUrl = process.env.LINE_RELAY_URL;
+const originalRelayToken = process.env.LINE_RELAY_TOKEN;
 
 afterEach(() => {
 	if (originalToken === undefined) delete process.env.LANE_RELAY_TOKEN;
 	else process.env.LANE_RELAY_TOKEN = originalToken;
+	if (originalRelayUrl === undefined) delete process.env.LINE_RELAY_URL;
+	else process.env.LINE_RELAY_URL = originalRelayUrl;
+	if (originalRelayToken === undefined) delete process.env.LINE_RELAY_TOKEN;
+	else process.env.LINE_RELAY_TOKEN = originalRelayToken;
 	resetLaneRelayReportsForTest();
+	resetRemoteLaneStateForTest();
 });
 
 function buildApp(): Hono {
@@ -114,6 +122,57 @@ describe("lane relay report intake", () => {
 		expect(response.status).toBe(202);
 		expect(remoteLaneStats()).toEqual([{ ...fixtureLane(), workerId: "relay-3" }]);
 		expect(remoteLaneRaces()).toEqual([{ ...fixtureRace(), workerId: "relay-3" }]);
+	});
+
+	test("seeds the remote candidate from PING rttMs when no lane has an application sample yet", async () => {
+		process.env.LANE_RELAY_TOKEN = "correct-token";
+		process.env.LINE_RELAY_URL = "http://10.90.0.2:8795/dispatch";
+		process.env.LINE_RELAY_TOKEN = "dispatch-token";
+		const app = buildApp();
+		const neverUsedLane: LaneStat = {
+			...fixtureLane(),
+			applicationRttMs: undefined,
+			applicationSampleAt: 0,
+			routingEligible: false,
+			rttMs: 6.4,
+		};
+		const response = await app.request("/internal/lane-relay-events", {
+			method: "POST",
+			headers: { "content-type": "application/json", [LANE_RELAY_TOKEN_HEADER]: "correct-token" },
+			body: JSON.stringify({ workerId: "relay-3", ts: Date.now(), lanes: [neverUsedLane], races: [] }),
+		});
+		expect(response.status).toBe(202);
+		// A brand-new relay box with zero real dispatches ever must still be
+		// able to seed a candidate — otherwise it could never be picked for
+		// its first one, since eligibility depends on this exact value.
+		expect(remoteLaneCandidate("https://legy.line-apps.com")?.rttMs).toBe(6.4);
+	});
+
+	test("prefers a real applicationRttMs over another lane's ping-only rttMs on the same origin", async () => {
+		process.env.LANE_RELAY_TOKEN = "correct-token";
+		process.env.LINE_RELAY_URL = "http://10.90.0.2:8795/dispatch";
+		process.env.LINE_RELAY_TOKEN = "dispatch-token";
+		const app = buildApp();
+		const neverUsedLane: LaneStat = {
+			...fixtureLane(),
+			id: 1,
+			applicationRttMs: undefined,
+			applicationSampleAt: 0,
+			routingEligible: false,
+			rttMs: 1.2,
+		};
+		const provenLane: LaneStat = { ...fixtureLane(), id: 2, applicationRttMs: 18.5 };
+		const response = await app.request("/internal/lane-relay-events", {
+			method: "POST",
+			headers: { "content-type": "application/json", [LANE_RELAY_TOKEN_HEADER]: "correct-token" },
+			body: JSON.stringify({ workerId: "relay-3", ts: Date.now(), lanes: [neverUsedLane, provenLane], races: [] }),
+		});
+		expect(response.status).toBe(202);
+		// The proven 18.5ms real sample must win over the other lane's
+		// optimistic 1.2ms ping-only number — once an origin has real
+		// traffic anywhere on the box, an unused lane elsewhere must not
+		// make it look faster than it actually performs.
+		expect(remoteLaneCandidate("https://legy.line-apps.com")?.rttMs).toBe(18.5);
 	});
 
 	test("drops a report once it is older than the requested max age", async () => {
