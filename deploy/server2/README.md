@@ -31,7 +31,9 @@ rebalanced automatically. Deleting the user removes its obsolete assignment.
 Primary routes requests for Shard B owners over loopback. Shard B accepts only
 authenticated forwards from Primary and reports events back to Primary. Both
 services share `CONTROL_PLANE_TOKEN`, but the token lives only in the protected
-runtime topology. Static `WORKER_OWNER_SCOPE`, `WORKER_OWNER_EXCLUDE`, and
+runtime topology. Server 3's separate `relayReportToken` is stored there too,
+so the root-owned env file never needs to change during token rotation. Static
+`WORKER_OWNER_SCOPE`, `WORKER_OWNER_EXCLUDE`, and
 `WORKER_OWNER_ROUTES` values remain empty.
 
 ## Lane and latency policy

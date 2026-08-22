@@ -30,6 +30,7 @@ const ENV_KEYS = [
 	"LINE_RELAY_MODE",
 	"LINE_RELAY_URL",
 	"LINE_RELAY_TOKEN",
+	"LANE_RELAY_TOKEN",
 	"LINE_H2_POLL_EXPLORE_INTERVAL_MS",
 	"LINE_H2_POLL_CALIBRATION_SAMPLES",
 	"LINE_H2_APPLICATION_HOT_CEILING_MS",
@@ -253,6 +254,7 @@ describe("worker topology", () => {
 		const runtimeFile = JSON.stringify({
 			version: 1,
 			assignmentMode: "balanced-sticky",
+			relayReportToken: "p".repeat(32),
 			primary: {
 				workerId: "primary",
 				port: 8791,
@@ -281,6 +283,7 @@ describe("worker topology", () => {
 		setTopologyEnv({ PORT: "8791" });
 		expect(applyRuntimeTopologyFile(runtimeFile)).toBe(true);
 		expect(process.env.WORKER_ASSIGNMENT_WORKERS).toBe("primary,shard-b");
+		expect(process.env.LANE_RELAY_TOKEN).toBe("p".repeat(32));
 		expect(process.env.WORKER_ROUTES).toBe("shard-b=http://127.0.0.1:8792");
 		expect(process.env.LINE_RELAY_MODE).toBeUndefined();
 		expect(validateWorkerTopology().assignmentMode).toBe("balanced-sticky");
@@ -298,6 +301,7 @@ describe("worker topology", () => {
 		const runtimeFile = JSON.stringify({
 			version: 1,
 			assignmentMode: "balanced-sticky",
+			relayReportToken: "p".repeat(32),
 			primary: { workerId: "primary", port: 8791 },
 			shards: [{ workerId: "shard-b", port: 8792 }],
 			controlPlaneToken: "t".repeat(32),

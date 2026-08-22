@@ -2,6 +2,7 @@
   "version": 1,
   "assignmentMode": "balanced-sticky",
   "controlPlaneToken": "replace-with-a-random-secret-of-at-least-32-characters",
+  "relayReportToken": "replace-with-a-third-random-32-character-secret",
   "primary": {
     "workerId": "primary",
     "port": 8791,

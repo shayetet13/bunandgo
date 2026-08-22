@@ -56,6 +56,7 @@ interface RuntimeTopologyFile {
 	primary: RuntimeTopologyPrimary;
 	shards: RuntimeTopologyShard[];
 	controlPlaneToken: string;
+	relayReportToken?: string;
 }
 
 function positiveInteger(value: unknown, label: string): number {
@@ -186,6 +187,9 @@ function parseRuntimeTopologyFile(raw: string): RuntimeTopologyFile {
 		throw new Error(`worker topology assignmentMode must be ${STICKY_ASSIGNMENT_MODE}`);
 	}
 	const sticky = value.assignmentMode === STICKY_ASSIGNMENT_MODE;
+	if (sticky && (value.relayReportToken?.length ?? 0) < 32) {
+		throw new Error("worker topology relayReportToken must contain at least 32 characters");
+	}
 
 	const primaryPort = positiveInteger(value.primary.port, "worker topology primary.port");
 	if (!value.primary.workerId?.trim()) throw new Error("worker topology primary.workerId is required");
@@ -251,6 +255,7 @@ export function applyRuntimeTopologyFile(raw?: string): boolean {
 	const sticky = topology.assignmentMode === STICKY_ASSIGNMENT_MODE;
 
 	process.env.CONTROL_PLANE_TOKEN = topology.controlPlaneToken;
+	if (topology.relayReportToken) process.env.LANE_RELAY_TOKEN = topology.relayReportToken;
 	if (sticky) {
 		process.env.WORKER_ASSIGNMENT_MODE = STICKY_ASSIGNMENT_MODE;
 		process.env.WORKER_PRIMARY_ID = topology.primary.workerId;
