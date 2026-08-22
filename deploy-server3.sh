@@ -45,7 +45,7 @@ ssh -i "$KEY_PATH" -o BatchMode=yes "$TARGET" "
 	fi
 	for attempt in \$(seq 1 40); do
 		if curl -fsS http://10.90.0.2:8795/healthz >/tmp/linebot-relay-health.json; then
-			python3 -c 'import json; d=json.load(open("/tmp/linebot-relay-health.json")); assert d["healthy"] and all(x["ready"] == x["total"] for x in d["origins"])'
+			python3 -c 'import json; d=json.load(open(\"/tmp/linebot-relay-health.json\")); assert d[\"healthy\"] and all(x[\"ready\"] == x[\"total\"] for x in d[\"origins\"])'
 			exit 0
 		fi
 		sleep 0.5
