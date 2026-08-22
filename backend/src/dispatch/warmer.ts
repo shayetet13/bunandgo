@@ -1,5 +1,5 @@
 import type { DispatchConfig } from "./client.ts";
-import { ensureLanes } from "./h2-lanes.ts";
+import { ensureLanes, H2_LANE_ROLE_HEADER, laneFetch } from "./h2-lanes.ts";
 
 /**
  * Hosts that carry the outbound legs of a reply. Both must stay warm:
@@ -58,6 +58,29 @@ async function warmDirect(hosts: readonly string[]): Promise<WarmResult[]> {
 	);
 }
 
+async function warmRelay(hosts: readonly string[]): Promise<WarmResult[]> {
+	return Promise.all(
+		hosts.map(async (host): Promise<WarmResult> => {
+			const started = performance.now();
+			try {
+				const response = await laneFetch(`https://${host}/`, {
+					method: "HEAD",
+					headers: { [H2_LANE_ROLE_HEADER]: "send" },
+					signal: AbortSignal.timeout(10_000),
+				});
+				if (!response) throw new Error("relay-only warmup returned no response");
+				return { host: `relay:${host}`, tookMs: performance.now() - started, status: response.status };
+			} catch (error) {
+				return {
+					host: `relay:${host}`,
+					tookMs: performance.now() - started,
+					error: error instanceof Error ? error.message : String(error),
+				};
+			}
+		}),
+	);
+}
+
 async function warmGo(config: DispatchConfig, hosts: readonly string[]): Promise<WarmResult[]> {
 	const url = new URL(config.url);
 	url.pathname = "/warm";
@@ -98,6 +121,7 @@ async function warmLanes(): Promise<void> {
 
 /** Keeps every connection pool used by the selected transport warm. */
 export async function warmOnce(config: DispatchConfig, hosts: readonly string[] = WARM_HOSTS): Promise<WarmResult[]> {
+	if (process.env.LINE_RELAY_MODE === "always") return warmRelay(hosts);
 	const transport = process.env.LINE_TRANSPORT ?? "hybrid";
 	if (transport === "go") return warmGo(config, hosts);
 	if (transport === "direct") {
