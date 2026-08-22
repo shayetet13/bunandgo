@@ -182,15 +182,19 @@ app.get(
 );
 
 const port = config.port;
+// A shard is an internal execution process, never another public API. The
+// control-plane proxy reaches it over loopback, so do not leave its listener
+// exposed on the host even though request middleware also rejects direct use.
+const hostname = process.env.CONTROL_PLANE_URL ? "127.0.0.1" : "0.0.0.0";
 
 export const server = Bun.serve({
-	hostname: "0.0.0.0",
+	hostname,
 	port,
 	fetch: app.fetch,
 	websocket,
 });
 
-console.log(`api: listening on http://localhost:${port}`);
+console.log(`api: listening on http://${hostname}:${port}`);
 
 // No-op on the public control plane/standalone process. On a shard this
 // forwards QR/status/reply events back to the one browser WebSocket endpoint.
