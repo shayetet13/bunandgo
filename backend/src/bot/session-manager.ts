@@ -2353,56 +2353,8 @@ export interface LaneRelayTestResult {
 	distinctMessageIds: number;
 }
 
-// Wide, irregular gaps instead of a narrow ~3s band — a near-constant
-// interval is itself a distinctive automated signature regardless of how
-// jittered it looks up close. Occasional long pauses mimic a person
-// stepping away mid-conversation rather than a script running to
-// completion in one unbroken sitting.
-const LANE_RELAY_TEST_MIN_STAGGER_MS = 3_000;
-const LANE_RELAY_TEST_STAGGER_JITTER_MS = 6_000;
-const LANE_RELAY_TEST_LONG_PAUSE_CHANCE = 0.12;
-const LANE_RELAY_TEST_LONG_PAUSE_MIN_MS = 45_000;
-const LANE_RELAY_TEST_LONG_PAUSE_JITTER_MS = 90_000;
-
-function laneRelayTestStaggerMs(): number {
-	if (Math.random() < LANE_RELAY_TEST_LONG_PAUSE_CHANCE) {
-		return LANE_RELAY_TEST_LONG_PAUSE_MIN_MS + Math.random() * LANE_RELAY_TEST_LONG_PAUSE_JITTER_MS;
-	}
-	return LANE_RELAY_TEST_MIN_STAGGER_MS + Math.random() * LANE_RELAY_TEST_STAGGER_JITTER_MS;
-}
-
-// Ordinary, varied chat phrases instead of one fixed template with only a
-// counter changing — a message that repeats verbatim 100 times with just a
-// "#N/100" suffix is itself a distinctive automated signature. Content
-// doesn't need to fool a person (this only ever runs in a private test
-// room); it only needs to not look like the same string copy-pasted on a
-// timer to whatever pattern-based abuse detection LINE runs.
-const LANE_RELAY_TEST_PHRASES = [
-	"ทดสอบระบบหน่อย",
-	"เช็คดูอีกที",
-	"โอเคไหม",
-	"ลองใหม่อีกรอบ",
-	"เดี๋ยวเช็คให้",
-	"รอแปปนึง",
-	"อัพเดทล่าสุด",
-	"เทสต์ๆ",
-	"ok",
-	"เช็คสถานะ",
-	"ลองดูอีกที",
-	"กำลังทดสอบอยู่",
-	"แปปนะ",
-	"เดี๋ยวมา",
-	"เช็คแล้ว",
-	"อยู่มั้ย",
-	"ลองอีกครั้ง",
-	"เทสระบบ",
-	"งั้นลองดู",
-	"เอาใหม่",
-] as const;
-
-function randomLaneRelayTestPhrase(): string {
-	return LANE_RELAY_TEST_PHRASES[Math.floor(Math.random() * LANE_RELAY_TEST_PHRASES.length)]!;
-}
+const LANE_RELAY_TEST_MIN_STAGGER_MS = 2_500;
+const LANE_RELAY_TEST_STAGGER_JITTER_MS = 1_000;
 /** Generous on purpose — this proves out routing through a second box over a
  * real network hop, not send-latency, so a slow relay response must never
  * read as "undelivered" and pollute the ban-risk signal with false drops. */
@@ -2437,6 +2389,7 @@ const LANE_RELAY_TEST_ABORT_AFTER_CONSECUTIVE_FAILURES = 3;
 export async function testLaneRelayBurst(
 	botId: number,
 	targets: LaneRelayTestTarget[],
+	text: string,
 	count: number,
 	ceilingMs?: number,
 ): Promise<LaneRelayTestResult> {
@@ -2451,13 +2404,16 @@ export async function testLaneRelayBurst(
 			const knownRttMs = await bestKnownRelayRttMs();
 			if (knownRttMs === undefined || knownRttMs > ceilingMs) {
 				results.push({ index: i, targetMid: target.mid, delivered: false, skipped: true, tookMs: 0, knownRttMs });
-				if (i < count - 1) await new Promise((resolve) => setTimeout(resolve, laneRelayTestStaggerMs()));
+				if (i < count - 1) {
+					const stagger = LANE_RELAY_TEST_MIN_STAGGER_MS + Math.random() * LANE_RELAY_TEST_STAGGER_JITTER_MS;
+					await new Promise((resolve) => setTimeout(resolve, stagger));
+				}
 				continue;
 			}
 		}
 		const startedAt = performance.now();
 		try {
-			const messageText = randomLaneRelayTestPhrase();
+			const messageText = `${text} #${i + 1}/${count}`;
 			const messageId = await runWithLaneRelayTest(async () => {
 				if (target.surface === "talk") {
 					const response = await client.base.talk.sendCompactMessage({
@@ -2500,7 +2456,10 @@ export async function testLaneRelayBurst(
 				};
 			}
 		}
-		if (i < count - 1) await new Promise((resolve) => setTimeout(resolve, laneRelayTestStaggerMs()));
+		if (i < count - 1) {
+			const stagger = LANE_RELAY_TEST_MIN_STAGGER_MS + Math.random() * LANE_RELAY_TEST_STAGGER_JITTER_MS;
+			await new Promise((resolve) => setTimeout(resolve, stagger));
+		}
 	}
 	return {
 		results,
