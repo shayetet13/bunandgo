@@ -25,11 +25,15 @@ function stateChipClass(state: LaneStat["state"]): string {
 	return "chip--bad";
 }
 
-function rttToneClass(ms: number, applicationMeasurement: boolean, routingEligible: boolean): string {
-	if (applicationMeasurement) return routingEligible ? "chip--go" : "chip--bad";
-	if (ms <= 40) return "chip--go";
-	if (ms <= 80) return "chip--warn";
-	return "chip--bad";
+export function rttToneClass(applicationMeasurement: boolean, routingEligible: boolean): string {
+	// A lane with no real send/poll through it yet has nothing to judge —
+	// its PING can be low (an idle connection to a nearby host answers PING
+	// fast regardless) while telling us nothing about real routing health.
+	// Coloring that green looked identical to a lane actually proven fast
+	// under real traffic, which is exactly backwards for a relay box that
+	// may sit unused for long stretches by design (see NetworkSpeedPanel).
+	if (!applicationMeasurement) return "chip--idle";
+	return routingEligible ? "chip--go" : "chip--bad";
 }
 
 export function NetworkSpeedPanel({ lanes }: NetworkSpeedPanelProps) {
@@ -87,7 +91,7 @@ export function NetworkSpeedPanel({ lanes }: NetworkSpeedPanelProps) {
 									title={applied !== undefined ? "วัดจากงานจริง (ส่งข้อความ/poll)" : "ยังไม่มีงานจริงผ่านเลนนี้"}
 								>
 									{primary !== undefined ? (
-										<span className={`chip ${rttToneClass(primary, applied !== undefined, lane.routingEligible)} mono`}>{primary.toFixed(1)}ms</span>
+										<span className={`chip ${rttToneClass(applied !== undefined, lane.routingEligible)} mono`}>{primary.toFixed(1)}ms</span>
 									) : (
 										<span className="hint">—</span>
 									)}
