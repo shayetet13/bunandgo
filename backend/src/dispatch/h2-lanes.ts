@@ -1199,10 +1199,13 @@ export function laneFetch(info: RequestInfo | URL, init?: RequestInit): Promise<
 		if (relayConfig) {
 			const remote = remoteLaneCandidate(url.origin);
 			const now = Date.now();
-			const remoteEligible = remote !== undefined && (
-				hasFreshEligibleApplicationSample(remote, now, APPLICATION_HOT_CEILING_MS) ||
-				hasFreshEligibleApplicationSample(remote, now, APPLICATION_DISCARD_CEILING_MS)
-			);
+			// Held to the hot ceiling specifically, not the wider local discard
+			// ceiling: with 32 standby lanes on server3 (raised from 6) there is
+			// almost always a genuinely fast one among them, so overflow traffic
+			// no longer needs to accept a merely-warm remote route the way it did
+			// when server3 had far fewer lanes to pick the best of.
+			const remoteEligible = remote !== undefined &&
+				hasFreshEligibleApplicationSample(remote, now, APPLICATION_HOT_CEILING_MS);
 			if (remoteEligible) {
 				return dispatchViaRemoteLane(relayConfig, url, init, role);
 			}
