@@ -50,10 +50,8 @@ describe("warmer hot-send readiness", () => {
 			process.env.LINE_RELAY_URL = `http://127.0.0.1:${relay.port}/dispatch`;
 			process.env.LINE_RELAY_TOKEN = "test-token";
 			const results = await warmOnce({ url: "http://127.0.0.1:1/dispatch", token: "unused" }, ["legy.line-apps.com", "gf.line.naver.jp"]);
-			expect(payloads).toEqual([
-				{ url: "https://legy.line-apps.com/", role: "warm" },
-				{ url: "https://gf.line.naver.jp/", role: "warm" },
-			]);
+			expect(payloads).toEqual([{ url: "https://legy.line-apps.com/", role: "warm" }]);
+			expect(results).toHaveLength(1);
 			expect(results.every((result) => result.host.startsWith("relay:") && result.status === 204)).toBe(true);
 		} finally {
 			relay.stop(true);

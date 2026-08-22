@@ -1,0 +1,25 @@
+[Unit]
+Description=LINE lane transport (no bot, login, session, or database runtime)
+After=network-online.target wg-quick@wg1.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=linebot-relay
+Group=linebot-relay
+WorkingDirectory=/opt/linebot-relay/current
+EnvironmentFile=/etc/linebot-relay/relay.env
+ExecStart=/usr/local/bin/bun run --no-env-file relay.js
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+[Install]
+WantedBy=multi-user.target

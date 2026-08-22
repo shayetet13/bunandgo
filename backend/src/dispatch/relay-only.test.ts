@@ -50,6 +50,19 @@ describe("relay-only lane transport", () => {
 		}
 	});
 
+	test("keeps login/control origins on Server 2 instead of relaying them", async () => {
+		let calls = 0;
+		const relay = Bun.serve({ port: 0, fetch: () => (calls++, new Response("unexpected")) });
+		try {
+			setRelay(`http://127.0.0.1:${relay.port}/dispatch`);
+			const response = await laneFetch("https://gf.line.naver.jp/enc", { method: "POST", body: "login-control" });
+			expect(response).toBeUndefined();
+			expect(calls).toBe(0);
+		} finally {
+			relay.stop(true);
+		}
+	});
+
 	test("fails closed when the pinned relay is unavailable", async () => {
 		const closed = Bun.serve({ port: 0, fetch: () => new Response("unused") });
 		const url = `http://127.0.0.1:${closed.port}/dispatch`;

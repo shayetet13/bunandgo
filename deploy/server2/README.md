@@ -17,7 +17,7 @@ The production invariants are:
 | --------------------- | ------------------------------- | -------------------------------- |
 | Worker ID             | `primary`                       | `shard-b`                        |
 | API port              | 8791                            | 8792, loopback only              |
-| LINE lane source      | 16 local Server 2 lanes         | 16 Server 3 relay lanes          |
+| LINE lane source      | 16 local Server 2 lanes         | 32 Server 3 relay lanes          |
 | Send-reserved lanes   | 4                               | 4                                |
 | Zero-delay poll slots | 8                               | 8                                |
 | Owner allocation      | first new owner, then every tie | second new owner, then every tie |
@@ -38,18 +38,21 @@ so the root-owned env file never needs to change during token rotation. Static
 
 ## Lane and latency policy
 
-Both workers use 16 effective H2 lanes: four are reserved for sends and twelve
-are available for polling. Eight zero-delay poll slots can be active per
-worker. Every new/reconnected poll lane receives one real LINE measurement;
-after calibration, each request uses the lane with the lowest latest real
-application RTT. There is no fixed latency pass/fail or discard threshold.
-Server 2 and Server 3 are compared by the same fastest-known-result rule.
+Primary uses 16 local H2 lanes; Shard B uses Server 3's 32-lane pool. Four
+low-numbered lanes are the cold-start send preference and eight zero-delay poll
+slots can be active per worker. SEND and POLL measurements never rank each
+other. SEND routing uses a median of the three most recent SEND results plus an
+in-flight load penalty; a cold lane is explored only when proven routes are
+busy. The same guarded cold-route exploration lets Server 3 earn its first
+real SEND sample without treating PING as SEND or duplicating a request. There
+is no fixed latency pass/fail or discard threshold.
 
-Server 3 owns no bot, login, session, database, or public API runtime. It only
-maintains the relay lane pools. Its one-second report is stale after three
-seconds. Shard B is fail-closed: if the relay is unavailable or has accepted a
-request and returned an error, the request is not retried locally. This avoids
-egress changes and duplicate LINE sends.
+Server 3 owns no bot, login, session, database, or public API runtime. Its
+single-file relay bundle accepts only `legy.line-apps.com`; login/control stays
+on Server 2. Its one-second report is stale after three seconds. Shard B is
+fail-closed: if the relay is unavailable or has accepted a request and returned
+an error, the request is not retried locally. This avoids egress changes and
+duplicate LINE sends.
 
 Application reply telemetry also reports guardrails at 40/50/60/80/90/100ms.
 These are measurement and incident thresholds, not a promise that an external

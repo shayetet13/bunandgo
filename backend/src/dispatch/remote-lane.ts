@@ -1,12 +1,12 @@
 /**
  * A second physical machine's h2-lanes pool (server3, the lane-relay box —
  * see backend/src/relay/) folded into this process's own lane candidates as
- * one more entry, ranked by the same fastest-real-result rule that local
+ * one more entry, ranked by the same role-specific robust score that local
  * lanes use. It never adds a network round trip to a routing decision:
  * its RTT is kept warm in the background from the relay's own periodic
  * report (`updateRemoteLaneFromReport`, called by lane-relay-events.ts) and
  * from this process's own real dispatch outcomes, exactly like a local
- * lane's PING and application-RTT samples.
+ * lane's PING, SEND and POLL samples without mixing their roles.
  */
 
 /** Well above any real local lane id (0..31, see h2-lanes.ts's 32-lane cap)
@@ -25,7 +25,6 @@ export interface RemoteLaneMetrics {
 	lastOkAt: number;
 	rttMs?: number;
 	sendRttMs?: number;
-	sendNetworkRttMs?: number;
 	pollRttMs?: number;
 	lastSendOkAt: number;
 	lastPollOkAt: number;
@@ -34,12 +33,33 @@ export interface RemoteLaneMetrics {
 
 interface RemoteOriginState {
 	metrics: RemoteLaneMetrics;
-	/** Best RTT server3 itself last reported having to this origin, and when —
-	 * the fallback signal before this process has any real measurement of its
-	 * own through the relay yet. */
-	reportedBestRttMs?: number;
-	reportedApplication: boolean;
+	/** Role-specific samples measured by this process across the full S2→S3→LINE path. */
+	sendSamples: number[];
+	pollSamples: number[];
+	/** Server3 self-report is a bootstrap only; own end-to-end samples win. */
+	reportedPingRttMs?: number;
+	reportedSendRttMs?: number;
+	reportedPollRttMs?: number;
+	reportedSendSampleAt: number;
+	reportedPollSampleAt: number;
 	reportedAt: number;
+}
+
+export interface RemoteLaneReport {
+	pingRttMs?: number;
+	sendRttMs?: number;
+	pollRttMs?: number;
+	sendSampleAt?: number;
+	pollSampleAt?: number;
+}
+
+const APPLICATION_RTT_WINDOW = 3;
+
+function recordMedian(samples: number[], sampleMs: number): number {
+	samples.push(sampleMs);
+	if (samples.length > APPLICATION_RTT_WINDOW) samples.shift();
+	const sorted = [...samples].sort((left, right) => left - right);
+	return sorted[Math.floor(sorted.length / 2)]!;
 }
 
 const origins = new Map<string, RemoteOriginState>();
@@ -72,7 +92,10 @@ function ensureOrigin(origin: string): RemoteOriginState {
 				lastPollOkAt: 0,
 				pollApplicationSamples: 0,
 			},
-			reportedApplication: false,
+			sendSamples: [],
+			pollSamples: [],
+			reportedSendSampleAt: 0,
+			reportedPollSampleAt: 0,
 			reportedAt: 0,
 		};
 		origins.set(origin, state);
@@ -83,10 +106,13 @@ function ensureOrigin(origin: string): RemoteOriginState {
 /** Called by lane-relay-events.ts whenever the relay's own periodic report
  * is accepted — keeps a background RTT estimate warm without this process
  * ever polling the relay itself. */
-export function updateRemoteLaneFromReport(origin: string, bestRttMs: number | undefined, now: number, reportedApplication = true): void {
+export function updateRemoteLaneFromReport(origin: string, report: RemoteLaneReport, now: number): void {
 	const state = ensureOrigin(origin);
-	state.reportedBestRttMs = bestRttMs;
-	state.reportedApplication = reportedApplication;
+	state.reportedPingRttMs = report.pingRttMs;
+	state.reportedSendRttMs = report.sendRttMs;
+	state.reportedPollRttMs = report.pollRttMs;
+	state.reportedSendSampleAt = report.sendSampleAt ?? 0;
+	state.reportedPollSampleAt = report.pollSampleAt ?? 0;
 	state.reportedAt = now;
 }
 
@@ -99,19 +125,24 @@ export function remoteLaneCandidate(origin: string, now: number = Date.now()): R
 	if (!remoteDispatchConfig()) return undefined;
 	const state = origins.get(origin);
 	if (!state) return undefined;
-	// A real measurement from this process's own dispatches always wins over
-	// the relay's self-report; the self-report only fills in before the first
-	// real send/poll has gone through it.
-	const ownSampleAt = Math.max(state.metrics.lastSendOkAt, state.metrics.lastPollOkAt);
-	if (ownSampleAt > 0 && now - ownSampleAt <= APPLICATION_SAMPLE_MAX_AGE_MS) return state.metrics;
-	if (state.reportedBestRttMs === undefined || now - state.reportedAt > REPORT_STALE_MS) return undefined;
+	const reportFresh = now - state.reportedAt <= REPORT_STALE_MS;
+	const ownSendFresh = state.metrics.lastSendOkAt > 0 && now - state.metrics.lastSendOkAt <= APPLICATION_SAMPLE_MAX_AGE_MS;
+	const ownPollFresh = state.metrics.lastPollOkAt > 0 && now - state.metrics.lastPollOkAt <= APPLICATION_SAMPLE_MAX_AGE_MS;
+	if (!reportFresh && !ownSendFresh && !ownPollFresh) return undefined;
+	const reportedSendFresh =
+		reportFresh && state.reportedSendSampleAt > 0 && now - state.reportedSendSampleAt <= APPLICATION_SAMPLE_MAX_AGE_MS;
+	const reportedPollFresh =
+		reportFresh && state.reportedPollSampleAt > 0 && now - state.reportedPollSampleAt <= APPLICATION_SAMPLE_MAX_AGE_MS;
+	const sendRttMs = ownSendFresh ? state.metrics.sendRttMs : reportedSendFresh ? state.reportedSendRttMs : undefined;
+	const pollRttMs = ownPollFresh ? state.metrics.pollRttMs : reportedPollFresh ? state.reportedPollRttMs : undefined;
+	if ((!reportFresh || state.reportedPingRttMs === undefined) && sendRttMs === undefined && pollRttMs === undefined) return undefined;
 	return {
 		...state.metrics,
-		rttMs: state.reportedBestRttMs,
-		sendRttMs: state.reportedApplication ? state.reportedBestRttMs : undefined,
-		pollRttMs: undefined,
-		lastSendOkAt: state.reportedApplication ? state.reportedAt : 0,
-		lastPollOkAt: 0,
+		rttMs: reportFresh ? state.reportedPingRttMs : undefined,
+		sendRttMs,
+		pollRttMs,
+		lastSendOkAt: ownSendFresh ? state.metrics.lastSendOkAt : reportedSendFresh ? state.reportedSendSampleAt : 0,
+		lastPollOkAt: ownPollFresh ? state.metrics.lastPollOkAt : reportedPollFresh ? state.reportedPollSampleAt : 0,
 		lastOkAt: Math.max(state.metrics.lastOkAt, state.reportedAt),
 	};
 }
@@ -120,10 +151,7 @@ export function recordRemoteDispatchStart(origin: string): void {
 	ensureOrigin(origin).metrics.inFlight++;
 }
 
-/**
- * Mirrors h2-lanes.ts: the latest complete LINE result decides the next
- * request. Keeping an EWMA here would hide a route that just became slower.
- */
+/** Mirrors h2-lanes.ts's role-specific median-of-three route score. */
 export function recordRemoteDispatchEnd(origin: string, role: "send" | "poll" | undefined, elapsedMs: number): void {
 	const state = ensureOrigin(origin);
 	const m = state.metrics;
@@ -135,15 +163,21 @@ export function recordRemoteDispatchEnd(origin: string, role: "send" | "poll" | 
 		return;
 	}
 	if (role === "poll") {
-		// Match local poll routing: the latest end-to-end relay result wins.
-		m.pollRttMs = elapsedMs;
+		m.pollRttMs = recordMedian(state.pollSamples, elapsedMs);
 		m.pollApplicationSamples++;
 		m.lastPollOkAt = now;
 	} else {
-		m.sendRttMs = elapsedMs;
+		m.sendRttMs = recordMedian(state.sendSamples, elapsedMs);
 		m.lastSendOkAt = now;
 	}
 	m.lastOkAt = now;
+}
+
+/** Releases concurrency state without poisoning routing with a failed or
+ * ambiguous dispatch duration. */
+export function recordRemoteDispatchFailure(origin: string): void {
+	const m = ensureOrigin(origin).metrics;
+	m.inFlight = Math.max(0, m.inFlight - 1);
 }
 
 /** Test-only reset. */

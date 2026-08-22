@@ -40,6 +40,8 @@ function fixtureLane(): LaneStat {
 		state: "ready",
 		inFlight: 0,
 		lastOkAt: FIXTURE_TS,
+		sendRttMs: 15.2,
+		pollRttMs: 18.2,
 		lastSendOkAt: FIXTURE_TS,
 		lastPollOkAt: FIXTURE_TS,
 		applicationRttMs: 15.2,
@@ -149,7 +151,7 @@ describe("lane relay report intake", () => {
 		expect(remoteLaneCandidate("https://legy.line-apps.com")?.rttMs).toBe(6.4);
 	});
 
-	test("prefers a real applicationRttMs over another lane's ping-only rttMs on the same origin", async () => {
+	test("reports SEND separately from the fastest transport PING", async () => {
 		process.env.LANE_RELAY_TOKEN = "correct-token";
 		process.env.LINE_RELAY_URL = "http://10.90.0.2:8795/dispatch";
 		process.env.LINE_RELAY_TOKEN = "dispatch-token";
@@ -157,23 +159,48 @@ describe("lane relay report intake", () => {
 		const neverUsedLane: LaneStat = {
 			...fixtureLane(),
 			id: 1,
+			sendRttMs: undefined,
+			lastSendOkAt: 0,
 			applicationRttMs: undefined,
 			applicationSampleAt: 0,
 			routingPreferred: false,
 			rttMs: 1.2,
 		};
-		const provenLane: LaneStat = { ...fixtureLane(), id: 2, applicationRttMs: 18.5 };
+		const provenLane: LaneStat = { ...fixtureLane(), id: 2, sendRttMs: 18.5, applicationRttMs: 18.5 };
 		const response = await app.request("/internal/lane-relay-events", {
 			method: "POST",
 			headers: { "content-type": "application/json", [LANE_RELAY_TOKEN_HEADER]: "correct-token" },
 			body: JSON.stringify({ workerId: "relay-3", ts: Date.now(), lanes: [neverUsedLane, provenLane], races: [] }),
 		});
 		expect(response.status).toBe(202);
-		// The proven 18.5ms real sample must win over the other lane's
-		// optimistic 1.2ms ping-only number — once an origin has real
-		// traffic anywhere on the box, an unused lane elsewhere must not
-		// make it look faster than it actually performs.
-		expect(remoteLaneCandidate("https://legy.line-apps.com")?.rttMs).toBe(18.5);
+		const candidate = remoteLaneCandidate("https://legy.line-apps.com")!;
+		expect(candidate.rttMs).toBe(1.2);
+		expect(candidate.sendRttMs).toBe(18.5);
+	});
+
+	test("never promotes a fast POLL report into a SEND score", async () => {
+		process.env.LANE_RELAY_TOKEN = "correct-token";
+		process.env.LINE_RELAY_URL = "http://10.90.0.2:8795/dispatch";
+		process.env.LINE_RELAY_TOKEN = "dispatch-token";
+		const app = buildApp();
+		const pollOnly: LaneStat = {
+			...fixtureLane(),
+			sendRttMs: undefined,
+			lastSendOkAt: 0,
+			pollRttMs: 9.5,
+			lastPollOkAt: FIXTURE_TS,
+			applicationRttMs: 9.5,
+			applicationSampleAt: FIXTURE_TS,
+		};
+		const response = await app.request("/internal/lane-relay-events", {
+			method: "POST",
+			headers: { "content-type": "application/json", [LANE_RELAY_TOKEN_HEADER]: "correct-token" },
+			body: JSON.stringify({ workerId: "relay-3", ts: FIXTURE_TS, lanes: [pollOnly], races: [] }),
+		});
+		expect(response.status).toBe(202);
+		const candidate = remoteLaneCandidate("https://legy.line-apps.com")!;
+		expect(candidate.pollRttMs).toBe(9.5);
+		expect(candidate.sendRttMs).toBeUndefined();
 	});
 
 	test("does not refresh an expired application sample by repeating it in a fresh report", async () => {
@@ -183,6 +210,8 @@ describe("lane relay report intake", () => {
 		const app = buildApp();
 		const staleLane: LaneStat = {
 			...fixtureLane(),
+			sendRttMs: 5,
+			lastSendOkAt: FIXTURE_TS - 60_000,
 			applicationRttMs: 5,
 			applicationSampleAt: FIXTURE_TS - 60_000,
 			rttMs: 8,
@@ -193,7 +222,9 @@ describe("lane relay report intake", () => {
 			body: JSON.stringify({ workerId: "relay-3", ts: FIXTURE_TS, lanes: [staleLane], races: [] }),
 		});
 		expect(response.status).toBe(202);
-		expect(remoteLaneCandidate("https://legy.line-apps.com")?.rttMs).toBe(8);
+		const candidate = remoteLaneCandidate("https://legy.line-apps.com")!;
+		expect(candidate.rttMs).toBe(8);
+		expect(candidate.sendRttMs).toBeUndefined();
 	});
 
 	test("drops a report once it is older than the requested max age", async () => {

@@ -3,8 +3,6 @@
  * deliberately called from `setImmediate`: it is a spectator of the reply
  * path, never a condition for resolving a response to the bot.
  */
-import { db } from "../db/sqlite.ts";
-import { enqueueLaneRace } from "../db/write-behind.ts";
 
 export type LaneRaceResult = "star" | "banana";
 export type LaneRaceRole = "send" | "poll";
@@ -21,7 +19,6 @@ function retentionDays(): number {
 	return Number.isFinite(value) ? Math.min(365, Math.max(1, value)) : 30;
 }
 export const LANE_RACE_RETENTION_DAYS = retentionDays();
-const RETENTION_MS = LANE_RACE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 /** Exported so anything tagging a response with "which process is this" (the
  * dashboard merge in metrics.ts/health.ts, the lane relay's own reports)
  * reads the exact same value this module already persists events under. */
@@ -53,7 +50,7 @@ function scoreKey(origin: string, laneId: number, role: LaneRaceRole): string {
 	return `${origin}\u0000${laneId}\u0000${role}`;
 }
 
-interface PersistedScoreRow {
+export interface PersistedLaneRaceScore {
 	origin: string;
 	lane_id: number;
 	role: LaneRaceRole;
@@ -64,7 +61,7 @@ interface PersistedScoreRow {
 	last_at: number;
 }
 
-interface PersistedEventRow {
+export interface PersistedLaneRaceEvent {
 	ts: number;
 	origin: string;
 	lane_id: number;
@@ -73,20 +70,7 @@ interface PersistedEventRow {
 	rtt_ms: number;
 }
 
-function hydratePersistedRace(): void {
-	const since = Date.now() - RETENTION_MS;
-	const persistedScores = db
-		.query<PersistedScoreRow, [string, number]>(
-			`
-		SELECT origin, lane_id, role, COUNT(*) AS samples,
-			SUM(result = 'star') AS stars, SUM(result = 'banana') AS bananas,
-			AVG(rtt_ms) AS avg_rtt_ms, MAX(ts) AS last_at
-		FROM lane_race_events
-		WHERE worker_id = ? AND ts >= ?
-		GROUP BY origin, lane_id, role
-	`,
-		)
-		.all(WORKER_ID, since);
+export function hydrateLaneRace(persistedScores: PersistedLaneRaceScore[], persistedEvents: PersistedLaneRaceEvent[]): void {
 	for (const row of persistedScores) {
 		scores.set(scoreKey(row.origin, row.lane_id, row.role), {
 			samples: row.samples,
@@ -97,17 +81,6 @@ function hydratePersistedRace(): void {
 			lastAt: row.last_at,
 		});
 	}
-	const persistedEvents = db
-		.query<PersistedEventRow, [string, number, number]>(
-			`
-		SELECT ts, origin, lane_id, role, result, rtt_ms
-		FROM lane_race_events
-		WHERE worker_id = ? AND ts >= ?
-		ORDER BY ts DESC LIMIT ?
-	`,
-		)
-		.all(WORKER_ID, since, MAX_RECENT_EVENTS)
-		.reverse();
 	for (const row of persistedEvents) {
 		const event: LaneRaceEvent = {
 			ts: row.ts,
@@ -126,7 +99,16 @@ function hydratePersistedRace(): void {
 	}
 }
 
-if (process.env.NODE_ENV !== "test") hydratePersistedRace();
+type PersistLaneRace = (event: LaneRaceEvent) => void;
+let persistLaneRace: PersistLaneRace | undefined;
+let dailyHistoryProvider: (() => LaneRaceDaily[]) | undefined;
+
+/** Main backend installs persistence after topology validation. The relay
+ * never imports a database module and keeps only this bounded memory view. */
+export function configureLaneRacePersistence(persist: PersistLaneRace, daily: () => LaneRaceDaily[]): void {
+	persistLaneRace = persist;
+	dailyHistoryProvider = daily;
+}
 
 /** A copy lets the API expose live data without allowing callers to mutate it. */
 export function laneRaceScore(origin: string, laneId: number, role: LaneRaceRole): LaneRaceScore {
@@ -151,22 +133,7 @@ export interface LaneRaceDaily {
 
 /** Dashboard-only grouped read; never called by lane selection or replies. */
 export function laneRaceDailyHistory(): LaneRaceDaily[] {
-	return db
-		.query<LaneRaceDaily, [string, number]>(
-			`
-		SELECT strftime('%Y-%m-%d', ts / 1000, 'unixepoch', '+7 hours') AS day,
-			SUM(result = 'star') AS stars,
-			SUM(result = 'banana') AS bananas,
-			SUM(role = 'send' AND result = 'star') AS send_stars,
-			SUM(role = 'send' AND result = 'banana') AS send_bananas,
-			SUM(role = 'poll' AND result = 'star') AS poll_stars,
-			SUM(role = 'poll' AND result = 'banana') AS poll_bananas
-		FROM lane_race_events
-		WHERE worker_id = ? AND ts >= ?
-		GROUP BY day ORDER BY day
-	`,
-		)
-		.all(WORKER_ID, Date.now() - RETENTION_MS);
+	return dailyHistoryProvider?.() ?? [];
 }
 
 export function scoreLaneRtt(rttMs: number, benchmarkMs: number | undefined): LaneRaceResult {
@@ -219,17 +186,5 @@ export function recordLaneRace(role: LaneRaceRole, origin: string, laneId: numbe
 		lastAt: event.ts,
 		lastResult: event.result,
 	});
-	// This function already runs in setImmediate after the request resolved.
-	// postMessage copies one tiny object; SQLite batches on another event loop.
-	if (process.env.NODE_ENV !== "test") {
-		enqueueLaneRace({
-			workerId: WORKER_ID,
-			ts: event.ts,
-			origin: event.origin,
-			laneId: event.laneId,
-			role: event.role,
-			result: event.result,
-			rttMs: event.rttMs,
-		});
-	}
+	persistLaneRace?.(event);
 }

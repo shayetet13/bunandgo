@@ -1,5 +1,5 @@
 import type { DispatchConfig } from "./client.ts";
-import { H2_LANE_ROLE_HEADER, laneFetch, primeLanes } from "./h2-lanes.ts";
+import { H2_LANE_ROLE_HEADER, laneFetch, primeLanes, relayOriginAllowed } from "./h2-lanes.ts";
 
 /**
  * Host that carries the latency-sensitive poll/reply workload.
@@ -56,8 +56,9 @@ async function warmDirect(hosts: readonly string[]): Promise<WarmResult[]> {
 }
 
 async function warmRelay(hosts: readonly string[]): Promise<WarmResult[]> {
+	const relayHosts = hosts.filter((host) => relayOriginAllowed(`https://${host}`));
 	return Promise.all(
-		hosts.map(async (host): Promise<WarmResult> => {
+		relayHosts.map(async (host): Promise<WarmResult> => {
 			const started = performance.now();
 			try {
 				const response = await laneFetch(`https://${host}/`, {

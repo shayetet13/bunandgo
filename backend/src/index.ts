@@ -107,6 +107,10 @@ process.on("uncaughtException", (err) => {
 await waitForSenderReady();
 console.log("sender: healthy");
 
+// Server2-only persistence adapter. The Server3 relay entrypoint never imports
+// this module, so its lane telemetry remains bounded and memory-only.
+await import("./dispatch/lane-race-persistence.ts");
+
 const { startSystemLoadMonitor } = await import("./monitoring/system-load.ts");
 startSystemLoadMonitor();
 

@@ -53,7 +53,7 @@ export const relayConfig = {
 	/** Origins that own dedicated H2 lanes. Production keeps all 32 on legy;
 	 * gf is not part of the latency-sensitive workload. */
 	lineOrigins,
-	/** A rare login/control request may still name gf. Permit it to use the
-	 * ordinary one-off fetch fallback without spending a permanent lane pool. */
-	allowedOrigins: parseOrigins(process.env.LANE_RELAY_ALLOWED_ORIGINS, [...lineOrigins, "https://gf.line.naver.jp"].join(",")),
+	/** Structural isolation: Server3 accepts only its lane origins. Login and
+	 * control hosts (notably gf.line.naver.jp) must stay on Server2. */
+	allowedOrigins: lineOrigins,
 };

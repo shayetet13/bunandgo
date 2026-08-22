@@ -109,46 +109,50 @@ laneRelayEventsRoute.post("/", async (c) => {
 	const receivedAt = Date.now();
 	reports.set(workerId, { workerId, receivedAt, lanes: lanes as LaneStat[], races: races as LaneRaceLaneView[] });
 
-	// Keeps the routing candidate in remote-lane.ts warm from the relay's own
-	// self-report, so laneFetch() has a background RTT estimate to race
-	// against even before this process has dispatched anything through it —
-	// see remote-lane.ts's own docs for why this never adds a network round
-	// trip to a live send/poll decision.
-	//
-	// A lane only ever gets an applicationRttMs once a real send/poll has
-	// gone through it — which, for a relay box, only happens once it has
-	// already been picked as a remote candidate at least once. Requiring
-	// applicationRttMs here made that impossible to bootstrap: every lane
-	// stayed "no sample yet" forever, so this origin could never seed a
-	// candidate, so it could never be picked, so no lane ever got a sample.
-	// Falling back to the lane's own PING rttMs (always present once a lane
-	// reaches "ready", real traffic or not) breaks that deadlock with a
-	// same-network, if less precise, stand-in. It's a one-time bootstrap
-	// only: the instant a real dispatch lands, recordRemoteDispatchEnd's
-	// measurement wins over this report unconditionally (see
-	// remoteLaneCandidate's hasOwnMeasurement check), so a proven real
-	// sample is never displaced by a rougher ping-only one from some other
-	// still-unused lane on the same box.
-	const bestApplicationByOrigin = new Map<string, number>();
+	// Keep transport PING, SEND and POLL reports independent. PING can expose a
+	// ready cold relay, but it never becomes a SEND score. Role timestamps are
+	// converted from Server3's clock into Server2 receipt time using their
+	// reported age, so small host clock differences cannot make a sample fresh
+	// forever or expire it immediately.
+	const bestSendByOrigin = new Map<string, { rttMs: number; sampleAt: number }>();
+	const bestPollByOrigin = new Map<string, { rttMs: number; sampleAt: number }>();
 	const bestPingByOrigin = new Map<string, number>();
 	for (const lane of lanes as LaneStat[]) {
 		if (lane.state !== "ready") continue;
-		const applicationAgeMs = ts - lane.applicationSampleAt;
-		const hasFreshApplicationSample =
-			lane.applicationRttMs !== undefined && applicationAgeMs >= 0 && applicationAgeMs <= APPLICATION_SAMPLE_MAX_AGE_MS;
-		if (hasFreshApplicationSample) {
-			const best = bestApplicationByOrigin.get(lane.origin);
-			if (best === undefined || lane.applicationRttMs! < best) bestApplicationByOrigin.set(lane.origin, lane.applicationRttMs!);
-		} else if (lane.rttMs !== undefined) {
+		const sendAgeMs = ts - lane.lastSendOkAt;
+		if (lane.sendRttMs !== undefined && sendAgeMs >= 0 && sendAgeMs <= APPLICATION_SAMPLE_MAX_AGE_MS) {
+			const best = bestSendByOrigin.get(lane.origin);
+			if (!best || lane.sendRttMs < best.rttMs) {
+				bestSendByOrigin.set(lane.origin, { rttMs: lane.sendRttMs, sampleAt: receivedAt - sendAgeMs });
+			}
+		}
+		const pollAgeMs = ts - lane.lastPollOkAt;
+		if (lane.pollRttMs !== undefined && pollAgeMs >= 0 && pollAgeMs <= APPLICATION_SAMPLE_MAX_AGE_MS) {
+			const best = bestPollByOrigin.get(lane.origin);
+			if (!best || lane.pollRttMs < best.rttMs) {
+				bestPollByOrigin.set(lane.origin, { rttMs: lane.pollRttMs, sampleAt: receivedAt - pollAgeMs });
+			}
+		}
+		if (lane.rttMs !== undefined) {
 			const best = bestPingByOrigin.get(lane.origin);
 			if (best === undefined || lane.rttMs < best) bestPingByOrigin.set(lane.origin, lane.rttMs);
 		}
 	}
-	const reportedOrigins = new Set([...bestApplicationByOrigin.keys(), ...bestPingByOrigin.keys()]);
+	const reportedOrigins = new Set([...bestSendByOrigin.keys(), ...bestPollByOrigin.keys(), ...bestPingByOrigin.keys()]);
 	for (const origin of reportedOrigins) {
-		const applicationRttMs = bestApplicationByOrigin.get(origin);
-		const bestRttMs = applicationRttMs ?? bestPingByOrigin.get(origin);
-		if (bestRttMs !== undefined) updateRemoteLaneFromReport(origin, bestRttMs, receivedAt, applicationRttMs !== undefined);
+		const send = bestSendByOrigin.get(origin);
+		const poll = bestPollByOrigin.get(origin);
+		updateRemoteLaneFromReport(
+			origin,
+			{
+				pingRttMs: bestPingByOrigin.get(origin),
+				sendRttMs: send?.rttMs,
+				pollRttMs: poll?.rttMs,
+				sendSampleAt: send?.sampleAt,
+				pollSampleAt: poll?.sampleAt,
+			},
+			receivedAt,
+		);
 	}
 
 	return c.json({ accepted: true }, 202);

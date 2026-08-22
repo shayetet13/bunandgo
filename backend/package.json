@@ -7,6 +7,7 @@
 		"dev": "bun run --watch src/index.ts",
 		"start": "bun run src/index.ts",
 		"relay": "bun run src/relay/index.ts",
+		"build:relay": "bun build src/relay/index.ts --target=bun --minify --outfile=dist/relay.js",
 		"typecheck": "tsc --noEmit",
 		"test": "bun test",
 		"lint": "eslint src",

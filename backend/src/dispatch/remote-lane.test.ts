@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
 	recordRemoteDispatchEnd,
+	recordRemoteDispatchFailure,
 	recordRemoteDispatchStart,
 	remoteDispatchConfig,
 	remoteLaneCandidate,
@@ -38,7 +39,7 @@ describe("remoteDispatchConfig", () => {
 
 describe("remoteLaneCandidate", () => {
 	test("undefined when the relay isn't configured, even with a fresh report", () => {
-		updateRemoteLaneFromReport(ORIGIN, 20, Date.now());
+		updateRemoteLaneFromReport(ORIGIN, { pingRttMs: 20 }, Date.now());
 		delete process.env.LINE_RELAY_URL;
 		expect(remoteLaneCandidate(ORIGIN)).toBeUndefined();
 	});
@@ -49,15 +50,15 @@ describe("remoteLaneCandidate", () => {
 
 	test("seeds rttMs from a fresh report", () => {
 		const now = 1_000_000;
-		updateRemoteLaneFromReport(ORIGIN, 20.5, now);
+		updateRemoteLaneFromReport(ORIGIN, { pingRttMs: 6.4, sendRttMs: 20.5, sendSampleAt: now }, now);
 		const candidate = remoteLaneCandidate(ORIGIN, now + 1_000);
-		expect(candidate?.rttMs).toBe(20.5);
+		expect(candidate?.rttMs).toBe(6.4);
 		expect(candidate?.sendRttMs).toBe(20.5);
 	});
 
 	test("keeps a ping-only bootstrap distinct from a real application sample", () => {
 		const now = 1_000_000;
-		updateRemoteLaneFromReport(ORIGIN, 6.4, now, false);
+		updateRemoteLaneFromReport(ORIGIN, { pingRttMs: 6.4 }, now);
 		const candidate = remoteLaneCandidate(ORIGIN, now + 1_000);
 		expect(candidate?.rttMs).toBe(6.4);
 		expect(candidate?.sendRttMs).toBeUndefined();
@@ -65,13 +66,13 @@ describe("remoteLaneCandidate", () => {
 
 	test("undefined once the report goes stale", () => {
 		const now = 1_000_000;
-		updateRemoteLaneFromReport(ORIGIN, 20.5, now);
+		updateRemoteLaneFromReport(ORIGIN, { pingRttMs: 6.4, sendRttMs: 20.5, sendSampleAt: now }, now);
 		expect(remoteLaneCandidate(ORIGIN, now + 20_001)).toBeUndefined();
 	});
 
 	test("a fresh real dispatch measurement takes over from the reported estimate", () => {
 		const now = Date.now();
-		updateRemoteLaneFromReport(ORIGIN, 20.5, now);
+		updateRemoteLaneFromReport(ORIGIN, { pingRttMs: 6.4, sendRttMs: 20.5, sendSampleAt: now }, now);
 		recordRemoteDispatchStart(ORIGIN);
 		recordRemoteDispatchEnd(ORIGIN, "send", 17.3);
 		const candidate = remoteLaneCandidate(ORIGIN, now + 1_000);
@@ -81,7 +82,7 @@ describe("remoteLaneCandidate", () => {
 
 describe("recordRemoteDispatchStart / recordRemoteDispatchEnd", () => {
 	test("tracks inFlight across a dispatch", () => {
-		updateRemoteLaneFromReport(ORIGIN, 20, Date.now());
+		updateRemoteLaneFromReport(ORIGIN, { pingRttMs: 6.4, sendRttMs: 20, sendSampleAt: Date.now() }, Date.now());
 		recordRemoteDispatchStart(ORIGIN);
 		const midFlight = remoteLaneCandidate(ORIGIN)!;
 		expect(midFlight.inFlight).toBe(1);
@@ -99,16 +100,18 @@ describe("recordRemoteDispatchStart / recordRemoteDispatchEnd", () => {
 		expect(candidate.pollRttMs).toBe(15);
 	});
 
-	test("uses the latest poll result instead of hiding it in an average", () => {
+	test("uses a median window so one poll spike does not replace the route score", () => {
 		recordRemoteDispatchStart(ORIGIN);
 		recordRemoteDispatchEnd(ORIGIN, "poll", 12);
 		recordRemoteDispatchStart(ORIGIN);
 		recordRemoteDispatchEnd(ORIGIN, "poll", 31);
-		expect(remoteLaneCandidate(ORIGIN)!.pollRttMs).toBe(31);
+		recordRemoteDispatchStart(ORIGIN);
+		recordRemoteDispatchEnd(ORIGIN, "poll", 14);
+		expect(remoteLaneCandidate(ORIGIN)!.pollRttMs).toBe(14);
 	});
 
 	test("a warm dispatch releases in-flight state without becoming a send sample", () => {
-		updateRemoteLaneFromReport(ORIGIN, 8, Date.now(), false);
+		updateRemoteLaneFromReport(ORIGIN, { pingRttMs: 8 }, Date.now());
 		recordRemoteDispatchStart(ORIGIN);
 		recordRemoteDispatchEnd(ORIGIN, undefined, 2);
 		const candidate = remoteLaneCandidate(ORIGIN)!;
@@ -117,13 +120,24 @@ describe("recordRemoteDispatchStart / recordRemoteDispatchEnd", () => {
 		expect(candidate.pollRttMs).toBeUndefined();
 	});
 
-	test("uses the latest send result instead of hiding it in an average", () => {
+	test("uses a median window so one send spike does not replace the route score", () => {
 		recordRemoteDispatchStart(ORIGIN);
 		recordRemoteDispatchEnd(ORIGIN, "send", 20);
 		recordRemoteDispatchStart(ORIGIN);
+		recordRemoteDispatchEnd(ORIGIN, "send", 80);
+		recordRemoteDispatchStart(ORIGIN);
 		recordRemoteDispatchEnd(ORIGIN, "send", 10);
 		const candidate = remoteLaneCandidate(ORIGIN)!;
-		expect(candidate.sendRttMs).toBe(10);
+		expect(candidate.sendRttMs).toBe(20);
+	});
+
+	test("a failed dispatch releases inFlight without becoming a latency sample", () => {
+		updateRemoteLaneFromReport(ORIGIN, { pingRttMs: 8 }, Date.now());
+		recordRemoteDispatchStart(ORIGIN);
+		recordRemoteDispatchFailure(ORIGIN);
+		const candidate = remoteLaneCandidate(ORIGIN)!;
+		expect(candidate.inFlight).toBe(0);
+		expect(candidate.sendRttMs).toBeUndefined();
 	});
 
 	test("inFlight never goes negative from an unmatched end", () => {

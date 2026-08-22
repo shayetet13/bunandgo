@@ -13,6 +13,7 @@ import {
 	pollingCandidatesForCalibration,
 	primeLanes,
 	selectAgedLaneForRecycle,
+	selectFastestSendLaneCandidate,
 	selectPollingLaneCandidate,
 	shouldPreferFastestSendLane,
 	shouldPreferLane,
@@ -250,7 +251,7 @@ describe("owned HTTP/2 lanes", () => {
 		await pendingPoll;
 
 		expect(holdSession).not.toBe(primeSession);
-		expect(sendSession).toBe(primeSession);
+		expect(sendSession).not.toBe(holdSession);
 	});
 
 	test("calibrates every poll lane once, then continually re-ranks measured results", async () => {
@@ -358,11 +359,18 @@ describe("RTT-aware lane ranking", () => {
 		expect(shouldPreferRemoteLane({ sendRttMs: 31, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 }, local)).toBe(false);
 	});
 
-	test("bootstraps an unmeasured Server 3 by relative PING, not an absolute ceiling", () => {
+	test("does not mistake an unmeasured Server 3 PING for a SEND result", () => {
 		const local = { rttMs: 12, sendRttMs: 25, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 };
-		expect(shouldPreferRemoteLane({ rttMs: 8, lastOkAt: 1, inFlight: 0 }, local)).toBe(true);
+		expect(shouldPreferRemoteLane({ rttMs: 8, lastOkAt: 1, inFlight: 0 }, local)).toBe(false);
 		expect(shouldPreferRemoteLane({ rttMs: 15, lastOkAt: 1, inFlight: 0 }, local)).toBe(false);
-		expect(shouldPreferRemoteLane({ rttMs: 50, lastOkAt: 1, inFlight: 0 }, undefined)).toBe(true);
+		expect(shouldPreferRemoteLane({ rttMs: 50, lastOkAt: 1, inFlight: 0 }, undefined)).toBe(false);
+		expect(shouldPreferRemoteLane({ sendRttMs: 50, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 }, undefined)).toBe(true);
+	});
+
+	test("lets a cold Server 3 earn its first SEND sample only under real concurrency", () => {
+		const busyLocal = { rttMs: 12, sendRttMs: 25, lastSendOkAt: 1, lastOkAt: 1, inFlight: 2 };
+		expect(shouldPreferRemoteLane({ rttMs: 8, lastOkAt: 1, inFlight: 0 }, busyLocal)).toBe(true);
+		expect(shouldPreferRemoteLane({ rttMs: 50, lastOkAt: 1, inFlight: 0 }, busyLocal)).toBe(false);
 	});
 
 	test("prefers a materially faster route even after accounting for one in-flight stream", () => {
@@ -471,22 +479,32 @@ describe("send-reserved lanes", () => {
 		expect(pollingCandidatesForCalibration(measured, 2).map((lane) => lane.id)).toEqual([2, 3]);
 	});
 
-	test("keeps all idle measured send candidates regardless of absolute RTT", () => {
+	test("keeps every usable lane in contention without treating POLL as SEND", () => {
 		const measured = [
 			{ id: 0, sendRttMs: 80, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 },
 			{ id: 1, sendRttMs: 95, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 },
 			{ id: 2, pollRttMs: 70, lastPollOkAt: 1, lastOkAt: 1, inFlight: 0 },
 			{ id: 3, pollRttMs: 60, lastPollOkAt: 1, lastOkAt: 1, inFlight: 1 },
 		];
-		expect(fastestSendCandidates(measured).map((lane) => lane.id)).toEqual([0, 1, 2]);
+		expect(fastestSendCandidates(measured).map((lane) => lane.id)).toEqual([0, 1, 2, 3]);
 	});
 
-	test("uses an idle measured route instead of queueing behind the fastest occupied route", () => {
+	test("keeps a faster multiplexed lane ahead of a much slower idle lane", () => {
 		const measured = [
 			{ id: 0, sendRttMs: 18, lastSendOkAt: 1, lastOkAt: 1, inFlight: 1 },
 			{ id: 1, sendRttMs: 40, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 },
 		];
-		expect(fastestSendCandidates(measured).map((lane) => lane.id)).toEqual([1]);
+		const candidates = fastestSendCandidates(measured);
+		expect(candidates.map((lane) => lane.id)).toEqual([0, 1]);
+		expect(selectFastestSendLaneCandidate(candidates)?.id).toBe(0);
+	});
+
+	test("spreads concurrent sends when the load penalty exceeds a close route", () => {
+		const lanes = [
+			{ id: 0, sendRttMs: 18, lastSendOkAt: 1, lastOkAt: 1, inFlight: 1 },
+			{ id: 1, sendRttMs: 19, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 },
+		];
+		expect(selectFastestSendLaneCandidate(lanes)?.id).toBe(1);
 	});
 
 	test("uses the reserved partition only before any real application result exists", () => {
@@ -502,10 +520,11 @@ describe("send-reserved lanes", () => {
 		expect(fastestSendCandidates([])).toEqual([]);
 	});
 
-	test("switches at exactly 0.50ms but not at 0.49ms", () => {
+	test("never lets POLL switch a SEND route and keeps the SEND margin", () => {
 		const current = { sendRttMs: 22, lastSendOkAt: 100, lastOkAt: 100, inFlight: 0 };
-		expect(shouldPreferFastestSendLane({ pollRttMs: 21.5, lastPollOkAt: 100, lastOkAt: 100, inFlight: 0 }, current, 0.5)).toBeTrue();
-		expect(shouldPreferFastestSendLane({ pollRttMs: 21.51, lastPollOkAt: 101, lastOkAt: 101, inFlight: 0 }, current, 0.5)).toBeFalse();
+		expect(shouldPreferFastestSendLane({ pollRttMs: 1, lastPollOkAt: 100, lastOkAt: 100, inFlight: 0 }, current, 0.5)).toBeFalse();
+		expect(shouldPreferFastestSendLane({ sendRttMs: 21.5, lastSendOkAt: 100, lastOkAt: 100, inFlight: 0 }, current, 0.5)).toBeTrue();
+		expect(shouldPreferFastestSendLane({ sendRttMs: 21.51, lastSendOkAt: 101, lastOkAt: 101, inFlight: 0 }, current, 0.5)).toBeFalse();
 	});
 });
 

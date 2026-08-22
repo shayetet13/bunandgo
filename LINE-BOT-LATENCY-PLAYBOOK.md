@@ -284,9 +284,9 @@ LINE_H2_SEND_RESERVED_LANES=4
 
 กฎที่แก้แล้ว:
 
-- lane ทุก partition ที่มี **application RTT จริง** เข้ากลุ่ม send candidate ได้
-- ถ้ามี candidate ที่ idle ให้ตัด lane ที่มี in-flight ออกก่อน
-- ถ้ายังไม่มี application sample ให้ bootstrap จาก send-reserved lanes
+- lane ทุก partition ที่มี **SEND RTT จริง** เข้ากลุ่ม send candidate ได้
+- ไม่ตัด lane ที่มี in-flight ทิ้ง เพราะ HTTP/2 multiplex ได้; ใช้ load penalty เปรียบเทียบแทน
+- ถ้ายังไม่มี SEND sample ให้ bootstrap จาก send-reserved lanes โดยไม่ใช้ POLL เป็นคะแนน SEND
 - ถ้า reserved lanes ล่มทั้งหมด ให้ขยายไปทุก usable lane แทนการส่งไม่ออก
 
 ### 7.4 กฎ fastest-first แบบละเอียด
@@ -294,15 +294,15 @@ LINE_H2_SEND_RESERVED_LANES=4
 ```text
 routingPreferred =
   lane ready
-  AND application RTT มีค่า
-  AND application RTT ต่ำที่สุดใน worker นั้น
+  AND SEND RTT มีค่า
+  AND median SEND RTT 3 ครั้งล่าสุด + load penalty ต่ำที่สุดใน worker นั้น
 ```
 
 จุดสำคัญ:
 
 - ไม่มีตัวเลข pass/fail หรือ discard ceiling
-- ใช้ผลจริงล่าสุดระหว่าง send/poll ไม่ใช้คะแนนย้อนหลังหรือค่า minimum ตลอดชีวิต
-- PING อย่างเดียวใช้ได้เฉพาะ bootstrap ก่อนมีผลจริง
+- SEND และ POLL แยกคะแนนกันเด็ดขาด
+- PING ไม่ถูกนับเป็น SEND ระหว่าง Server 2/3; Server 3 ที่ยังไม่มี SEND sample จะได้ทดลองหนึ่งงานเฉพาะเมื่อเลนที่พิสูจน์แล้วกำลังรับ concurrent load และคะแนน cold-route แบบเผื่อความเสี่ยงชนะเท่านั้น
 - Server 3 report เก่ากว่า 3 วินาทีไม่ถูกนำมาเปรียบเทียบ
 
 ### 7.5 กฎสลับ `0.50ms`
@@ -318,10 +318,10 @@ improvement = currentApplicationRtt - candidateApplicationRtt
 
 | Lane ปัจจุบัน |    Candidate | ผล                             |
 | ------------: | -----------: | ------------------------------ |
-|   send 22.0ms |  poll 18.0ms | ย้ายไป poll lane               |
-|   send 22.0ms |  poll 21.5ms | ย้าย เพราะเร็วขึ้น 0.50ms พอดี |
-|   send 22.0ms | poll 21.51ms | ไม่ย้าย เพราะเร็วขึ้น 0.49ms   |
-|   send 22.0ms |  poll 24.0ms | ไม่ย้ายไปตัวช้ากว่า            |
+|   send 22.0ms |  send 18.0ms | ย้ายไป candidate               |
+|   send 22.0ms |  send 21.5ms | ย้าย เพราะเร็วขึ้น 0.50ms พอดี |
+|   send 22.0ms | send 21.51ms | ไม่ย้าย เพราะเร็วขึ้น 0.49ms   |
+|   send 22.0ms |  poll 10.0ms | ไม่ใช้ POLL ตัดสิน SEND         |
 
 margin ป้องกัน lane churn จาก noise เล็กมาก หากตั้ง `0.01ms` ระบบจะสลับตาม jitter และอาจเสีย soft affinity มากกว่ากำไร
 
@@ -343,7 +343,7 @@ hard pin เคยทำให้มี 6 physical sessions แต่พฤต�
 networkPingEWMA = old × 0.70 + sample × 0.30
 ```
 
-เฉพาะ network PING ใช้ EWMA ส่วนค่า `send/poll` ใช้ผลจริงล่าสุดโดยตรง เพื่อให้รอบที่ช้าลงเปลี่ยนการจัดอันดับครั้งถัดไปทันที
+เฉพาะ network PING ใช้ EWMA ส่วนค่า `send/poll` ใช้ median ของ 3 ผลล่าสุดแยก role เพื่อตัด spike เดี่ยว แต่สองผลช้าติดต่อกันยังเปลี่ยนการจัดอันดับได้ทันที
 
 ### 7.8 In-flight penalty
 
@@ -353,7 +353,7 @@ networkPingEWMA = old × 0.70 + sample × 0.30
 score = RTT + inFlight × 4ms
 ```
 
-แต่ในการส่ง ถ้ามี measured idle lane ระบบเลือกเฉพาะ idle ก่อน ช่วยไม่ให้ reply ไปต่อท้าย poll stream โดยไม่จำเป็น
+การส่งไม่ตัด occupied lane ทิ้ง แต่คิด `inFlight × 4ms` เพื่อให้เลนเร็วที่ multiplex อยู่ยังชนะเลนว่างที่ช้ากว่ามากได้
 
 ### 7.9 Poll exploration
 
@@ -370,7 +370,7 @@ score = RTT + inFlight × 4ms
 
 ระบบไม่ซ่อมหรือตัด lane จากเส้นตาย 20/23ms อีกต่อไป แต่เปรียบเทียบผลจริงระหว่าง lane โดยตรง:
 
-1. เลือก measured idle lane ที่มีผลล่าสุดต่ำที่สุด
+1. เลือกคะแนน `median SEND 3 ครั้งล่าสุด + load penalty` ต่ำที่สุด
 2. สลับเมื่ออีก lane เร็วกว่าอย่างน้อย switch margin เพื่อกันการสั่นจาก noise
 3. Server 2 และ Server 3 ใช้กฎเปรียบเทียบเดียวกัน
 4. แต่ละ request ออกเพียงเครื่องเดียวและ lane เดียว จึงไม่เกิดข้อความซ้ำ
