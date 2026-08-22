@@ -161,6 +161,28 @@ describe("owned HTTP/2 lanes", () => {
 		expect(requests).toBe(lanes.length);
 	});
 
+	test("re-primes a replacement connection after GOAWAY", async () => {
+		let requests = 0;
+		const sessions: object[] = [];
+		const { origin, server } = await startServer((stream) => {
+			requests++;
+			if (!sessions.includes(stream.session!)) sessions.push(stream.session!);
+			stream.respond({ ":status": 204 });
+			stream.end();
+		});
+		running = server;
+
+		await primeLanes(origin);
+		const initialRequests = requests;
+		const initialSessions = sessions.length;
+		(sessions[0] as { goaway: (code: number, lastStreamId: number) => void }).goaway(constants.NGHTTP2_NO_ERROR, 0);
+
+		for (let attempt = 0; attempt < 20 && requests === initialRequests; attempt++) await Bun.sleep(50);
+		expect(sessions.length).toBeGreaterThan(initialSessions);
+		expect(requests).toBe(initialRequests + 1);
+		expect(laneStats().filter((lane) => lane.lastOkAt > 0)).toHaveLength(laneStats().length);
+	});
+
 	test("holds a standby lane alongside the one in use", async () => {
 		const { origin, server } = await startServer((stream) => {
 			stream.respond({ ":status": 200 });

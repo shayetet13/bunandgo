@@ -786,6 +786,21 @@ function openLane(lane: Lane): Promise<void> {
 			// `lastOkAt` pins all hot traffic to whichever lane happened to carry
 			// the first poll, even when a faster standby is already connected.
 			pingLane(lane);
+			// Once an origin has completed its startup prime, every replacement
+			// connection must prime itself too. Otherwise a repair/GOAWAY quietly
+			// turns one slot cold again even though the dashboard still describes
+			// the pool as warmed. The HEAD remains unscored as real application
+			// work; it only removes first-stream/path setup.
+			if (primedOrigins.has(lane.origin)) {
+				void primeLane(lane)
+					.then(resolve)
+					.catch((error) => {
+						lane.consecutiveFailures++;
+						retireLane(lane, "dead");
+						reject(error instanceof Error ? error : new Error(String(error)));
+					});
+				return;
+			}
 			// A brand-new lane is unproven, so `pickLane` keeps preferring the
 			// lane that has actually carried traffic until this one is needed.
 			resolve();
@@ -895,24 +910,24 @@ export function primeLanes(origin: string): Promise<void> {
 		await ensureLanes(key);
 		const lanes = pools.get(key)?.filter(isUsable) ?? [];
 		if (lanes.length === 0) throw new Error(`no usable lane to prime for ${key}`);
-		await Promise.all(
-			lanes.map(async (lane) => {
-				const response = await sendOnLane(
-					lane,
-					// Prime the same Akamai/application route the hot Square poll uses.
-					// HEAD carries no LINE token or RPC body, so it cannot poll or send.
-					new URL("/SQ1", key),
-					{ method: "HEAD", signal: AbortSignal.timeout(10_000) },
-					undefined,
-					"warm",
-				);
-				if (!response) throw new Error(`lane ${lane.id} closed before its warm response`);
-			}),
-		);
+		await Promise.all(lanes.map((lane) => primeLane(lane)));
 		primedOrigins.add(key);
 	})().finally(() => originPrimeRuns.delete(key));
 	originPrimeRuns.set(key, run);
 	return run;
+}
+
+async function primeLane(lane: Lane): Promise<void> {
+	const response = await sendOnLane(
+		lane,
+		// Prime the same Akamai/application route the hot Square poll uses.
+		// HEAD carries no LINE token or RPC body, so it cannot poll or send.
+		new URL("/SQ1", lane.origin),
+		{ method: "HEAD", signal: AbortSignal.timeout(10_000) },
+		undefined,
+		"warm",
+	);
+	if (!response) throw new Error(`lane ${lane.id} closed before its warm response`);
 }
 
 export function buildHeaders(authority: string, scheme: string, path: string, method: string, init?: RequestInit): OutgoingHttpHeaders {
