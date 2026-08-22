@@ -116,10 +116,16 @@ const APPLICATION_HOT_CEILING_MS = Math.max(
 		20,
 	),
 );
-/** Known routes at or above this RTT are removed from foreground sends. */
+/** Known routes at or above this RTT are removed from foreground sends.
+ * Widened from 21 back to 23 on purpose: the lane relay's own real,
+ * single-session measurement averaged 21.4ms (range 17-30ms) — at 21 it was
+ * being excluded outright most of the time rather than getting a genuine
+ * shot at the warm tier. 23 gives it real room; the fastest-available lane
+ * still always wins regardless of this ceiling, this only controls what
+ * gets discarded entirely. */
 const APPLICATION_DISCARD_CEILING_MS = Math.max(
 	APPLICATION_HOT_CEILING_MS,
-	Number(process.env.LINE_H2_APPLICATION_DISCARD_CEILING_MS ?? 21),
+	Number(process.env.LINE_H2_APPLICATION_DISCARD_CEILING_MS ?? 23),
 );
 const APPLICATION_SAMPLE_MAX_AGE_MS = Math.max(
 	1_000,
