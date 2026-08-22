@@ -677,6 +677,31 @@ describe("rolling lane refresh", () => {
 		expect(selectDegradedLaneForRepair(lanes, 23)).toBeUndefined();
 	});
 
+	test("repairs a lone measured slow route when an unmeasured ready standby exists", () => {
+		const lanes = [
+			{
+				id: 0,
+				state: "ready" as const,
+				inFlight: 0,
+				openedAt: old,
+				pollRttMs: 37,
+				lastPollOkAt: now,
+				lastOkAt: now,
+				consecutiveSlowApplicationSamples: 1,
+			},
+			{
+				id: 1,
+				state: "ready" as const,
+				inFlight: 0,
+				openedAt: young,
+				rttMs: 8,
+				lastOkAt: now,
+				consecutiveSlowApplicationSamples: 0,
+			},
+		];
+		expect(selectDegradedLaneForRepair(lanes, 23, 1)?.id).toBe(0);
+	});
+
 	test("reports every simultaneously idle, over-ceiling lane -- not just the one it would repair next", () => {
 		const lanes = [
 			{

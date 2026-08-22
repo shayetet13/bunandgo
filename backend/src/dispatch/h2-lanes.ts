@@ -567,16 +567,22 @@ export function degradedLaneCandidates<T extends RecyclableLane & LaneChoiceMetr
 ): T[] {
 	const ready = lanes.filter((lane) => lane.state === "ready");
 	const measured = ready.filter((lane) => measuredApplicationRtt(lane) !== undefined);
-	if (measured.length < 2) return [];
+	if (ready.length < 2 || measured.length === 0) return [];
 	const fastest = [...measured].sort(
 		(left, right) => measuredApplicationRtt(left)! - measuredApplicationRtt(right)! || left.id - right.id,
 	)[0]!;
+	// Protect the fastest measured route only when every ready connection is
+	// already measured. If an unmeasured ready standby exists, a lone known-
+	// slow route is safe to recycle: keeping it merely because it is the first
+	// application-tested lane leaves a cold >=23ms relay slot stuck until a
+	// later foreground request happens to calibrate another lane.
+	const protectFastestMeasured = measured.length === ready.length;
 
 	return measured
 		.filter((lane) => {
 			const rtt = measuredApplicationRtt(lane);
 			return (
-				lane.id !== fastest.id &&
+				(!protectFastestMeasured || lane.id !== fastest.id) &&
 				lane.inFlight === 0 &&
 				rtt !== undefined &&
 				rtt >= ceilingMs &&
