@@ -389,6 +389,14 @@ describe("RTT-aware lane ranking", () => {
 		expect(selectPollingLaneCandidate(lanes, 20, 23)?.id).toBe(5);
 	});
 
+	test("chooses the lowest measured hot RTT without pinning to an idle slower lane", () => {
+		const lanes = [
+			{ id: 4, pollRttMs: 12, lastPollOkAt: 100, lastOkAt: 100, inFlight: 3 },
+			{ id: 5, pollRttMs: 14, lastPollOkAt: 200, lastOkAt: 200, inFlight: 0 },
+		];
+		expect(selectPollingLaneCandidate(lanes, 20, 23)?.id).toBe(4);
+	});
+
 	test("uses the fastest 20-23ms fallback only when no hot route remains", () => {
 		const lanes = [
 			{ id: 4, pollRttMs: 22, lastPollOkAt: 300, lastOkAt: 300, inFlight: 0 },
@@ -398,7 +406,16 @@ describe("RTT-aware lane ranking", () => {
 		expect(selectPollingLaneCandidate(lanes, 20, 23)?.id).toBe(6);
 	});
 
-	test("bootstraps the lowest-ping unknown only after every measured route is discarded", () => {
+	test("tests the lowest-ping unknown before staying on a 20-23ms fallback", () => {
+		const lanes = [
+			{ id: 4, pollRttMs: 22, rttMs: 2, lastPollOkAt: 300, lastOkAt: 300, inFlight: 0 },
+			{ id: 5, pollRttMs: undefined, rttMs: 7, lastPollOkAt: 0, lastOkAt: 200, inFlight: 0 },
+			{ id: 6, pollRttMs: undefined, rttMs: 4, lastPollOkAt: 0, lastOkAt: 100, inFlight: 1 },
+		];
+		expect(selectPollingLaneCandidate(lanes, 20, 23)?.id).toBe(6);
+	});
+
+	test("bootstraps the lowest-ping unknown when every measured route is discarded", () => {
 		const lanes = [
 			{ id: 4, pollRttMs: 24, rttMs: 2, lastPollOkAt: 300, lastOkAt: 300, inFlight: 0 },
 			{ id: 5, pollRttMs: 31, lastPollOkAt: 100, lastOkAt: 100, inFlight: 0 },

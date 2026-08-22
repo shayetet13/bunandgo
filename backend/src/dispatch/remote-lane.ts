@@ -146,7 +146,9 @@ export function recordRemoteDispatchEnd(
 	}
 	m.consecutiveSlowApplicationSamples = elapsedMs >= discardCeilingMs ? m.consecutiveSlowApplicationSamples + 1 : 0;
 	if (role === "poll") {
-		m.pollRttMs = m.pollRttMs === undefined ? elapsedMs : m.pollRttMs * 0.35 + elapsedMs * 0.65;
+		// Match local poll routing: the latest end-to-end relay result decides
+		// whether Server 3 remains below the active ceiling.
+		m.pollRttMs = elapsedMs;
 		m.pollApplicationSamples++;
 		m.lastPollOkAt = now;
 	} else {

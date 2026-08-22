@@ -99,6 +99,14 @@ describe("recordRemoteDispatchStart / recordRemoteDispatchEnd", () => {
 		expect(candidate.pollRttMs).toBe(15);
 	});
 
+	test("uses the latest poll result instead of hiding it in an average", () => {
+		recordRemoteDispatchStart(ORIGIN);
+		recordRemoteDispatchEnd(ORIGIN, "poll", 12, 23);
+		recordRemoteDispatchStart(ORIGIN);
+		recordRemoteDispatchEnd(ORIGIN, "poll", 31, 23);
+		expect(remoteLaneCandidate(ORIGIN)!.pollRttMs).toBe(31);
+	});
+
 	test("a warm dispatch releases in-flight state without becoming a send sample", () => {
 		updateRemoteLaneFromReport(ORIGIN, 8, Date.now(), false);
 		recordRemoteDispatchStart(ORIGIN);

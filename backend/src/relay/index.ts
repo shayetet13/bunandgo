@@ -10,16 +10,16 @@
  * validates worker-topology.json, and imports the full bots/auth/users API —
  * all of that assumes a bot-owning process. This box needs none of it.
  */
-import { ensureLanes } from "../dispatch/h2-lanes.ts";
+import { primeLanes } from "../dispatch/h2-lanes.ts";
 import { relayConfig } from "./config.ts";
 import { relayRoute } from "./dispatch-route.ts";
 import { startLaneRelayReporting } from "./report-client.ts";
 
-for (const origin of relayConfig.lineOrigins) {
-	ensureLanes(origin).catch((error) => {
-		console.error(`lane relay: failed to warm ${origin}:`, error instanceof Error ? error.message : error);
-	});
-}
+// Do not accept relay work while Server 3 only has open sockets and PING
+// measurements. HEAD /SQ1 exercises every owned H2 stream once, so the first
+// real poll does not pay connection/application-path setup. It deliberately
+// remains distinct from a real authenticated application measurement.
+await Promise.all(relayConfig.lineOrigins.map((origin) => primeLanes(origin)));
 
 export const server = Bun.serve({
 	hostname: relayConfig.bindHost,

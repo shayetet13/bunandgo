@@ -43,7 +43,7 @@ export function LaneRacePanel({ race, bots }: LaneRacePanelProps) {
 					</div>
 					<div style={{ fontWeight: 700, marginTop: 3 }}>แข่งความเร็วของเลน · สดและย้อนหลัง {race.retentionDays || 30} วัน</div>
 					<p className="hint" style={{ margin: "0.35rem 0 0" }}>
-						HOT = งานจริงต่ำกว่า 20ms · WARM = 20–ต่ำกว่า 23ms · WAIT = ยังไม่มีงานจริง · ตั้งแต่ 23ms ตัดจากเส้นทางส่ง
+						HOT = งานจริงต่ำกว่า 20ms · WARM = 20–ต่ำกว่า 23ms · WAIT = อุ่นแล้วและรองานจริง · ตั้งแต่ 23ms ตัดจากเส้นทางส่ง
 					</p>
 				</div>
 				<div className="chip chip--go">⭐ ครบ 10 = ดาวใหญ่</div>

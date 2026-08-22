@@ -461,10 +461,19 @@ export function selectPollingLaneCandidate<T extends LaneChoiceMetrics & { id: n
 ): T | undefined {
 	if (candidates.length === 0) return undefined;
 
-	const fastest = (pool: T[]): T => {
+	const lowest = (pool: T[], valueOf: (lane: T) => number | undefined): T => {
 		let best = pool[0]!;
 		for (const lane of pool.slice(1)) {
-			if (shouldPreferLane(lane, best, "poll")) best = lane;
+			const laneValue = valueOf(lane) ?? Number.POSITIVE_INFINITY;
+			const bestValue = valueOf(best) ?? Number.POSITIVE_INFINITY;
+			if (
+				laneValue < bestValue ||
+				(laneValue === bestValue && lane.inFlight < best.inFlight) ||
+				(laneValue === bestValue && lane.inFlight === best.inFlight && lane.lastOkAt > best.lastOkAt) ||
+				(laneValue === bestValue && lane.inFlight === best.inFlight && lane.lastOkAt === best.lastOkAt && lane.id < best.id)
+			) {
+				best = lane;
+			}
 		}
 		return best;
 	};
@@ -474,23 +483,24 @@ export function selectPollingLaneCandidate<T extends LaneChoiceMetrics & { id: n
 	// route instead of spending live polls to calibrate or periodically explore
 	// unused connections. Those experiments were the controllable source of
 	// recurring 24/30/40/80ms samples despite plenty of spare lanes.
-	const hot = candidates.filter((lane) => lane.pollRttMs! < hotCeilingMs);
-	if (hot.length > 0) return fastest(hot);
+	const hot = candidates.filter((lane) => lane.pollRttMs !== undefined && lane.pollRttMs < hotCeilingMs);
+	if (hot.length > 0) return lowest(hot, (lane) => lane.pollRttMs);
 
-	// A 20-23ms route is allowed only when no sub-20ms route remains.
-	const warm = candidates.filter((lane) => lane.pollRttMs! < discardCeilingMs);
-	if (warm.length > 0) return fastest(warm);
-
-	// Bootstrap exactly one unmeasured route only when there is no usable
-	// measured route below 23ms. H2 PING is sufficient to pick which unknown
-	// connection gets that unavoidable first real sample; it is never allowed
-	// to outrank a proven application-fast lane.
+	// A 20-23ms result is a safe fallback, but it has not met the preferred
+	// target. Try the unmeasured connection with the lowest live H2 PING next;
+	// this is demand-driven discovery, not periodic exploration. The instant a
+	// real sub-20ms result exists, the hot branch above keeps using it.
 	const unmeasured = candidates.filter((lane) => lane.pollRttMs === undefined);
-	if (unmeasured.length > 0) return fastest(unmeasured);
+	if (unmeasured.length > 0) return lowest(unmeasured, (lane) => lane.rttMs);
+
+	const warm = candidates.filter(
+		(lane) => lane.pollRttMs !== undefined && lane.pollRttMs >= hotCeilingMs && lane.pollRttMs < discardCeilingMs,
+	);
+	if (warm.length > 0) return lowest(warm, (lane) => lane.pollRttMs);
 
 	// Availability last resort. A >=23ms lane is used only if every alternative
 	// is also known slow; background repair replaces these sessions.
-	return fastest(candidates);
+	return lowest(candidates, (lane) => lane.pollRttMs ?? lane.rttMs);
 }
 
 function isBetterLane(candidate: Lane, current: Lane, role: LaneRole): boolean {
@@ -515,10 +525,10 @@ function recordApplicationRtt(lane: Lane, role: LaneRole, sampleMs: number): voi
 	const now = Date.now();
 	lane.consecutiveSlowApplicationSamples = sampleMs >= APPLICATION_DISCARD_CEILING_MS ? lane.consecutiveSlowApplicationSamples + 1 : 0;
 	if (role === "poll") {
-		// Follow recovery quickly: cold first responses must not poison a lane
-		// for minutes. Three samples at this weight reduce a one-off outlier to
-		// 12.25% while repeated slow responses remain unmistakably slow.
-		lane.pollRttMs = lane.pollRttMs === undefined ? sampleMs : lane.pollRttMs * 0.35 + sampleMs * 0.65;
+		// Poll routing follows the latest completed LINE result exactly. An EWMA
+		// can hide a fresh >23ms result behind an older fast average and keep the
+		// now-slow route selected, contrary to the hard discard rule.
+		lane.pollRttMs = sampleMs;
 		lane.lastPollOkAt = now;
 		return;
 	}

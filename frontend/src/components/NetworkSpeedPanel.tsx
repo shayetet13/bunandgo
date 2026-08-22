@@ -38,7 +38,7 @@ export function NetworkSpeedPanel({ lanes }: NetworkSpeedPanelProps) {
 					</div>
 					<div style={{ fontWeight: 700, marginTop: 3 }}>ความเร็วเครือข่ายแบบเรียลไทม์</div>
 					<p className="hint" style={{ margin: "0.35rem 0 0" }}>
-						พร้อม = connection รอรับงาน ไม่ได้แปลว่ากำลังถูกใช้ · แต่ละคำขอใช้เลนเร็วสุดเพียงเส้นเดียวเพื่อป้องกันส่งซ้ำ
+						อุ่นแล้ว = ผ่าน PING และ HEAD /SQ1 แล้ว · “จริง” จะแสดงเมื่อมี send/poll ผ่านเลนนั้น · แต่ละคำขอใช้เลนเดียวเพื่อป้องกันส่งซ้ำ
 					</p>
 				</div>
 				<span className="chip chip--go">● LIVE</span>
@@ -82,12 +82,18 @@ export function NetworkSpeedPanel({ lanes }: NetworkSpeedPanelProps) {
 								</div>
 								<div
 									style={{ textAlign: "right", fontSize: "var(--text-sm)", fontWeight: 700 }}
-									title={applied !== undefined ? "วัดจากงานจริง (ส่งข้อความ/poll)" : "ยังไม่มีงานจริงผ่านเลนนี้"}
+									title={
+										applied !== undefined
+											? "วัดจากงานจริง (ส่งข้อความ/poll)"
+											: lane.lastOkAt > 0
+												? "อุ่น connection และ application path แล้ว แต่ยังไม่มี send/poll จริงผ่านเลนนี้"
+												: "กำลังรอการอุ่น connection"
+									}
 								>
 									{applied !== undefined ? (
 										<span className={`chip ${rttToneClass(true, lane.routingEligible)} mono`}>จริง {applied.toFixed(1)}ms</span>
 									) : (
-										<span className="hint">ยังไม่มีงานจริง</span>
+										<span className="hint">{lane.lastOkAt > 0 ? "อุ่นแล้ว · รองานจริง" : "กำลังอุ่น"}</span>
 									)}
 								</div>
 							</div>
