@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Bot, HealthStatus, ServerStatus } from "../lib/types.ts";
 import { summarizeServer, type ServerTone } from "../lib/server-status.ts";
+import { botMatchesSearch } from "../lib/bot-search.ts";
 
 export interface Notification {
 	id: string;
@@ -57,7 +58,7 @@ export function Topbar({ title, subtitle, bots, health, notifications, onSelectB
 	const [showNotifications, setShowNotifications] = useState(false);
 	const [confirmStop, setConfirmStop] = useState(false);
 
-	const matches = query.trim() ? bots.filter((b) => b.name.toLowerCase().includes(query.trim().toLowerCase())).slice(0, 6) : [];
+	const matches = query.trim() ? bots.filter((bot) => botMatchesSearch(bot, query)).slice(0, 8) : [];
 
 	const activeBots = bots.filter((b) => b.status !== "offline");
 	// `servers` is optional-chained separately from `health`: a backend older
@@ -102,7 +103,8 @@ export function Topbar({ title, subtitle, bots, health, notifications, onSelectB
 						onChange={(e) => setQuery(e.target.value)}
 						onFocus={() => setSearchFocused(true)}
 						onBlur={() => setTimeout(() => setSearchFocused(false), 150)}
-						placeholder="ค้นหาบอท..."
+						placeholder="ค้นหาชื่อ, Bot ID หรือชื่อ LINE..."
+						aria-label="ค้นหาบอทด้วยชื่อที่ลงทะเบียน Bot ID หรือชื่อบัญชี LINE"
 						style={{
 							width: 240,
 							background: "var(--bg-inset)",
@@ -143,7 +145,13 @@ export function Topbar({ title, subtitle, bots, health, notifications, onSelectB
 										fontSize: "var(--text-sm)",
 									}}
 								>
-									{bot.name}
+									<div style={{ fontWeight: 700 }}>
+										bot{bot.slot} · {bot.name}
+									</div>
+									<div className="hint" style={{ margin: 0, fontSize: "0.6875rem" }}>
+										ID #{bot.id}
+										{bot.lockedLineDisplayName ? ` · LINE: ${bot.lockedLineDisplayName}` : ""}
+									</div>
 								</button>
 							))}
 						</div>

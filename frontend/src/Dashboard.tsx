@@ -3,6 +3,7 @@ import { api } from "./lib/api.ts";
 import { useLiveSocket } from "./lib/useWebSocket.ts";
 import { reconcileFetchedBots } from "./lib/bot-status-sync.ts";
 import { groupBotsByOwner } from "./lib/group-bots.ts";
+import { applyVisibleBotOrder } from "./lib/bot-order.ts";
 import type {
 	Bot,
 	BotStatus,
@@ -440,6 +441,18 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 		}
 	}
 
+	async function handleReorderBots(botIds: number[]): Promise<void> {
+		setBots((current) => applyVisibleBotOrder(current, botIds));
+		const fetchedAt = Date.now();
+		try {
+			applyFetchedBots(await api.reorderBots(botIds), fetchedAt);
+		} catch (err) {
+			await refreshBots();
+			pushNotification(err instanceof Error ? err.message : String(err));
+			throw err;
+		}
+	}
+
 	async function handleStart(botId: number) {
 		try {
 			await triggerStart(botId);
@@ -668,6 +681,7 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 								onDelete={handleDeleteBot}
 								onResetIdLock={handleResetIdLock}
 								onForceRelogin={handleForceRelogin}
+								onReorder={handleReorderBots}
 							/>
 						)}
 

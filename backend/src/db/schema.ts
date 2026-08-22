@@ -14,15 +14,13 @@ CREATE TABLE IF NOT EXISTS users (
 	created_at INTEGER NOT NULL
 );
 
--- slot is the display number ("bot1", "bot2", ...) shown to users, separate
--- from id. Unlike id (autoincrement, never reused), slots always run 1..N in
--- creation order: deleting a bot closes the gap by renumbering the ones after
--- it, so this is a position and not a durable handle — see
--- resequenceBotSlots() in bot/bots.ts.
+-- slot is the stable, human-facing label ("bot1", "bot2", ...). It is kept
+-- separate from display_order so dragging a card never renames the bot.
 CREATE TABLE IF NOT EXISTS bots (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	name TEXT NOT NULL,
 	slot INTEGER NOT NULL,
+	display_order INTEGER NOT NULL,
 	device TEXT NOT NULL DEFAULT 'DESKTOPWIN',
 	status TEXT NOT NULL DEFAULT 'offline',
 	owner_user_id INTEGER,
@@ -279,6 +277,7 @@ export interface BotRow {
 	id: number;
 	name: string;
 	slot: number;
+	display_order: number;
 	device: string;
 	status: BotStatus;
 	owner_user_id: number | null;

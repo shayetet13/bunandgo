@@ -55,4 +55,31 @@ describe("database startup migrations", () => {
 		const secondRun = runMigrations(database);
 		expect(secondRun).toEqual([]);
 	});
+
+	test("adds card order to an existing bots table without changing stable slots", () => {
+		const database = new Database(":memory:");
+		opened.push(database);
+		database.exec(`
+			CREATE TABLE bots (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				name TEXT NOT NULL,
+				slot INTEGER NOT NULL,
+				device TEXT NOT NULL DEFAULT 'DESKTOPWIN',
+				status TEXT NOT NULL DEFAULT 'offline',
+				created_at INTEGER NOT NULL
+			);
+			INSERT INTO bots (name, slot, created_at) VALUES ('second', 2, 2), ('first', 1, 1);
+		`);
+
+		database.exec(SCHEMA_SQL);
+		runMigrations(database);
+
+		const rows = database
+			.query<{ slot: number; display_order: number }, []>("SELECT slot, display_order FROM bots ORDER BY display_order")
+			.all();
+		expect(rows).toEqual([
+			{ slot: 1, display_order: 1 },
+			{ slot: 2, display_order: 2 },
+		]);
+	});
 });

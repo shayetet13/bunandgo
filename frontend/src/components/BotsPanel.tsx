@@ -2,6 +2,7 @@ import { type FormEvent, useState } from "react";
 import type { Bot, BotStatus, LoginPhase, UserRole } from "../lib/types.ts";
 import { groupBotsByOwner } from "../lib/group-bots.ts";
 import { useOwnerNames } from "../lib/useOwnerNames.ts";
+import { moveBotCard } from "../lib/bot-order.ts";
 import { QrPanel } from "./QrPanel.tsx";
 import { StartConfirmPanel } from "./StartConfirmPanel.tsx";
 
@@ -29,6 +30,7 @@ interface BotsPanelProps {
 	onDelete: (botId: number) => void;
 	onResetIdLock: (botId: number) => void;
 	onForceRelogin: (botId: number) => void;
+	onReorder: (botIds: number[]) => Promise<void>;
 }
 
 const STATUS_COLOR: Record<BotStatus, string> = {
@@ -66,12 +68,15 @@ export function BotsPanel({
 	onDelete,
 	onResetIdLock,
 	onForceRelogin,
+	onReorder,
 }: BotsPanelProps) {
 	const [showForm, setShowForm] = useState(false);
 	const [name, setName] = useState("");
 	const [confirmDeleteId, setConfirmDeleteId] = useState<number>();
 	const [confirmResetIdLockId, setConfirmResetIdLockId] = useState<number>();
 	const [confirmForceReloginId, setConfirmForceReloginId] = useState<number>();
+	const [draggedBotId, setDraggedBotId] = useState<number>();
+	const [reordering, setReordering] = useState(false);
 	const ownerNames = useOwnerNames(role);
 	const groups = groupBotsByOwner(bots);
 
@@ -81,6 +86,20 @@ export function BotsPanel({
 		onCreateBot(name.trim());
 		setName("");
 		setShowForm(false);
+	}
+
+	async function dropBot(targetBotId: number): Promise<void> {
+		if (draggedBotId === undefined || draggedBotId === targetBotId || reordering) return;
+		const ordered = moveBotCard(bots, draggedBotId, targetBotId);
+		setDraggedBotId(undefined);
+		setReordering(true);
+		try {
+			await onReorder(ordered.map((bot) => bot.id));
+		} catch {
+			// Dashboard restores the server order and surfaces the API error.
+		} finally {
+			setReordering(false);
+		}
 	}
 
 	return (
@@ -104,7 +123,7 @@ export function BotsPanel({
 				</button>
 			</div>
 			<p className="hint" style={{ margin: "0 0 var(--space-sm)" }}>
-				แต่ละบอทคือบัญชี LINE คนละบัญชี แยกกฎและห้องแชทกันเด็ดขาด
+				แต่ละบอทคือบัญชี LINE คนละบัญชี แยกกฎและห้องแชทกันเด็ดขาด · ลากปุ่ม ⠿ เพื่อจัดตำแหน่ง
 			</p>
 
 			{showForm && (
@@ -163,6 +182,13 @@ export function BotsPanel({
 							return (
 								<div
 									key={bot.id}
+									onDragOver={(event) => {
+										if (draggedBotId !== undefined) event.preventDefault();
+									}}
+									onDrop={(event) => {
+										event.preventDefault();
+										void dropBot(bot.id);
+									}}
 									style={{
 										display: "flex",
 										flexDirection: "column",
@@ -171,39 +197,82 @@ export function BotsPanel({
 										border: `1px solid ${bot.id === selectedBotId ? "var(--signal-go-dim)" : "var(--border-hair)"}`,
 										borderRadius: "var(--radius-sm)",
 										padding: "0.55rem 0.7rem",
+										opacity: draggedBotId === bot.id ? 0.55 : 1,
+										transition: "opacity 120ms ease, border-color 120ms ease",
 									}}
 								>
-									<button
-										onClick={() => onSelect(bot)}
+									<div
 										style={{
 											display: "flex",
 											alignItems: "center",
-											gap: "var(--space-sm)",
-											textAlign: "left",
-											background: "transparent",
-											border: "none",
-											padding: 0,
-											cursor: "pointer",
-											color: "var(--text-primary)",
+											gap: "var(--space-xs)",
 										}}
 									>
-										<span
-											style={{
-												width: 8,
-												height: 8,
-												borderRadius: 999,
-												background: STATUS_COLOR[bot.status],
-												boxShadow: bot.status !== "offline" ? `0 0 8px ${STATUS_COLOR[bot.status]}` : undefined,
-												flexShrink: 0,
+										<button
+											type="button"
+											draggable={!reordering}
+											disabled={reordering}
+											onDragStart={(event) => {
+												setDraggedBotId(bot.id);
+												event.dataTransfer.effectAllowed = "move";
+												event.dataTransfer.setData("text/plain", String(bot.id));
 											}}
-										/>
-										<span
-											style={{ fontSize: "var(--text-sm)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+											onDragEnd={() => setDraggedBotId(undefined)}
+											aria-label={`ลาก bot${bot.slot} เพื่อย้ายตำแหน่ง`}
+											title="ลากเพื่อย้ายตำแหน่ง"
+											style={{
+												background: "transparent",
+												border: "none",
+												color: "var(--text-dim)",
+												padding: "0 0.15rem",
+												cursor: reordering ? "wait" : "grab",
+												fontSize: "1rem",
+												lineHeight: 1,
+											}}
 										>
-											bot{bot.slot} · {bot.name}
-										</span>
-										<span className="label">{STATUS_LABEL[bot.status]}</span>
-									</button>
+											⠿
+										</button>
+										<button
+											type="button"
+											onClick={() => onSelect(bot)}
+											style={{
+												display: "flex",
+												alignItems: "center",
+												gap: "var(--space-sm)",
+												flex: 1,
+												minWidth: 0,
+												textAlign: "left",
+												background: "transparent",
+												border: "none",
+												padding: 0,
+												cursor: "pointer",
+												color: "var(--text-primary)",
+											}}
+										>
+											<span
+												style={{
+													width: 8,
+													height: 8,
+													borderRadius: 999,
+													background: STATUS_COLOR[bot.status],
+													boxShadow: bot.status !== "offline" ? `0 0 8px ${STATUS_COLOR[bot.status]}` : undefined,
+													flexShrink: 0,
+												}}
+											/>
+											<span
+												style={{
+													fontSize: "var(--text-sm)",
+													flex: 1,
+													overflow: "hidden",
+													textOverflow: "ellipsis",
+													whiteSpace: "nowrap",
+												}}
+											>
+												bot{bot.slot} · {bot.name}
+											</span>
+											<span className="label">{STATUS_LABEL[bot.status]}</span>
+										</button>
+									</div>
 
 									{role === "admin" && bot.lockedLineMid && (
 										<div className="label" style={{ color: "var(--text-dim)", fontSize: "var(--text-xs)" }}>

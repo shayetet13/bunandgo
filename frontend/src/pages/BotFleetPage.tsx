@@ -15,6 +15,7 @@ interface BotFleetPageProps {
 	onDelete: (botId: number) => void;
 	onResetIdLock: (botId: number) => void;
 	onForceRelogin: (botId: number) => void;
+	onReorder: (botIds: number[]) => Promise<void>;
 }
 
 export function BotFleetPage(props: BotFleetPageProps) {

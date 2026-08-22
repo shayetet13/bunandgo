@@ -2,7 +2,7 @@ import { db } from "../db/sqlite.ts";
 import type { BotRow, BotStatus } from "../db/schema.ts";
 import { getUser, type AuthUser } from "../auth/users.ts";
 import { invalidateRules } from "./rules.ts";
-import { inWorkerScope } from "./worker-scope.ts";
+import { inWorkerScope, WorkerScopeError } from "./worker-scope.ts";
 import { ensureOwnerWorkerAssignment } from "./worker-assignment.ts";
 
 export interface Bot {
@@ -178,38 +178,37 @@ const setOwnerTestingStmt = db.prepare<null, [number, string, string]>(
 );
 const ownerTestingBotIds = new Set(ownerTestingRowsStmt.all().map((row) => row.bot_id));
 
-const listStmt = db.prepare<BotRow, []>("SELECT * FROM bots ORDER BY created_at ASC");
-const listByOwnerStmt = db.prepare<BotRow, [number]>("SELECT * FROM bots WHERE owner_user_id = ? ORDER BY created_at ASC");
-const getStmt = db.prepare<BotRow, [number]>("SELECT * FROM bots WHERE id = ?");
-const insertStmt = db.prepare<BotRow, [string, number, string, number | null, number]>(
-	"INSERT INTO bots (name, slot, device, status, owner_user_id, created_at) VALUES (?, ?, ?, 'offline', ?, ?) RETURNING *",
+const listStmt = db.prepare<BotRow, []>("SELECT * FROM bots ORDER BY display_order ASC, slot ASC, id ASC");
+const listByOwnerStmt = db.prepare<BotRow, [number]>(
+	"SELECT * FROM bots WHERE owner_user_id = ? ORDER BY display_order ASC, slot ASC, id ASC",
 );
-// Position in creation order, counting the row itself. `id` breaks ties so
-// two bots created in the same millisecond still get distinct, stable slots.
-const resequenceSlotsStmt = db.prepare<null, []>(`
-	UPDATE bots SET slot = (
-		SELECT COUNT(*) FROM bots AS ordered
-		WHERE ordered.created_at < bots.created_at
-			OR (ordered.created_at = bots.created_at AND ordered.id <= bots.id)
-	)
-`);
+const getStmt = db.prepare<BotRow, [number]>("SELECT * FROM bots WHERE id = ?");
+const insertStmt = db.prepare<BotRow, [string, number, number, string, number | null, number]>(
+	"INSERT INTO bots (name, slot, display_order, device, status, owner_user_id, created_at) VALUES (?, ?, ?, ?, 'offline', ?, ?) RETURNING *",
+);
+const creationOrderRowsStmt = db.prepare<{ id: number }, []>("SELECT id FROM bots ORDER BY created_at ASC, id ASC");
+const displayOrderRowsStmt = db.prepare<{ id: number }, []>("SELECT id FROM bots ORDER BY display_order ASC, slot ASC, id ASC");
+const updateSlotStmt = db.prepare<null, [number, number]>("UPDATE bots SET slot = ? WHERE id = ?");
+const updateDisplayOrderStmt = db.prepare<null, [number, number]>("UPDATE bots SET display_order = ? WHERE id = ?");
+const nextDisplayOrderStmt = db.prepare<{ displayOrder: number }, []>(
+	"SELECT COALESCE(MAX(display_order), 0) + 1 AS displayOrder FROM bots",
+);
+const botCountStmt = db.prepare<{ count: number }, []>("SELECT COUNT(*) AS count FROM bots");
 
 /**
- * Renumbers every bot to its position in creation order, so the slots are
- * always 1..N with no gaps.
+ * Repairs stable bot labels and compacts persisted card positions to 1..N.
  *
- * The dashboard labels bots `bot{slot}`, so this number is the name people
- * use for a bot out loud. It previously handed a deleted bot's slot to the
- * next bot created by anyone, which left the newest bot showing as "bot2"
- * while an older one sat at "bot4" — an order that matched neither creation
- * nor anything else visible.
- *
- * Runs after any insert or delete, and once at startup so a table that
- * already drifted repairs itself. Writing the same values back is harmless,
- * and `slot` is display-only — nothing keys off it.
+ * The dashboard labels bots `bot{slot}`, so slot follows creation order and
+ * never changes because of a drag. display_order follows the user's chosen
+ * card order and survives startup normalization independently.
  */
+const resequenceSlotsTxn = db.transaction(() => {
+	creationOrderRowsStmt.all().forEach((row, index) => updateSlotStmt.run(index + 1, row.id));
+	displayOrderRowsStmt.all().forEach((row, index) => updateDisplayOrderStmt.run(index + 1, row.id));
+});
+
 export function resequenceBotSlots(): void {
-	resequenceSlotsStmt.run();
+	resequenceSlotsTxn.immediate();
 }
 const updateStatusStmt = db.prepare<null, [BotStatus, number]>("UPDATE bots SET status = ? WHERE id = ?");
 
@@ -227,13 +226,14 @@ const deleteBotCascade = db.transaction((id: number) => {
 	deleteLatencyStmt.run(id);
 	deleteScheduledPostsStmt.run(id);
 	deleteBotStmt.run(id);
-	// Same transaction as the delete: the numbering must never be visible
-	// with a hole in it.
-	resequenceSlotsStmt.run();
+	// Same transaction as the delete: neither the stable labels nor the card
+	// positions should be observable with a hole in them.
+	creationOrderRowsStmt.all().forEach((row, index) => updateSlotStmt.run(index + 1, row.id));
+	displayOrderRowsStmt.all().forEach((row, index) => updateDisplayOrderStmt.run(index + 1, row.id));
 });
 
 export function deleteBot(id: number): void {
-	deleteBotCascade(id);
+	deleteBotCascade.immediate(id);
 	ownerTestingBotIds.delete(id);
 	// Otherwise the compiled-rules cache entry outlives the bot for the rest
 	// of the process — harmless at today's bot counts (ids are never reused)
@@ -262,6 +262,28 @@ export function listBotsForUser(user: AuthUser, options: ListBotsOptions = {}): 
 	return (user.role === "admin" ? listStmt.all() : listByOwnerStmt.all(user.id))
 		.map(fromRow)
 		.filter((bot) => options.includeAllWorkers || inWorkerScope(bot.ownerUserId));
+}
+
+/**
+ * Persists the exact order visible to one dashboard user. Admins can order
+ * the complete fleet. A regular user can only permute the display positions
+ * already held by their own bots, so dragging cannot move another owner's bot
+ * or change any bot's stable label.
+ */
+export function reorderBotsForUser(user: AuthUser, orderedBotIds: readonly number[]): Bot[] {
+	const rows = user.role === "admin" ? listStmt.all() : listByOwnerStmt.all(user.id);
+	const allowedIds = new Set(rows.map((row) => row.id));
+	if (orderedBotIds.length !== allowedIds.size || new Set(orderedBotIds).size !== orderedBotIds.length) {
+		throw new Error("bot order must contain every accessible bot exactly once");
+	}
+	if (orderedBotIds.some((id) => !allowedIds.has(id))) throw new WorkerScopeError("bot order contains an inaccessible bot");
+
+	const availablePositions = rows.map((row) => row.display_order).sort((left, right) => left - right);
+	const reorderTxn = db.transaction(() => {
+		orderedBotIds.forEach((id, index) => updateDisplayOrderStmt.run(availablePositions[index]!, id));
+	});
+	reorderTxn.immediate();
+	return listBotsForUser(user, { includeAllWorkers: true });
 }
 
 export function getBot(id: number): Bot | undefined {
@@ -317,17 +339,17 @@ export function isBotOverQuota(botId: number): boolean {
 	return getBot(botId)?.overQuota ?? false;
 }
 
-// Inserted with a placeholder slot the resequence immediately replaces: the
-// new row is the newest by `created_at`, so it lands at N+1.
-const insertAndResequence = db.transaction((name: string, device: string, ownerUserId: number | null): BotRow => {
-	const inserted = insertStmt.get(name, 0, device, ownerUserId, Date.now())!;
-	resequenceSlotsStmt.run();
-	return getStmt.get(inserted.id)!;
+// A new bot starts at the end of creation order and manual display order.
+// IMMEDIATE keeps two workers from choosing the same values concurrently.
+const insertAtEnd = db.transaction((name: string, device: string, ownerUserId: number | null): BotRow => {
+	const displayOrder = nextDisplayOrderStmt.get()!.displayOrder;
+	const slot = botCountStmt.get()!.count + 1;
+	return insertStmt.get(name, slot, displayOrder, device, ownerUserId, Date.now())!;
 });
 
 export function createBot(name: string, device = "DESKTOPWIN", ownerUserId: number | null = null): Bot {
 	if (ownerUserId !== null) ensureOwnerWorkerAssignment(ownerUserId);
-	return fromRow(insertAndResequence(name, device, ownerUserId));
+	return fromRow(insertAtEnd.immediate(name, device, ownerUserId));
 }
 
 export function updateBotStatus(id: number, status: BotStatus): void {

@@ -429,6 +429,18 @@ const migrations: Migration[] = [
 			`);
 		},
 	},
+	{
+		// Card order is presentation state. Keeping it separate from slot means
+		// a drag never changes the familiar bot1/bot2 label or runtime identity.
+		id: "031_bots_display_order",
+		up: (db) => {
+			if (!hasColumn(db, "bots", "display_order")) {
+				db.exec("ALTER TABLE bots ADD COLUMN display_order INTEGER NOT NULL DEFAULT 0");
+			}
+			db.exec("UPDATE bots SET display_order = slot WHERE display_order <= 0");
+			db.exec("CREATE INDEX IF NOT EXISTS idx_bots_display_order ON bots(display_order, slot, id)");
+		},
+	},
 ];
 
 /**

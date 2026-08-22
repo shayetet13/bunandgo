@@ -89,6 +89,11 @@ export const api = {
 	activeSessions: () => request<ActiveSessionInfo[]>("/api/users/active-sessions"),
 
 	listBots: () => request<Bot[]>("/api/bots"),
+	reorderBots: (botIds: number[]) =>
+		request<Bot[]>("/api/bots/order", {
+			method: "PUT",
+			body: JSON.stringify({ botIds }),
+		}),
 	createBot: (name: string) => request<Bot & { rulesCopiedFrom: number }>("/api/bots", { method: "POST", body: JSON.stringify({ name }) }),
 	deleteBot: (botId: number) => request<{ ok: boolean }>(`/api/bots/${botId}`, { method: "DELETE" }),
 	updateBotSettings: (botId: number, settings: { allowOwnerTesting: boolean }) =>

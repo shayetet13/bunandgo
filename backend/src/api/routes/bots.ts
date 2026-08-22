@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { createBot, listBotsForUser, oldestBotOwnedBy } from "../../bot/bots.ts";
+import { createBot, listBotsForUser, oldestBotOwnedBy, reorderBotsForUser } from "../../bot/bots.ts";
 import { requestUser } from "../../auth/request-user.ts";
 import { logUserAction } from "../../auth/user-actions.ts";
 import { BOT_PRICE_THB_PER_MONTH, MAX_BOT_QUOTA } from "../../auth/users.ts";
@@ -8,10 +8,29 @@ import type { Device } from "../../linejs-core/base/mod.ts";
 import { copyRules } from "../../bot/room-config-copy.ts";
 import { formatZodError } from "../validate.ts";
 import { isControlPlane } from "../../bot/worker-topology.ts";
+import { WorkerScopeError } from "../../bot/worker-scope.ts";
 
 export const botsRoute = new Hono();
 
 botsRoute.get("/", (c) => c.json(listBotsForUser(requestUser(c)!, { includeAllWorkers: isControlPlane() })));
+
+const reorderBotsBodySchema = z.object({
+	botIds: z.array(z.number().int().positive()).max(1_000),
+});
+
+botsRoute.put("/order", async (c) => {
+	const result = reorderBotsBodySchema.safeParse(await c.req.json().catch(() => undefined));
+	if (!result.success) return c.json({ error: formatZodError(result.error) }, 400);
+	const user = requestUser(c)!;
+	try {
+		const bots = reorderBotsForUser(user, result.data.botIds);
+		logUserAction(user, "bot.reorder", { botIds: result.data.botIds });
+		return c.json(bots);
+	} catch (error) {
+		if (error instanceof WorkerScopeError) return c.json({ error: error.message }, 403);
+		return c.json({ error: error instanceof Error ? error.message : "invalid bot order" }, 400);
+	}
+});
 
 const SUPPORTED_DEVICES = [
 	"DESKTOPWIN",

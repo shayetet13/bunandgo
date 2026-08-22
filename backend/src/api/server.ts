@@ -200,9 +200,8 @@ console.log(`api: listening on http://${hostname}:${port}`);
 // forwards QR/status/reply events back to the one browser WebSocket endpoint.
 startWorkerEventRelay();
 
-// Repairs numbering left behind by the older allocator, which reused a
-// deleted bot's slot instead of closing the gap. A no-op once the slots are
-// already 1..N in creation order.
+// Repairs stable bot labels left by the older allocator and compacts the
+// independently persisted card positions without undoing a user's drag.
 resequenceBotSlots();
 
 // Deliberately after the listener is up and not awaited: resuming walks every

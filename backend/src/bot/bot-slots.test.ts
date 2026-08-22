@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { db } from "../db/sqlite.ts";
-import { createBot, deleteBot, listBots, resequenceBotSlots } from "./bots.ts";
+import type { AuthUser } from "../auth/users.ts";
+import { createBot, deleteBot, listBots, reorderBotsForUser, resequenceBotSlots } from "./bots.ts";
 
-function slotsInCreationOrder(): Array<{ name: string; slot: number }> {
+function slotsInDisplayOrder(): Array<{ name: string; slot: number }> {
 	return listBots().map((bot) => ({ name: bot.name, slot: bot.slot }));
 }
+
+const admin: AuthUser = { id: 1, username: "admin", role: "admin", active: true, botQuota: 1, exemptIdLock: false };
 
 describe("bot slot numbering", () => {
 	beforeEach(() => {
@@ -16,7 +19,7 @@ describe("bot slot numbering", () => {
 		createBot("second");
 		createBot("third");
 
-		expect(slotsInCreationOrder()).toEqual([
+		expect(slotsInDisplayOrder()).toEqual([
 			{ name: "first", slot: 1 },
 			{ name: "second", slot: 2 },
 			{ name: "third", slot: 3 },
@@ -37,7 +40,7 @@ describe("bot slot numbering", () => {
 
 		deleteBot(second.id);
 
-		expect(slotsInCreationOrder()).toEqual([
+		expect(slotsInDisplayOrder()).toEqual([
 			{ name: "first", slot: 1 },
 			{ name: "third", slot: 2 },
 		]);
@@ -52,7 +55,7 @@ describe("bot slot numbering", () => {
 		const fourth = createBot("fourth");
 
 		expect(fourth.slot).toBe(3);
-		expect(slotsInCreationOrder()).toEqual([
+		expect(slotsInDisplayOrder()).toEqual([
 			{ name: "first", slot: 1 },
 			{ name: "third", slot: 2 },
 			{ name: "fourth", slot: 3 },
@@ -66,24 +69,22 @@ describe("bot slot numbering", () => {
 
 		deleteBot(third.id);
 
-		expect(slotsInCreationOrder()).toEqual([
+		expect(slotsInDisplayOrder()).toEqual([
 			{ name: "first", slot: 1 },
 			{ name: "second", slot: 2 },
 		]);
 	});
 
-	test("repairs numbering that is already out of order on disk", () => {
+	test("repairs duplicate and gapped slots in creation order", () => {
 		createBot("first");
 		createBot("second");
 		createBot("third");
-		// Reproduces the shape found in production, where a reused slot left
-		// the newest bot numbered below an older one.
 		db.exec("UPDATE bots SET slot = 9 WHERE name = 'second'");
 		db.exec("UPDATE bots SET slot = 2 WHERE name = 'third'");
 
 		resequenceBotSlots();
 
-		expect(slotsInCreationOrder()).toEqual([
+		expect(slotsInDisplayOrder()).toEqual([
 			{ name: "first", slot: 1 },
 			{ name: "second", slot: 2 },
 			{ name: "third", slot: 3 },
@@ -93,10 +94,41 @@ describe("bot slot numbering", () => {
 	test("resequencing an already correct table changes nothing", () => {
 		createBot("first");
 		createBot("second");
-		const before = slotsInCreationOrder();
+		const before = slotsInDisplayOrder();
 
 		resequenceBotSlots();
 
-		expect(slotsInCreationOrder()).toEqual(before);
+		expect(slotsInDisplayOrder()).toEqual(before);
+	});
+
+	test("persists an admin drag order across startup resequencing", () => {
+		const first = createBot("first");
+		const second = createBot("second");
+		const third = createBot("third");
+
+		reorderBotsForUser(admin, [third.id, first.id, second.id]);
+		expect(slotsInDisplayOrder()).toEqual([
+			{ name: "third", slot: 3 },
+			{ name: "first", slot: 1 },
+			{ name: "second", slot: 2 },
+		]);
+
+		resequenceBotSlots();
+		expect(slotsInDisplayOrder().map((bot) => bot.name)).toEqual(["third", "first", "second"]);
+	});
+
+	test("lets a user swap only their own display positions", () => {
+		const owner: AuthUser = { id: 71, username: "owner", role: "user", active: true, botQuota: 5, exemptIdLock: false };
+		const first = createBot("owner first", "DESKTOPWIN", owner.id);
+		const other = createBot("other owner", "DESKTOPWIN", 72);
+		const second = createBot("owner second", "DESKTOPWIN", owner.id);
+
+		reorderBotsForUser(owner, [second.id, first.id]);
+		expect(slotsInDisplayOrder()).toEqual([
+			{ name: "owner second", slot: 3 },
+			{ name: "other owner", slot: 2 },
+			{ name: "owner first", slot: 1 },
+		]);
+		expect(() => reorderBotsForUser(owner, [other.id, first.id])).toThrow("inaccessible");
 	});
 });

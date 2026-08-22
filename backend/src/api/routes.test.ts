@@ -92,6 +92,21 @@ describe("API routes", () => {
 		const bot = (await response.json()) as { id: number; allowOwnerTesting: boolean };
 		botId = bot.id;
 		expect(bot.allowOwnerTesting).toBe(false);
+
+		const reordered = await request("/api/bots/order", {
+			method: "PUT",
+			body: JSON.stringify({ botIds: [botId] }),
+		});
+		expect(reordered.status).toBe(200);
+		expect(((await reordered.json()) as Array<{ id: number }>).map((item) => item.id)).toEqual([botId]);
+		expect(
+			(
+				await request("/api/bots/order", {
+					method: "PUT",
+					body: JSON.stringify({ botIds: [botId, botId] }),
+				})
+			).status,
+		).toBe(400);
 	});
 
 	test("updates owner testing and validates rule CRUD", async () => {
