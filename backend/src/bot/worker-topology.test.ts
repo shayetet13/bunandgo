@@ -250,7 +250,7 @@ describe("worker topology", () => {
 		expect(process.env.LINE_H2_DEGRADED_REPAIR_MIN_SAMPLES).toBe("3");
 	});
 
-	test("balanced-sticky topology pins primary locally and shard traffic to the relay", () => {
+	test("balanced-sticky topology gives primary a relay fallback and pins shard traffic to the relay", () => {
 		const runtimeFile = JSON.stringify({
 			version: 1,
 			assignmentMode: "balanced-sticky",
@@ -261,6 +261,9 @@ describe("worker topology", () => {
 				fastPollIntervalMs: 0,
 				h2Lanes: 16,
 				laneSource: "local",
+				relayLanes: 16,
+				relayUrl: "http://10.90.0.2:8795/dispatch",
+				relayToken: "r".repeat(32),
 				sendReservedLanes: 4,
 				fastPollSlots: 8,
 			},
@@ -286,6 +289,8 @@ describe("worker topology", () => {
 		expect(process.env.LANE_RELAY_TOKEN).toBe("p".repeat(32));
 		expect(process.env.WORKER_ROUTES).toBe("shard-b=http://127.0.0.1:8792");
 		expect(process.env.LINE_RELAY_MODE).toBeUndefined();
+		expect(process.env.LINE_RELAY_URL).toBe("http://10.90.0.2:8795/dispatch");
+		expect(process.env.LINE_RELAY_TOKEN).toBe("r".repeat(32));
 		expect(validateWorkerTopology().assignmentMode).toBe("balanced-sticky");
 
 		setTopologyEnv({ PORT: "8792" });

@@ -3,6 +3,7 @@ import { createServer, constants, type Http2Server, type ServerHttp2Stream, type
 import { gzipSync } from "node:zlib";
 import {
 	buildHeaders,
+	canTryRemoteFallback,
 	decodeBody,
 	degradedLaneCandidates,
 	ensureLanes,
@@ -116,6 +117,24 @@ describe("owned HTTP/2 lanes", () => {
 		expect(requests).toBe(5);
 		const used = laneStats().filter((lane) => lane.lastOkAt > 0);
 		expect(used).toHaveLength(1);
+	});
+
+	test("keeps a warm HEAD out of real send and poll measurements", async () => {
+		const { origin, server } = await startServer((stream) => {
+			stream.respond({ ":status": 204 });
+			stream.end();
+		});
+		running = server;
+
+		await ensureLanes(origin);
+		await laneFetch(`${origin}/`, { method: "HEAD", headers: { [H2_LANE_ROLE_HEADER]: "warm" } });
+
+		const used = laneStats().filter((lane) => lane.lastOkAt > 0);
+		expect(used).toHaveLength(1);
+		expect(used[0]!.sendRttMs).toBeUndefined();
+		expect(used[0]!.pollRttMs).toBeUndefined();
+		expect(used[0]!.applicationRttMs).toBeUndefined();
+		expect(used[0]!.routingEligible).toBe(false);
 	});
 
 	test("holds a standby lane alongside the one in use", async () => {
@@ -286,6 +305,12 @@ describe("owned HTTP/2 lanes", () => {
 });
 
 describe("RTT-aware lane ranking", () => {
+	test("bootstraps a ping-only remote route only while it is below the hot ceiling", () => {
+		expect(canTryRemoteFallback({ rttMs: 8, lastOkAt: 1, inFlight: 0 }, 1_000, 20)).toBe(true);
+		expect(canTryRemoteFallback({ rttMs: 21, lastOkAt: 1, inFlight: 0 }, 1_000, 20)).toBe(false);
+		expect(canTryRemoteFallback({ rttMs: 5, sendRttMs: 24, lastSendOkAt: 1_000, lastOkAt: 1_000, inFlight: 0 }, 1_001, 20)).toBe(false);
+	});
+
 	test("prefers a materially faster route even after accounting for one in-flight stream", () => {
 		expect(shouldPreferLane({ rttMs: 1.0, lastOkAt: 10, inFlight: 1 }, { rttMs: 8.0, lastOkAt: 20, inFlight: 0 }, "send")).toBeTrue();
 	});

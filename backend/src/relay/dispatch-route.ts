@@ -35,7 +35,7 @@ const dispatchSchema = z.object({
 	bodyBase64: z.string().optional(),
 	/** Which lane-race bucket this counts against on this box, mirroring the
 	 * same header h2-lanes.ts reads locally — see H2_LANE_ROLE_HEADER. */
-	role: z.enum(["send", "poll"]).optional(),
+	role: z.enum(["send", "poll", "warm"]).optional(),
 });
 
 /**

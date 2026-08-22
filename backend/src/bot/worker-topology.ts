@@ -92,9 +92,11 @@ function validateWorkerTuning(worker: RuntimeWorkerTuning, label: string): void 
 	if (relayLanes !== undefined && relayLanes > 32) throw new Error(`${label} relayLanes cannot exceed 32`);
 	const laneSource = worker.laneSource ?? "local";
 	if (laneSource !== "local" && laneSource !== "relay") throw new Error(`${label} laneSource must be local or relay`);
-	if (laneSource === "relay" && relayLanes === undefined) throw new Error(`${label} relay laneSource requires relayLanes`);
-	if (laneSource === "relay") {
-		if (!worker.relayUrl) throw new Error(`${label} relay laneSource requires relayUrl`);
+	const hasRelayConfiguration =
+		laneSource === "relay" || relayLanes !== undefined || worker.relayUrl !== undefined || worker.relayToken !== undefined;
+	if (hasRelayConfiguration) {
+		if (relayLanes === undefined) throw new Error(`${label} relay configuration requires relayLanes`);
+		if (!worker.relayUrl) throw new Error(`${label} relay configuration requires relayUrl`);
 		let relayUrl: URL;
 		try {
 			relayUrl = new URL(worker.relayUrl);
@@ -281,8 +283,13 @@ export function applyRuntimeTopologyFile(raw?: string): boolean {
 			process.env.LINE_RELAY_TOKEN = worker.relayToken!;
 		} else {
 			delete process.env.LINE_RELAY_MODE;
-			delete process.env.LINE_RELAY_URL;
-			delete process.env.LINE_RELAY_TOKEN;
+			if (worker.relayUrl && worker.relayToken) {
+				process.env.LINE_RELAY_URL = worker.relayUrl;
+				process.env.LINE_RELAY_TOKEN = worker.relayToken;
+			} else {
+				delete process.env.LINE_RELAY_URL;
+				delete process.env.LINE_RELAY_TOKEN;
+			}
 			if (worker.h2Lanes !== undefined) process.env.LINE_EFFECTIVE_H2_LANES = String(worker.h2Lanes);
 		}
 		if (worker.sendReservedLanes !== undefined) process.env.LINE_H2_SEND_RESERVED_LANES = String(worker.sendReservedLanes);

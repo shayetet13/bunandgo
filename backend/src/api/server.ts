@@ -121,7 +121,6 @@ app.use("/api/bots", async (c, next) => {
 });
 app.use("/api/metrics/snapshot", routeCurrentUserOwner);
 app.use("/api/metrics/fast-path", routeCurrentUserOwner);
-app.use("/api/health", routeCurrentUserOwner);
 
 app.route("/api/bots", botsRoute);
 app.route("/api/bots/:botId", botDetailRoute);

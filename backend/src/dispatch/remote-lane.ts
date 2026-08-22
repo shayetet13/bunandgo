@@ -18,6 +18,7 @@ export const REMOTE_LANE_ID = 900;
  * longer trusted as "current" — a few multiples of its own ~5s report
  * interval, generous enough to absorb one missed push. */
 const REPORT_STALE_MS = Math.max(3_000, Number(process.env.LINE_RELAY_STALE_MS ?? 3_000));
+const APPLICATION_SAMPLE_MAX_AGE_MS = Math.max(1_000, Number(process.env.LINE_H2_APPLICATION_SAMPLE_MAX_AGE_MS ?? 30_000));
 
 export interface RemoteLaneMetrics {
 	readonly id: number;
@@ -39,6 +40,7 @@ interface RemoteOriginState {
 	 * the fallback signal before this process has any real measurement of its
 	 * own through the relay yet. */
 	reportedBestRttMs?: number;
+	reportedApplication: boolean;
 	reportedAt: number;
 }
 
@@ -73,6 +75,7 @@ function ensureOrigin(origin: string): RemoteOriginState {
 				pollApplicationSamples: 0,
 				consecutiveSlowApplicationSamples: 0,
 			},
+			reportedApplication: false,
 			reportedAt: 0,
 		};
 		origins.set(origin, state);
@@ -83,9 +86,10 @@ function ensureOrigin(origin: string): RemoteOriginState {
 /** Called by lane-relay-events.ts whenever the relay's own periodic report
  * is accepted — keeps a background RTT estimate warm without this process
  * ever polling the relay itself. */
-export function updateRemoteLaneFromReport(origin: string, bestRttMs: number | undefined, now: number): void {
+export function updateRemoteLaneFromReport(origin: string, bestRttMs: number | undefined, now: number, reportedApplication = true): void {
 	const state = ensureOrigin(origin);
 	state.reportedBestRttMs = bestRttMs;
+	state.reportedApplication = reportedApplication;
 	state.reportedAt = now;
 }
 
@@ -101,12 +105,18 @@ export function remoteLaneCandidate(origin: string, now: number = Date.now()): R
 	// A real measurement from this process's own dispatches always wins over
 	// the relay's self-report; the self-report only fills in before the first
 	// real send/poll has gone through it.
-	const hasOwnMeasurement = state.metrics.sendRttMs !== undefined || state.metrics.pollRttMs !== undefined;
-	if (!hasOwnMeasurement) {
-		if (state.reportedBestRttMs === undefined || now - state.reportedAt > REPORT_STALE_MS) return undefined;
-		state.metrics.rttMs = state.reportedBestRttMs;
-	}
-	return state.metrics;
+	const ownSampleAt = Math.max(state.metrics.lastSendOkAt, state.metrics.lastPollOkAt);
+	if (ownSampleAt > 0 && now - ownSampleAt <= APPLICATION_SAMPLE_MAX_AGE_MS) return state.metrics;
+	if (state.reportedBestRttMs === undefined || now - state.reportedAt > REPORT_STALE_MS) return undefined;
+	return {
+		...state.metrics,
+		rttMs: state.reportedBestRttMs,
+		sendRttMs: state.reportedApplication ? state.reportedBestRttMs : undefined,
+		pollRttMs: undefined,
+		lastSendOkAt: state.reportedApplication ? state.reportedAt : 0,
+		lastPollOkAt: 0,
+		lastOkAt: Math.max(state.metrics.lastOkAt, state.reportedAt),
+	};
 }
 
 export function recordRemoteDispatchStart(origin: string): void {
@@ -119,12 +129,21 @@ export function recordRemoteDispatchStart(origin: string): void {
  * outlier must not permanently poison it, and repeated real slowness must
  * still show up as unmistakably slow.
  */
-export function recordRemoteDispatchEnd(origin: string, role: "send" | "poll", elapsedMs: number, discardCeilingMs: number): void {
+export function recordRemoteDispatchEnd(
+	origin: string,
+	role: "send" | "poll" | undefined,
+	elapsedMs: number,
+	discardCeilingMs: number,
+): void {
 	const state = ensureOrigin(origin);
 	const m = state.metrics;
 	m.inFlight = Math.max(0, m.inFlight - 1);
 	if (!Number.isFinite(elapsedMs) || elapsedMs < 0) return;
 	const now = Date.now();
+	if (role === undefined) {
+		m.lastOkAt = now;
+		return;
+	}
 	m.consecutiveSlowApplicationSamples = elapsedMs >= discardCeilingMs ? m.consecutiveSlowApplicationSamples + 1 : 0;
 	if (role === "poll") {
 		m.pollRttMs = m.pollRttMs === undefined ? elapsedMs : m.pollRttMs * 0.35 + elapsedMs * 0.65;
@@ -187,7 +206,7 @@ export async function dispatchViaRelay(
 	config: { url: string; token: string },
 	info: RequestInfo | URL,
 	init: RequestInit | undefined,
-	role: "send" | "poll" | undefined,
+	role: "send" | "poll" | "warm" | undefined,
 ): Promise<Response | undefined> {
 	const url = info instanceof URL ? info : new URL(typeof info === "string" ? info : info.url);
 	let response: Response;

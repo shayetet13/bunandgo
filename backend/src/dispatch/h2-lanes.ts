@@ -133,7 +133,7 @@ const CONNECT_TIMEOUT_MS = 10_000;
 const RECONNECT_MAX_DELAY_MS = 8_000;
 
 type LaneState = "connecting" | "ready" | "draining" | "dead";
-export type LaneRole = "send" | "poll" | undefined;
+export type LaneRole = "send" | "poll" | "warm" | undefined;
 
 /** Process-local routing hint. It is stripped before anything reaches LINE. */
 export const H2_LANE_ROLE_HEADER = "x-linebot-h2-role";
@@ -241,7 +241,7 @@ function headerValue(init: RequestInit | undefined, wanted: string): string | un
 
 function requestRole(init: RequestInit | undefined): LaneRole {
 	const value = headerValue(init, H2_LANE_ROLE_HEADER);
-	return value === "send" || value === "poll" ? value : undefined;
+	return value === "send" || value === "poll" || value === "warm" ? value : undefined;
 }
 
 /**
@@ -254,7 +254,7 @@ function requestRole(init: RequestInit | undefined): LaneRole {
  * fail a request that some connection could still carry.
  */
 export function laneCandidates<T extends { id: number }>(usable: T[], role: LaneRole, reserved: number = SEND_RESERVED_LANES): T[] {
-	if (reserved === 0 || role === undefined || usable.length === 0) return usable;
+	if (reserved === 0 || (role !== "send" && role !== "poll") || usable.length === 0) return usable;
 	const preferred = usable.filter((lane) => (role === "send" ? lane.id < reserved : lane.id >= reserved));
 	return preferred.length > 0 ? preferred : usable;
 }
@@ -371,6 +371,19 @@ function hasFreshEligibleApplicationSample(
 	const rtt = measuredApplicationRtt(lane);
 	const sampleAt = applicationSampleAt(lane);
 	return rtt !== undefined && rtt < ceilingMs && sampleAt > 0 && now - sampleAt <= maxAgeMs;
+}
+
+/** A relay with a real hot sample is immediately usable. A brand-new relay
+ * gets exactly one bootstrap attempt from its fresh edge PING, but only after
+ * the local pool has already failed the 23ms ceiling; that attempt creates the
+ * end-to-end Server 2 -> Server 3 -> LINE measurement used thereafter. */
+export function canTryRemoteFallback(
+	candidate: LaneChoiceMetrics,
+	now: number = Date.now(),
+	hotCeilingMs: number = APPLICATION_HOT_CEILING_MS,
+): boolean {
+	if (hasFreshEligibleApplicationSample(candidate, now, hotCeilingMs)) return true;
+	return measuredApplicationRtt(candidate) === undefined && candidate.rttMs !== undefined && candidate.rttMs < hotCeilingMs;
 }
 
 /**
@@ -526,6 +539,12 @@ function recordLaneRtt(lane: Lane, sampleMs: number): void {
 
 function recordApplicationRtt(lane: Lane, role: LaneRole, sampleMs: number): void {
 	if (!Number.isFinite(sampleMs) || sampleMs < 0) return;
+	// HEAD / keepalives prove the connection still works, but they terminate
+	// at a cheap edge route and are not representative of a real LINE RPC.
+	// Counting them as sends made Server 3 look like a 1–2ms application path
+	// and permanently pinned traffic to the one lane the warmer happened to
+	// touch. Warm traffic updates lastOkAt only (in sendOnLane), never routing.
+	if (role === "warm" || role === undefined) return;
 	const now = Date.now();
 	lane.consecutiveSlowApplicationSamples = sampleMs >= APPLICATION_DISCARD_CEILING_MS ? lane.consecutiveSlowApplicationSamples + 1 : 0;
 	if (role === "poll") {
@@ -1054,7 +1073,9 @@ function sendOnLane(
 					// the next tick to notice. Deferred past this reply's own resolve()
 					// below so a degraded-lane retirement never adds latency to the
 					// request that just measured it.
-					setImmediate(() => repairDegradedLane(lanesForOrigin(lane.origin), Date.now()));
+					if (role === "send" || role === "poll") {
+						setImmediate(() => repairDegradedLane(lanesForOrigin(lane.origin), Date.now()));
+					}
 					const shouldScore = role === "send" || (role === "poll" && shouldScorePollLane(lane.origin, lane.id));
 					if (shouldScore && role !== undefined) {
 						setImmediate(() => {
@@ -1132,7 +1153,7 @@ export function laneFetch(info: RequestInfo | URL, init?: RequestInit): Promise<
 			// almost always a genuinely fast one among them, so overflow traffic
 			// no longer needs to accept a merely-warm remote route the way it did
 			// when server3 had far fewer lanes to pick the best of.
-			const remoteEligible = remote !== undefined && hasFreshEligibleApplicationSample(remote, now, APPLICATION_HOT_CEILING_MS);
+			const remoteEligible = remote !== undefined && canTryRemoteFallback(remote, now, APPLICATION_HOT_CEILING_MS);
 			if (remoteEligible) {
 				return dispatchViaRemoteLane(relayConfig, url, init, role);
 			}
@@ -1152,7 +1173,7 @@ async function dispatchViaRemoteLane(
 ): Promise<Response | undefined> {
 	recordRemoteDispatchStart(url.origin);
 	const startedAt = performance.now();
-	const scoredRole = role === "poll" ? "poll" : "send";
+	const scoredRole = role === "send" || role === "poll" ? role : undefined;
 	try {
 		const response = await dispatchViaRelay(config, url, init, role);
 		if (required && !response) throw new Error("lane relay unavailable before dispatch");

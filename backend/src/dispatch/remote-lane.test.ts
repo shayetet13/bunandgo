@@ -52,6 +52,15 @@ describe("remoteLaneCandidate", () => {
 		updateRemoteLaneFromReport(ORIGIN, 20.5, now);
 		const candidate = remoteLaneCandidate(ORIGIN, now + 1_000);
 		expect(candidate?.rttMs).toBe(20.5);
+		expect(candidate?.sendRttMs).toBe(20.5);
+	});
+
+	test("keeps a ping-only bootstrap distinct from a real application sample", () => {
+		const now = 1_000_000;
+		updateRemoteLaneFromReport(ORIGIN, 6.4, now, false);
+		const candidate = remoteLaneCandidate(ORIGIN, now + 1_000);
+		expect(candidate?.rttMs).toBe(6.4);
+		expect(candidate?.sendRttMs).toBeUndefined();
 	});
 
 	test("undefined once the report goes stale", () => {
@@ -60,14 +69,12 @@ describe("remoteLaneCandidate", () => {
 		expect(remoteLaneCandidate(ORIGIN, now + 20_001)).toBeUndefined();
 	});
 
-	test("a real dispatch measurement takes over from the reported estimate", () => {
-		const now = 1_000_000;
+	test("a fresh real dispatch measurement takes over from the reported estimate", () => {
+		const now = Date.now();
 		updateRemoteLaneFromReport(ORIGIN, 20.5, now);
 		recordRemoteDispatchStart(ORIGIN);
 		recordRemoteDispatchEnd(ORIGIN, "send", 17.3, 21);
-		// Even far past the report's staleness window, the real measurement
-		// keeps the candidate alive — it no longer depends on the report at all.
-		const candidate = remoteLaneCandidate(ORIGIN, now + 60_000);
+		const candidate = remoteLaneCandidate(ORIGIN, now + 1_000);
 		expect(candidate?.sendRttMs).toBe(17.3);
 	});
 });
@@ -90,6 +97,16 @@ describe("recordRemoteDispatchStart / recordRemoteDispatchEnd", () => {
 		const candidate = remoteLaneCandidate(ORIGIN)!;
 		expect(candidate.sendRttMs).toBe(18);
 		expect(candidate.pollRttMs).toBe(15);
+	});
+
+	test("a warm dispatch releases in-flight state without becoming a send sample", () => {
+		updateRemoteLaneFromReport(ORIGIN, 8, Date.now(), false);
+		recordRemoteDispatchStart(ORIGIN);
+		recordRemoteDispatchEnd(ORIGIN, undefined, 2, 21);
+		const candidate = remoteLaneCandidate(ORIGIN)!;
+		expect(candidate.inFlight).toBe(0);
+		expect(candidate.sendRttMs).toBeUndefined();
+		expect(candidate.pollRttMs).toBeUndefined();
 	});
 
 	test("smooths repeated samples with an EWMA instead of overwriting", () => {

@@ -14,6 +14,7 @@ import {
 const originalToken = process.env.LANE_RELAY_TOKEN;
 const originalRelayUrl = process.env.LINE_RELAY_URL;
 const originalRelayToken = process.env.LINE_RELAY_TOKEN;
+const FIXTURE_TS = Date.now();
 
 afterEach(() => {
 	if (originalToken === undefined) delete process.env.LANE_RELAY_TOKEN;
@@ -38,14 +39,14 @@ function fixtureLane(): LaneStat {
 		id: 0,
 		state: "ready",
 		inFlight: 0,
-		lastOkAt: 1_000,
-		lastSendOkAt: 1_000,
-		lastPollOkAt: 1_000,
+		lastOkAt: FIXTURE_TS,
+		lastSendOkAt: FIXTURE_TS,
+		lastPollOkAt: FIXTURE_TS,
 		applicationRttMs: 15.2,
-		applicationSampleAt: 1_000,
+		applicationSampleAt: FIXTURE_TS,
 		routingEligible: true,
 		consecutiveFailures: 0,
-		openedAt: 500,
+		openedAt: FIXTURE_TS - 500,
 	};
 }
 
@@ -60,7 +61,7 @@ function fixtureRace(): LaneRaceLaneView {
 		state: "ready",
 		inFlight: 0,
 		applicationRttMs: 15.2,
-		applicationSampleAt: 1_000,
+		applicationSampleAt: FIXTURE_TS,
 		routingEligible: true,
 		send: fixtureScore(),
 		poll: fixtureScore(),
@@ -70,7 +71,7 @@ function fixtureRace(): LaneRaceLaneView {
 function reportBody(workerId: string) {
 	return {
 		workerId,
-		ts: Date.now(),
+		ts: FIXTURE_TS,
 		lanes: [fixtureLane()],
 		races: [fixtureRace()],
 	};
@@ -173,6 +174,26 @@ describe("lane relay report intake", () => {
 		// traffic anywhere on the box, an unused lane elsewhere must not
 		// make it look faster than it actually performs.
 		expect(remoteLaneCandidate("https://legy.line-apps.com")?.rttMs).toBe(18.5);
+	});
+
+	test("does not refresh an expired application sample by repeating it in a fresh report", async () => {
+		process.env.LANE_RELAY_TOKEN = "correct-token";
+		process.env.LINE_RELAY_URL = "http://10.90.0.2:8795/dispatch";
+		process.env.LINE_RELAY_TOKEN = "dispatch-token";
+		const app = buildApp();
+		const staleLane: LaneStat = {
+			...fixtureLane(),
+			applicationRttMs: 5,
+			applicationSampleAt: FIXTURE_TS - 60_000,
+			rttMs: 8,
+		};
+		const response = await app.request("/internal/lane-relay-events", {
+			method: "POST",
+			headers: { "content-type": "application/json", [LANE_RELAY_TOKEN_HEADER]: "correct-token" },
+			body: JSON.stringify({ workerId: "relay-3", ts: FIXTURE_TS, lanes: [staleLane], races: [] }),
+		});
+		expect(response.status).toBe(202);
+		expect(remoteLaneCandidate("https://legy.line-apps.com")?.rttMs).toBe(8);
 	});
 
 	test("drops a report once it is older than the requested max age", async () => {

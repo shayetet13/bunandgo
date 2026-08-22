@@ -98,6 +98,10 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 	}, []);
 
 	useEffect(() => {
+		if (role !== "admin") {
+			setHealth(undefined);
+			return;
+		}
 		let cancelled = false;
 		function poll() {
 			api
@@ -115,7 +119,7 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 			cancelled = true;
 			clearInterval(timer);
 		};
-	}, []);
+	}, [role]);
 
 	// When each bot's status last moved because of a live `bot_status` event —
 	// see reconcileFetchedBots for what this protects against.
@@ -380,13 +384,14 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 					if (!cancelled) setLaneRace(EMPTY_LANE_RACE);
 				});
 		}
-		refreshLaneRace();
-		const laneRaceTimer = setInterval(refreshLaneRace, 15_000);
+		const laneRaceTimer = role === "admin" ? setInterval(refreshLaneRace, 15_000) : undefined;
+		if (role === "admin") refreshLaneRace();
+		else setLaneRace(EMPTY_LANE_RACE);
 		return () => {
 			cancelled = true;
-			clearInterval(laneRaceTimer);
+			if (laneRaceTimer) clearInterval(laneRaceTimer);
 		};
-	}, [wsConnected, applyFetchedBots]);
+	}, [wsConnected, applyFetchedBots, role]);
 
 	// A dashboard tab's socket can reconnect in the gap between a failed
 	// login attempt and its retry (routine — LINE's own servers occasionally

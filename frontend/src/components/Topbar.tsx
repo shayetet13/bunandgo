@@ -233,19 +233,21 @@ export function Topbar({ title, subtitle, bots, health, notifications, onSelectB
 					)}
 				</div>
 
-				<div
-					style={{ display: "flex", alignItems: "center", gap: "0.35rem", flexWrap: "wrap", justifyContent: "center" }}
-					aria-label="สถานะการเชื่อมต่อระหว่าง Server 1 และ Server 2"
-				>
-					<ServerChip server={server1} />
-					<span
-						title="การเชื่อมต่อส่วนตัวระหว่างสองเซิร์ฟเวอร์"
-						style={{ color: connectorColor, fontSize: "1.1rem", fontWeight: 900, lineHeight: 1 }}
+				{health?.servers && (
+					<div
+						style={{ display: "flex", alignItems: "center", gap: "0.35rem", flexWrap: "wrap", justifyContent: "center" }}
+						aria-label="สถานะการเชื่อมต่อระหว่าง Server 1 และ Server 2"
 					>
-						⟷
-					</span>
-					<ServerChip server={server2} />
-				</div>
+						<ServerChip server={server1} />
+						<span
+							title="การเชื่อมต่อส่วนตัวระหว่างสองเซิร์ฟเวอร์"
+							style={{ color: connectorColor, fontSize: "1.1rem", fontWeight: 900, lineHeight: 1 }}
+						>
+							⟷
+						</span>
+						<ServerChip server={server2} />
+					</div>
+				)}
 
 				<button
 					onClick={onShowHelp}

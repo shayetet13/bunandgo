@@ -65,7 +65,7 @@ async function warmRelay(hosts: readonly string[]): Promise<WarmResult[]> {
 			try {
 				const response = await laneFetch(`https://${host}/`, {
 					method: "HEAD",
-					headers: { [H2_LANE_ROLE_HEADER]: "send" },
+					headers: { [H2_LANE_ROLE_HEADER]: "warm" },
 					signal: AbortSignal.timeout(10_000),
 				});
 				if (!response) throw new Error("relay-only warmup returned no response");

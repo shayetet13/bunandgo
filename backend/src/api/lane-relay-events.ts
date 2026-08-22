@@ -26,6 +26,7 @@ function laneRelayToken(): string | undefined {
 /** Two report intervals' worth of grace before a relay is treated as gone,
  * so one missed push (a GC pause, a blip on the tunnel) doesn't blank it. */
 const REPORT_STALE_MS = Math.max(3_000, Number(process.env.LANE_RELAY_STALE_MS ?? 3_000));
+const APPLICATION_SAMPLE_MAX_AGE_MS = Math.max(1_000, Number(process.env.LINE_H2_APPLICATION_SAMPLE_MAX_AGE_MS ?? 30_000));
 
 /** Defensive bound only — the token already keeps this to trusted senders.
  * Exported so the test can hit the limit without hardcoding the number. */
@@ -101,7 +102,7 @@ laneRelayEventsRoute.post("/", async (c) => {
 	const result = reportSchema.safeParse(body);
 	if (!result.success) return c.json({ error: formatZodError(result.error) }, 400);
 
-	const { workerId, lanes, races } = result.data;
+	const { workerId, ts, lanes, races } = result.data;
 	if (!reports.has(workerId) && reports.size >= MAX_TRACKED_WORKERS) {
 		return c.json({ error: "too many distinct lane relay workers reporting" }, 429);
 	}
@@ -132,9 +133,12 @@ laneRelayEventsRoute.post("/", async (c) => {
 	const bestPingByOrigin = new Map<string, number>();
 	for (const lane of lanes as LaneStat[]) {
 		if (lane.state !== "ready") continue;
-		if (lane.applicationRttMs !== undefined) {
+		const applicationAgeMs = ts - lane.applicationSampleAt;
+		const hasFreshApplicationSample =
+			lane.applicationRttMs !== undefined && applicationAgeMs >= 0 && applicationAgeMs <= APPLICATION_SAMPLE_MAX_AGE_MS;
+		if (hasFreshApplicationSample) {
 			const best = bestApplicationByOrigin.get(lane.origin);
-			if (best === undefined || lane.applicationRttMs < best) bestApplicationByOrigin.set(lane.origin, lane.applicationRttMs);
+			if (best === undefined || lane.applicationRttMs! < best) bestApplicationByOrigin.set(lane.origin, lane.applicationRttMs!);
 		} else if (lane.rttMs !== undefined) {
 			const best = bestPingByOrigin.get(lane.origin);
 			if (best === undefined || lane.rttMs < best) bestPingByOrigin.set(lane.origin, lane.rttMs);
@@ -142,8 +146,9 @@ laneRelayEventsRoute.post("/", async (c) => {
 	}
 	const reportedOrigins = new Set([...bestApplicationByOrigin.keys(), ...bestPingByOrigin.keys()]);
 	for (const origin of reportedOrigins) {
-		const bestRttMs = bestApplicationByOrigin.get(origin) ?? bestPingByOrigin.get(origin);
-		if (bestRttMs !== undefined) updateRemoteLaneFromReport(origin, bestRttMs, receivedAt);
+		const applicationRttMs = bestApplicationByOrigin.get(origin);
+		const bestRttMs = applicationRttMs ?? bestPingByOrigin.get(origin);
+		if (bestRttMs !== undefined) updateRemoteLaneFromReport(origin, bestRttMs, receivedAt, applicationRttMs !== undefined);
 	}
 
 	return c.json({ accepted: true }, 202);

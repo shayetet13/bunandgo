@@ -36,12 +36,12 @@ describe("warmer hot-send readiness", () => {
 
 	test("warms a relay-only shard without opening a direct or Go route", async () => {
 		for (const key of relayEnvKeys) savedRelayEnv.set(key, process.env[key]);
-		const urls: string[] = [];
+		const payloads: Array<{ url: string; role?: string }> = [];
 		const relay = Bun.serve({
 			port: 0,
 			async fetch(request) {
-				const payload = (await request.json()) as { url: string };
-				urls.push(payload.url);
+				const payload = (await request.json()) as { url: string; role?: string };
+				payloads.push({ url: payload.url, role: payload.role });
 				return Response.json({ status: 204, headers: {}, bodyBase64: "" });
 			},
 		});
@@ -50,7 +50,10 @@ describe("warmer hot-send readiness", () => {
 			process.env.LINE_RELAY_URL = `http://127.0.0.1:${relay.port}/dispatch`;
 			process.env.LINE_RELAY_TOKEN = "test-token";
 			const results = await warmOnce({ url: "http://127.0.0.1:1/dispatch", token: "unused" }, ["legy.line-apps.com", "gf.line.naver.jp"]);
-			expect(urls).toEqual(["https://legy.line-apps.com/", "https://gf.line.naver.jp/"]);
+			expect(payloads).toEqual([
+				{ url: "https://legy.line-apps.com/", role: "warm" },
+				{ url: "https://gf.line.naver.jp/", role: "warm" },
+			]);
 			expect(results.every((result) => result.host.startsWith("relay:") && result.status === 204)).toBe(true);
 		} finally {
 			relay.stop(true);

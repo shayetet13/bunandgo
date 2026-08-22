@@ -38,7 +38,7 @@ export function NetworkSpeedPanel({ lanes }: NetworkSpeedPanelProps) {
 					</div>
 					<div style={{ fontWeight: 700, marginTop: 3 }}>ความเร็วเครือข่ายแบบเรียลไทม์</div>
 					<p className="hint" style={{ margin: "0.35rem 0 0" }}>
-						RTT วัดจาก connection ที่ค้างไว้จริง (ไม่ใช่เปิดใหม่ทุกครั้ง) · อัปเดตทุก 5 วินาที
+						พร้อม = connection รอรับงาน ไม่ได้แปลว่ากำลังถูกใช้ · แต่ละคำขอใช้เลนเร็วสุดเพียงเส้นเดียวเพื่อป้องกันส่งซ้ำ
 					</p>
 				</div>
 				<span className="chip chip--go">● LIVE</span>
@@ -50,7 +50,6 @@ export function NetworkSpeedPanel({ lanes }: NetworkSpeedPanelProps) {
 				) : (
 					live.map((lane) => {
 						const applied = lane.applicationRttMs;
-						const primary = applied ?? lane.rttMs;
 						return (
 							<div
 								key={`${lane.workerId}-${lane.origin}-${lane.id}`}
@@ -85,10 +84,10 @@ export function NetworkSpeedPanel({ lanes }: NetworkSpeedPanelProps) {
 									style={{ textAlign: "right", fontSize: "var(--text-sm)", fontWeight: 700 }}
 									title={applied !== undefined ? "วัดจากงานจริง (ส่งข้อความ/poll)" : "ยังไม่มีงานจริงผ่านเลนนี้"}
 								>
-									{primary !== undefined ? (
-										<span className={`chip ${rttToneClass(applied !== undefined, lane.routingEligible)} mono`}>{primary.toFixed(1)}ms</span>
+									{applied !== undefined ? (
+										<span className={`chip ${rttToneClass(true, lane.routingEligible)} mono`}>จริง {applied.toFixed(1)}ms</span>
 									) : (
-										<span className="hint">—</span>
+										<span className="hint">ยังไม่มีงานจริง</span>
 									)}
 								</div>
 							</div>
