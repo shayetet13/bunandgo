@@ -137,7 +137,7 @@ metricsRoute.get("/lane-race", (c) => {
 	const lanes: LaneRaceResponseLane[] = [...laneRaceView().map((lane) => ({ ...lane, workerId: WORKER_ID })), ...remoteLaneRaces()];
 	lanes.sort(
 		(a, b) =>
-			Number(b.routingEligible) - Number(a.routingEligible) ||
+			Number(b.routingPreferred) - Number(a.routingPreferred) ||
 			(a.applicationRttMs ?? Number.POSITIVE_INFINITY) - (b.applicationRttMs ?? Number.POSITIVE_INFINITY) ||
 			a.laneId - b.laneId ||
 			a.workerId.localeCompare(b.workerId),

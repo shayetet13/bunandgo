@@ -91,7 +91,7 @@ export function NetworkSpeedPanel({ lanes }: NetworkSpeedPanelProps) {
 									}
 								>
 									{applied !== undefined ? (
-										<span className={`chip ${rttToneClass(true, lane.routingEligible)} mono`}>จริง {applied.toFixed(1)}ms</span>
+										<span className={`chip ${rttToneClass(true, lane.routingPreferred)} mono`}>จริง {applied.toFixed(1)}ms</span>
 									) : (
 										<span className="hint">{lane.lastOkAt > 0 ? "อุ่นแล้ว · รองานจริง" : "กำลังอุ่น"}</span>
 									)}

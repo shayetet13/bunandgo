@@ -55,7 +55,7 @@ const laneStatSchema = z.object({
 	lastPollOkAt: z.number(),
 	applicationRttMs: z.number().optional(),
 	applicationSampleAt: z.number(),
-	routingEligible: z.boolean(),
+	routingPreferred: z.boolean(),
 	consecutiveFailures: z.number().int(),
 	openedAt: z.number(),
 });
@@ -69,7 +69,7 @@ const laneRaceViewSchema = z.object({
 	pollRttMs: z.number().optional(),
 	applicationRttMs: z.number().optional(),
 	applicationSampleAt: z.number(),
-	routingEligible: z.boolean(),
+	routingPreferred: z.boolean(),
 	send: laneScoreSchema,
 	poll: laneScoreSchema,
 });

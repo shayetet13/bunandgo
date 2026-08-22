@@ -14,13 +14,9 @@
     "sendReservedLanes": 4,
     "fastPollSlots": 8,
     "fastPollIntervalMs": 0,
-    "applicationHotCeilingMs": 20,
-    "applicationDiscardCeilingMs": 23,
     "applicationSampleMaxAgeMs": 30000,
     "laneMaxAgeMs": 1200000,
-    "laneRecycleGapMs": 60000,
-    "degradedRepairGapMs": 5000,
-    "degradedRepairMinSamples": 1
+    "laneRecycleGapMs": 60000
   },
   "shards": [
     {
@@ -34,13 +30,9 @@
       "sendReservedLanes": 4,
       "fastPollSlots": 8,
       "fastPollIntervalMs": 0,
-      "applicationHotCeilingMs": 20,
-      "applicationDiscardCeilingMs": 23,
       "applicationSampleMaxAgeMs": 30000,
       "laneMaxAgeMs": 1200000,
-      "laneRecycleGapMs": 60000,
-      "degradedRepairGapMs": 5000,
-      "degradedRepairMinSamples": 1
+      "laneRecycleGapMs": 60000
     }
   ]
 }

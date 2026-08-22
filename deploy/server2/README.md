@@ -40,9 +40,10 @@ so the root-owned env file never needs to change during token rotation. Static
 
 Both workers use 16 effective H2 lanes: four are reserved for sends and twelve
 are available for polling. Eight zero-delay poll slots can be active per
-worker. The scheduler explores the complete poll pool every two seconds, ranks
-real application samples, treats `<20ms` as hot, permits `20–<23ms` only as
-warm capacity, and marks known `>=23ms` lanes degraded for repair.
+worker. Every new/reconnected poll lane receives one real LINE measurement;
+after calibration, each request uses the lane with the lowest latest real
+application RTT. There is no fixed latency pass/fail or discard threshold.
+Server 2 and Server 3 are compared by the same fastest-known-result rule.
 
 Server 3 owns no bot, login, session, database, or public API runtime. It only
 maintains the relay lane pools. Its one-second report is stale after three

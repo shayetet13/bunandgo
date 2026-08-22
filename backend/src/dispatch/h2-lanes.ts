@@ -92,40 +92,6 @@ function recycleInterval(raw: string | undefined, fallback: number): number {
 const LANE_MAX_AGE_MS = recycleInterval(process.env.LINE_H2_LANE_MAX_AGE_MS, 15 * 60_000);
 const LANE_RECYCLE_MIN_GAP_MS = recycleInterval(process.env.LINE_H2_LANE_RECYCLE_GAP_MS, 60_000);
 
-/** A recent real LINE request, not edge-only H2 PING, gates hot routing.
- * 20/21 (not the older 18/20) on purpose: with a second, genuinely
- * independent network path (the lane relay, see remote-lane.ts) now a real
- * candidate, the ceiling has to fit its typical RTT too, not just local
- * lanes' — 18/20 measured against server3's own numbers rejected it almost
- * every time. These were previously only overridden via worker-topology.json
- * (whose value is authoritative in production either way); kept in sync here
- * so the source default stops silently lying about what's actually live. */
-const APPLICATION_HOT_CEILING_MS = Math.max(
-	0,
-	Number(process.env.LINE_H2_APPLICATION_HOT_CEILING_MS ?? process.env.LINE_H2_APPLICATION_LANE_CEILING_MS ?? 20),
-);
-/** Known routes at or above this RTT are removed from foreground sends.
- * Widened from 21 back to 23 on purpose: the lane relay's own real,
- * single-session measurement averaged 21.4ms (range 17-30ms) — at 21 it was
- * being excluded outright most of the time rather than getting a genuine
- * shot at the warm tier. 23 gives it real room; the fastest-available lane
- * still always wins regardless of this ceiling, this only controls what
- * gets discarded entirely. */
-const APPLICATION_DISCARD_CEILING_MS = Math.max(
-	APPLICATION_HOT_CEILING_MS,
-	Number(process.env.LINE_H2_APPLICATION_DISCARD_CEILING_MS ?? 23),
-);
-const APPLICATION_SAMPLE_MAX_AGE_MS = Math.max(1_000, Number(process.env.LINE_H2_APPLICATION_SAMPLE_MAX_AGE_MS ?? 30_000));
-// Floor is a sanity minimum, not a policy default: repairDegradedLane() only
-// ever retires an idle, already-known-slow lane in the background (never the
-// fastest one, never one with inFlight work), so tightening this cannot slow
-// down a live reply — it only changes how quickly a degraded route is retried.
-// The 60s *default* (unset env) is unchanged; only the previously-hardcoded
-// lower bound is relaxed so LINE_H2_DEGRADED_REPAIR_GAP_MS can actually lower
-// it when that's deliberately chosen.
-const DEGRADED_REPAIR_MIN_GAP_MS = Math.max(5_000, Number(process.env.LINE_H2_DEGRADED_REPAIR_GAP_MS ?? 60_000));
-const DEGRADED_REPAIR_MIN_SAMPLES = Math.max(1, Math.floor(Number(process.env.LINE_H2_DEGRADED_REPAIR_MIN_SAMPLES ?? 3)));
-
 const CONNECT_TIMEOUT_MS = 10_000;
 /** Backoff ceiling for a host that is refusing connections outright. */
 const RECONNECT_MAX_DELAY_MS = 8_000;
@@ -148,15 +114,12 @@ interface Lane {
 	lastOkAt: number;
 	/** Smoothed HTTP/2 PING round trip for choosing between warm routes. */
 	rttMs?: number;
-	/** Smoothed real application round trips, kept separate by workload. */
+	/** Latest real application round trips, kept separate by workload. */
 	sendRttMs?: number;
-	/** Network PING baseline captured with the latest send RTT sample. */
-	sendNetworkRttMs?: number;
 	pollRttMs?: number;
 	lastSendOkAt: number;
 	lastPollOkAt: number;
 	consecutiveFailures: number;
-	consecutiveSlowApplicationSamples: number;
 	/** Wall-clock time this physical HTTP/2 session connected. */
 	openedAt: number;
 	reconnectTimer?: ReturnType<typeof setTimeout>;
@@ -179,10 +142,10 @@ export interface LaneStat {
 	pollRttMs?: number;
 	lastSendOkAt: number;
 	lastPollOkAt: number;
-	/** Freshest real send/poll RTT — the same value used by hot routing. */
+	/** Freshest real send/poll RTT — the same value used by fastest-first routing. */
 	applicationRttMs?: number;
 	applicationSampleAt: number;
-	routingEligible: boolean;
+	routingPreferred: boolean;
 	consecutiveFailures: number;
 	openedAt: number;
 }
@@ -204,8 +167,6 @@ const sessionTickets = new Map<string, Buffer>();
 const preferredSendLaneIds = new Map<string, number>();
 /** Last rolling lane replacement per origin; keeps replacements staggered. */
 const lastLaneRecycleAt = new Map<string, number>();
-/** Background-only repair throttle; never awaited by a reply. */
-const lastDegradedRepairAt = new Map<string, number>();
 let pingTimer: ReturnType<typeof setInterval> | undefined;
 
 function isUsable(lane: Lane): boolean {
@@ -248,16 +209,26 @@ export function laneCandidates<T extends { id: number }>(usable: T[], role: Lane
 }
 
 function pickPollingLane(lanes: Lane[]): Lane | undefined {
-	const usable = laneCandidates(lanes.filter(isUsable), "poll");
+	const usable = pollingCandidatesForCalibration(lanes.filter(isUsable));
 	if (usable.length === 0) return undefined;
 	return selectPollingLaneCandidate(usable);
+}
+
+/** Includes every unmeasured physical lane for one safe poll calibration,
+ * then restores the configured send/poll partition for steady-state work. */
+export function pollingCandidatesForCalibration<T extends { id: number; pollRttMs?: number }>(
+	allUsable: T[],
+	reserved: number = SEND_RESERVED_LANES,
+): T[] {
+	const unmeasured = allUsable.filter((lane) => lane.pollRttMs === undefined);
+	return unmeasured.length > 0 ? unmeasured : laneCandidates(allUsable, "poll", reserved);
 }
 
 function pickLane(lanes: Lane[], role: LaneRole): Lane | undefined {
 	if (role === "poll") return pickPollingLane(lanes);
 	const origin = lanes[0]?.origin;
 	const usable = lanes.filter(isUsable);
-	const candidates = role === "send" ? sendCandidatesWithCrossover(usable) : laneCandidates(usable, role);
+	const candidates = role === "send" ? fastestSendCandidates(usable) : laneCandidates(usable, role);
 
 	let best: Lane | undefined;
 	for (const lane of candidates) {
@@ -288,11 +259,9 @@ const RTT_SWITCH_MARGIN_MS = Math.max(0, Number(process.env.LINE_H2_RTT_SWITCH_M
 interface LaneChoiceMetrics {
 	rttMs?: number;
 	sendRttMs?: number;
-	sendNetworkRttMs?: number;
 	pollRttMs?: number;
 	lastSendOkAt?: number;
 	lastPollOkAt?: number;
-	consecutiveSlowApplicationSamples?: number;
 	lastOkAt: number;
 	inFlight: number;
 }
@@ -301,17 +270,7 @@ const APPLICATION_SWITCH_MARGIN_MS = Math.max(0, Number(process.env.LINE_H2_APPL
 const IN_FLIGHT_PENALTY_MS = Math.max(0, Number(process.env.LINE_H2_IN_FLIGHT_PENALTY_MS ?? 4));
 
 function estimatedSendRtt(lane: LaneChoiceMetrics): number | undefined {
-	if (lane.sendRttMs !== undefined) {
-		// A send lane may go quiet after losing a race. Adjust its last real
-		// application sample by the change in continuously refreshed H2 PING so
-		// a recovered Akamai route can become eligible again without issuing a
-		// duplicate or synthetic chat message.
-		if (lane.rttMs !== undefined && lane.sendNetworkRttMs !== undefined) {
-			return Math.max(0, lane.sendRttMs + lane.rttMs - lane.sendNetworkRttMs);
-		}
-		return lane.sendRttMs;
-	}
-	return lane.pollRttMs ?? lane.rttMs;
+	return lane.sendRttMs ?? lane.pollRttMs ?? lane.rttMs;
 }
 
 function measuredApplicationRtt(lane: LaneChoiceMetrics): number | undefined {
@@ -324,93 +283,31 @@ function applicationSampleAt(lane: LaneChoiceMetrics): number {
 	return Math.max(lane.lastSendOkAt ?? 0, lane.lastPollOkAt ?? 0);
 }
 
-function hasFreshEligibleApplicationSample(
-	lane: LaneChoiceMetrics,
-	now: number,
-	ceilingMs: number = APPLICATION_HOT_CEILING_MS,
-	maxAgeMs: number = APPLICATION_SAMPLE_MAX_AGE_MS,
-): boolean {
-	const rtt = measuredApplicationRtt(lane);
-	const sampleAt = applicationSampleAt(lane);
-	return rtt !== undefined && rtt < ceilingMs && sampleAt > 0 && now - sampleAt <= maxAgeMs;
-}
-
-/** A relay with a real hot sample is immediately usable. A brand-new relay
- * gets exactly one bootstrap attempt from its fresh edge PING, but only after
- * the local pool has already failed the 23ms ceiling; that attempt creates the
- * end-to-end Server 2 -> Server 3 -> LINE measurement used thereafter. */
-export function canTryRemoteFallback(
-	candidate: LaneChoiceMetrics,
-	now: number = Date.now(),
-	hotCeilingMs: number = APPLICATION_HOT_CEILING_MS,
-): boolean {
-	if (hasFreshEligibleApplicationSample(candidate, now, hotCeilingMs)) return true;
-	return measuredApplicationRtt(candidate) === undefined && candidate.rttMs !== undefined && candidate.rttMs < hotCeilingMs;
-}
-
-/** Server 3 may replace a local route only after the local route has a real
- * measurement that misses the sub-20ms target (or no local route exists). */
-export function shouldTryRemoteForLocal(
-	localAvailable: boolean,
-	localApplicationRtt: number | undefined,
-	hotCeilingMs: number = APPLICATION_HOT_CEILING_MS,
-): boolean {
-	return !localAvailable || (localApplicationRtt !== undefined && localApplicationRtt >= hotCeilingMs);
-}
-
 /**
- * Fresh sub-hot routes win first, then fresh routes below the hard discard
- * threshold. A known route at/above the discard threshold is deprioritized
- * below every fresher/faster option, but is still the last resort when
- * nothing else qualifies: the caller's global-fetch fallback loses the warm
- * TLS/H2 connection entirely and measures slower than even the worst owned
- * lane, so an empty candidate list is only returned when there are truly no
- * usable lanes at all.
+ * Keeps every measured route in the competition and lets the caller choose
+ * the lowest real LINE RTT. There is no absolute "good" or "bad" latency:
+ * if every route is 40ms, the 40ms route is still the correct winner.
+ * Unmeasured lanes are used only while no real application result exists;
+ * polls calibrate the pool without duplicating user messages.
  */
-export function sendCandidatesWithCrossover<T extends LaneChoiceMetrics & { id: number }>(
-	usable: T[],
-	reserved: number = SEND_RESERVED_LANES,
-	now: number = Date.now(),
-	hotCeilingMs: number = APPLICATION_HOT_CEILING_MS,
-	discardCeilingMs: number = APPLICATION_DISCARD_CEILING_MS,
-	maxAgeMs: number = APPLICATION_SAMPLE_MAX_AGE_MS,
-): T[] {
-	const hot = usable.filter((lane) => hasFreshEligibleApplicationSample(lane, now, hotCeilingMs, maxAgeMs));
-	const warm = usable.filter((lane) => {
-		const rtt = measuredApplicationRtt(lane);
-		return rtt !== undefined && rtt >= hotCeilingMs && hasFreshEligibleApplicationSample(lane, now, discardCeilingMs, maxAgeMs);
-	});
-	const idleHot = hot.filter((lane) => lane.inFlight === 0);
-	if (idleHot.length > 0) return idleHot;
-	const idleWarm = warm.filter((lane) => lane.inFlight === 0);
-	if (idleWarm.length > 0) return idleWarm;
-	if (hot.length > 0) return hot;
-	if (warm.length > 0) return warm;
+export function fastestSendCandidates<T extends LaneChoiceMetrics & { id: number }>(usable: T[]): T[] {
+	const measured = usable.filter((lane) => measuredApplicationRtt(lane) !== undefined);
+	const pool = measured.length > 0 ? measured : laneCandidates(usable, "send");
+	const idle = pool.filter((lane) => lane.inFlight === 0);
+	return idle.length > 0 ? idle : pool;
+}
 
-	// Preserve an unmeasured/stale-but-not-known-slow reserved route so a new
-	// session can calibrate. Routes already measured >= discard stay excluded
-	// even after the sample ages out.
-	const safeFallback = laneCandidates(usable, "send", reserved).filter((lane) => {
-		const rtt = measuredApplicationRtt(lane);
-		return rtt === undefined || rtt < discardCeilingMs;
-	});
-	if (safeFallback.length > 0) {
-		const idle = safeFallback.filter((lane) => lane.inFlight === 0);
-		return idle.length > 0 ? idle : safeFallback;
+/** Chooses Server 3 only when its best known result is lower than Server 2's.
+ * A ping-only relay is allowed one relative bootstrap when its network RTT is
+ * lower; the resulting end-to-end LINE sample replaces that estimate. */
+export function shouldPreferRemoteLane(remote: LaneChoiceMetrics, local: LaneChoiceMetrics | undefined): boolean {
+	if (!local) return true;
+	const remoteApplicationRtt = measuredApplicationRtt(remote);
+	const localApplicationRtt = measuredApplicationRtt(local);
+	if (remoteApplicationRtt !== undefined || localApplicationRtt === undefined) {
+		return shouldPreferFastestSendLane(remote, local);
 	}
-
-	// Every reserved send lane has a real measurement at/above the discard
-	// ceiling ("known slow", not merely stale or unmeasured — those already
-	// took the safeFallback branch above). Surface the fastest of them rather
-	// than an empty list; repairDegradedLane() is what pulls a lane like this
-	// back under the ceiling in the background.
-	const reservedCandidates = laneCandidates(usable, "send", reserved);
-	if (reservedCandidates.length === 0) return [];
-	let fastest = reservedCandidates[0]!;
-	for (const lane of reservedCandidates) {
-		if (shouldPreferFastestSendLane(lane, fastest, 0)) fastest = lane;
-	}
-	return [fastest];
+	return remote.rttMs !== undefined && local.rttMs !== undefined && remote.rttMs + APPLICATION_SWITCH_MARGIN_MS < local.rttMs;
 }
 
 /** Applies the exact 0.50ms handoff rule to real application measurements. */
@@ -456,8 +353,6 @@ export function shouldPreferLane(candidate: LaneChoiceMetrics, current: LaneChoi
 /** Pure adaptive poll decision used by the live pool and focused tests. */
 export function selectPollingLaneCandidate<T extends LaneChoiceMetrics & { id: number; lastPollOkAt: number }>(
 	candidates: T[],
-	hotCeilingMs: number = APPLICATION_HOT_CEILING_MS,
-	discardCeilingMs: number = APPLICATION_DISCARD_CEILING_MS,
 ): T | undefined {
 	if (candidates.length === 0) return undefined;
 
@@ -478,29 +373,13 @@ export function selectPollingLaneCandidate<T extends LaneChoiceMetrics & { id: n
 		return best;
 	};
 
-	// Foreground polls are user-visible latency. Once one route has proved it
-	// can complete a real LINE RPC below 20ms, keep choosing the fastest proven
-	// route instead of spending live polls to calibrate or periodically explore
-	// unused connections. Those experiments were the controllable source of
-	// recurring 24/30/40/80ms samples despite plenty of spare lanes.
-	const hot = candidates.filter((lane) => lane.pollRttMs !== undefined && lane.pollRttMs < hotCeilingMs);
-	if (hot.length > 0) return lowest(hot, (lane) => lane.pollRttMs);
-
-	// A 20-23ms result is a safe fallback, but it has not met the preferred
-	// target. Try the unmeasured connection with the lowest live H2 PING next;
-	// this is demand-driven discovery, not periodic exploration. The instant a
-	// real sub-20ms result exists, the hot branch above keeps using it.
+	// Every new/reconnected lane gets one real LINE poll before the pool settles
+	// on a winner. This is the only safe way to discover a faster route without
+	// racing or duplicating a user's outgoing message.
 	const unmeasured = candidates.filter((lane) => lane.pollRttMs === undefined);
 	if (unmeasured.length > 0) return lowest(unmeasured, (lane) => lane.rttMs);
 
-	const warm = candidates.filter(
-		(lane) => lane.pollRttMs !== undefined && lane.pollRttMs >= hotCeilingMs && lane.pollRttMs < discardCeilingMs,
-	);
-	if (warm.length > 0) return lowest(warm, (lane) => lane.pollRttMs);
-
-	// Availability last resort. A >=23ms lane is used only if every alternative
-	// is also known slow; background repair replaces these sessions.
-	return lowest(candidates, (lane) => lane.pollRttMs ?? lane.rttMs);
+	return lowest(candidates, (lane) => lane.pollRttMs);
 }
 
 function isBetterLane(candidate: Lane, current: Lane, role: LaneRole): boolean {
@@ -523,17 +402,15 @@ function recordApplicationRtt(lane: Lane, role: LaneRole, sampleMs: number): voi
 	// touch. Warm traffic updates lastOkAt only (in sendOnLane), never routing.
 	if (role === "warm" || role === undefined) return;
 	const now = Date.now();
-	lane.consecutiveSlowApplicationSamples = sampleMs >= APPLICATION_DISCARD_CEILING_MS ? lane.consecutiveSlowApplicationSamples + 1 : 0;
 	if (role === "poll") {
-		// Poll routing follows the latest completed LINE result exactly. An EWMA
-		// can hide a fresh >23ms result behind an older fast average and keep the
-		// now-slow route selected, contrary to the hard discard rule.
+		// Poll routing follows the latest completed LINE result exactly.
 		lane.pollRttMs = sampleMs;
 		lane.lastPollOkAt = now;
 		return;
 	}
-	lane.sendRttMs = lane.sendRttMs === undefined ? sampleMs : lane.sendRttMs * 0.65 + sampleMs * 0.35;
-	lane.sendNetworkRttMs = lane.rttMs;
+	// The latest result decides the next request. Averaging would hide a route
+	// that just became slower and contradict fastest-first routing.
+	lane.sendRttMs = sampleMs;
 	lane.lastSendOkAt = now;
 }
 
@@ -558,98 +435,6 @@ interface RecyclableLane {
 	state: LaneState;
 	inFlight: number;
 	openedAt: number;
-}
-
-/**
- * Every idle, ready, over-ceiling lane that has confirmed the breach for
- * `minimumSlowSamples` consecutive samples, worst RTT first. When every
- * route is over the ceiling, the fastest measured lane is held back as the
- * live fallback so this never empties the pool down to zero candidates.
- *
- * Both `selectDegradedLaneForRepair()`'s single pick and the repair
- * scheduler's backlog count come from this one list, so they can never
- * drift out of sync with each other.
- */
-export function degradedLaneCandidates<T extends RecyclableLane & LaneChoiceMetrics>(
-	lanes: T[],
-	ceilingMs: number,
-	minimumSlowSamples: number,
-): T[] {
-	const ready = lanes.filter((lane) => lane.state === "ready");
-	const measured = ready.filter((lane) => measuredApplicationRtt(lane) !== undefined);
-	if (ready.length < 2 || measured.length === 0) return [];
-	const fastest = [...measured].sort(
-		(left, right) => measuredApplicationRtt(left)! - measuredApplicationRtt(right)! || left.id - right.id,
-	)[0]!;
-	// Protect the fastest measured route only when every ready connection is
-	// already measured. If an unmeasured ready standby exists, a lone known-
-	// slow route is safe to recycle: keeping it merely because it is the first
-	// application-tested lane leaves a cold >=23ms relay slot stuck until a
-	// later foreground request happens to calibrate another lane.
-	const protectFastestMeasured = measured.length === ready.length;
-
-	return measured
-		.filter((lane) => {
-			const rtt = measuredApplicationRtt(lane);
-			return (
-				(!protectFastestMeasured || lane.id !== fastest.id) &&
-				lane.inFlight === 0 &&
-				rtt !== undefined &&
-				rtt >= ceilingMs &&
-				(lane.consecutiveSlowApplicationSamples ?? 0) >= minimumSlowSamples
-			);
-		})
-		.sort(
-			(left, right) =>
-				measuredApplicationRtt(right)! - measuredApplicationRtt(left)! ||
-				applicationSampleAt(left) - applicationSampleAt(right) ||
-				left.id - right.id,
-		);
-}
-
-/**
- * Picks one known-slow idle connection only when a healthy application-tested
- * standby already exists. This is called by a timer, never by laneFetch, and
- * therefore cannot add a handshake or reconnect to the reply path.
- */
-export function selectDegradedLaneForRepair<T extends RecyclableLane & LaneChoiceMetrics>(
-	lanes: T[],
-	ceilingMs: number = APPLICATION_DISCARD_CEILING_MS,
-	minimumSlowSamples: number = 1,
-): T | undefined {
-	return degradedLaneCandidates(lanes, ceilingMs, minimumSlowSamples)[0];
-}
-
-function repairDegradedLane(lanes: Lane[], now: number): boolean {
-	if (lanes.length === 0) return false;
-	const origin = lanes[0]!.origin;
-	const candidates = degradedLaneCandidates(lanes.filter(isUsable), APPLICATION_DISCARD_CEILING_MS, DEGRADED_REPAIR_MIN_SAMPLES);
-	if (candidates.length === 0) return false;
-
-	// A lone degraded lane gets the full conservative gap -- no reason to
-	// rush a one-off blip. Once a second lane is *simultaneously* idle and
-	// over the ceiling, the repair queue is falling behind the rate lanes
-	// are degrading at: production evidence (2026-08-20, legy.line-apps.com,
-	// 21h/305 repairs) showed the gap sitting at its 60s floor in 56% of
-	// gaps, with another lane already waiting the instant it reopened --
-	// real reply p50 sat at 22.5ms against an 18-21ms target as a result.
-	// Backing off to one repair per timer tick when a backlog exists is
-	// still safe: this function is never called more than once per
-	// PING_INTERVAL_MS (see startPingTimer), and never touches the fastest
-	// lane or one with inFlight work either way.
-	const effectiveGapMs = candidates.length > 1 ? PING_INTERVAL_MS : DEGRADED_REPAIR_MIN_GAP_MS;
-	if (now - (lastDegradedRepairAt.get(origin) ?? now) < effectiveGapMs) return false;
-
-	const candidate = candidates[0]!;
-	lastDegradedRepairAt.set(origin, now);
-	console.log(
-		`[h2-lanes] background repair: lane ${candidate.id} ` +
-			`application=${measuredApplicationRtt(candidate)!.toFixed(1)}ms ` +
-			`discard=${APPLICATION_DISCARD_CEILING_MS.toFixed(1)}ms ` +
-			`slowSamples=${candidate.consecutiveSlowApplicationSamples} backlog=${candidates.length} (origin=${origin})`,
-	);
-	retireLane(candidate, "draining");
-	return true;
 }
 
 /**
@@ -731,11 +516,9 @@ function openLane(lane: Lane): Promise<void> {
 	// pool slot. Never rank it using a PING measurement from the dead socket.
 	lane.rttMs = undefined;
 	lane.sendRttMs = undefined;
-	lane.sendNetworkRttMs = undefined;
 	lane.pollRttMs = undefined;
 	lane.lastSendOkAt = 0;
 	lane.lastPollOkAt = 0;
-	lane.consecutiveSlowApplicationSamples = 0;
 	lane.openedAt = 0;
 
 	return new Promise<void>((resolve, reject) => {
@@ -843,9 +626,7 @@ function startPingTimer(): void {
 				}
 				pingLane(lane);
 			}
-			// Never let age refresh and degraded-route repair drain two lanes in
-			// the same timer tick. A measured slow path gets priority.
-			if (!repairDegradedLane(lanes, now)) recycleAgedLane(lanes, now);
+			recycleAgedLane(lanes, now);
 		}
 	}, PING_INTERVAL_MS);
 	pingTimer.unref?.();
@@ -874,17 +655,14 @@ export async function ensureLanes(origin: string): Promise<void> {
 			lastOkAt: 0,
 			rttMs: undefined,
 			sendRttMs: undefined,
-			sendNetworkRttMs: undefined,
 			pollRttMs: undefined,
 			lastSendOkAt: 0,
 			lastPollOkAt: 0,
 			consecutiveFailures: 0,
-			consecutiveSlowApplicationSamples: 0,
 			openedAt: 0,
 			disposed: false,
 		}));
 		pools.set(key, lanes);
-		lastDegradedRepairAt.set(key, Date.now());
 	}
 	startPingTimer();
 	const results = await Promise.allSettled(lanes.map((lane) => openLane(lane)));
@@ -1099,14 +877,6 @@ function sendOnLane(
 					lane.lastOkAt = Date.now();
 					const elapsedMs = performance.now() - startedAt;
 					recordApplicationRtt(lane, role, elapsedMs);
-					// Same repair rule the ping timer runs, fired the instant a sample
-					// crosses the ceiling instead of waiting up to PING_INTERVAL_MS for
-					// the next tick to notice. Deferred past this reply's own resolve()
-					// below so a degraded-lane retirement never adds latency to the
-					// request that just measured it.
-					if (role === "send" || role === "poll") {
-						setImmediate(() => repairDegradedLane(lanesForOrigin(lane.origin), Date.now()));
-					}
 					const shouldScore = role === "send" || (role === "poll" && shouldScorePollLane(lane.origin, lane.id));
 					if (shouldScore && role !== undefined) {
 						setImmediate(() => {
@@ -1146,11 +916,10 @@ function lanesForOrigin(origin: string): Lane[] {
  * the whole benefit here, and it costs no risk of sending twice.
  *
  * A second physical machine's h2-lanes pool (server3, see remote-lane.ts) is
- * folded in here as pure standby, never inside pickLane()/pickPollingLane()
- * themselves — those stay local-lanes-only. Deliberately NOT a duplicate
- * race: Server 3 is considered only when no local route has a proven sub-20ms
- * application sample. A local 20-23ms route remains the safe fallback when
- * Server 3 is not itself proven sub-20ms.
+ * folded in here as one more measured candidate, never inside
+ * pickLane()/pickPollingLane() themselves — those stay local-lanes-only.
+ * Deliberately NOT a duplicate race: the lower known end-to-end RTT wins and
+ * exactly one machine sends the request.
  */
 export function laneFetch(info: RequestInfo | URL, init?: RequestInit): Promise<Response | undefined> {
 	const url = info instanceof URL ? info : new URL(typeof info === "string" ? info : info.url);
@@ -1164,24 +933,10 @@ export function laneFetch(info: RequestInfo | URL, init?: RequestInit): Promise<
 	}
 	const lanes = LANE_COUNT === 0 ? undefined : pools.get(url.origin);
 	const lane = lanes ? pickLane(lanes, role) : undefined;
-
-	const localApplicationRtt = lane ? measuredApplicationRtt(lane) : undefined;
-	const localMissesHotTarget = shouldTryRemoteForLocal(lane !== undefined, localApplicationRtt);
-	if (localMissesHotTarget) {
-		const relayConfig = remoteDispatchConfig();
-		if (relayConfig) {
-			const remote = remoteLaneCandidate(url.origin);
-			const now = Date.now();
-			// Held to the hot ceiling specifically, not the wider local discard
-			// ceiling: with 32 standby lanes on server3 (raised from 6) there is
-			// almost always a genuinely fast one among them, so overflow traffic
-			// no longer needs to accept a merely-warm remote route the way it did
-			// when server3 had far fewer lanes to pick the best of.
-			const remoteEligible = remote !== undefined && canTryRemoteFallback(remote, now, APPLICATION_HOT_CEILING_MS);
-			if (remoteEligible) {
-				return dispatchViaRemoteLane(relayConfig, url, init, role);
-			}
-		}
+	const relayConfig = remoteDispatchConfig();
+	if (relayConfig) {
+		const remote = remoteLaneCandidate(url.origin);
+		if (remote && shouldPreferRemoteLane(remote, lane)) return dispatchViaRemoteLane(relayConfig, url, init, role);
 	}
 
 	if (!lane) return undefined;
@@ -1201,18 +956,21 @@ async function dispatchViaRemoteLane(
 	try {
 		const response = await dispatchViaRelay(config, url, init, role);
 		if (required && !response) throw new Error("lane relay unavailable before dispatch");
-		recordRemoteDispatchEnd(url.origin, scoredRole, performance.now() - startedAt, APPLICATION_DISCARD_CEILING_MS);
+		recordRemoteDispatchEnd(url.origin, scoredRole, performance.now() - startedAt);
 		return response;
 	} catch (error) {
-		recordRemoteDispatchEnd(url.origin, scoredRole, performance.now() - startedAt, APPLICATION_DISCARD_CEILING_MS);
+		recordRemoteDispatchEnd(url.origin, scoredRole, performance.now() - startedAt);
 		throw error;
 	}
 }
 
 export function laneStats(): LaneStat[] {
 	const stats: LaneStat[] = [];
-	const now = Date.now();
 	for (const [origin, lanes] of pools) {
+		const fastest = lanes.filter(isUsable).reduce<Lane | undefined>((best, lane) => {
+			if (measuredApplicationRtt(lane) === undefined) return best;
+			return !best || shouldPreferFastestSendLane(lane, best, 0) ? lane : best;
+		}, undefined);
 		for (const lane of lanes) {
 			const applicationRttMs = measuredApplicationRtt(lane);
 			stats.push({
@@ -1228,7 +986,7 @@ export function laneStats(): LaneStat[] {
 				lastPollOkAt: lane.lastPollOkAt,
 				applicationRttMs,
 				applicationSampleAt: applicationSampleAt(lane),
-				routingEligible: isUsable(lane) && hasFreshEligibleApplicationSample(lane, now),
+				routingPreferred: isUsable(lane) && lane.id === fastest?.id,
 				consecutiveFailures: lane.consecutiveFailures,
 				openedAt: lane.openedAt,
 			});
@@ -1246,7 +1004,7 @@ export interface LaneRaceLaneView {
 	pollRttMs?: number;
 	applicationRttMs?: number;
 	applicationSampleAt: number;
-	routingEligible: boolean;
+	routingPreferred: boolean;
 	send: LaneRaceScore;
 	poll: LaneRaceScore;
 }
@@ -1268,7 +1026,7 @@ export function laneRaceView(): LaneRaceLaneView[] {
 		pollRttMs: lane.pollRttMs,
 		applicationRttMs: lane.applicationRttMs,
 		applicationSampleAt: lane.applicationSampleAt,
-		routingEligible: lane.routingEligible,
+		routingPreferred: lane.routingPreferred,
 		send: laneRaceScore(lane.origin, lane.id, "send"),
 		poll: laneRaceScore(lane.origin, lane.id, "poll"),
 	}));
@@ -1293,5 +1051,4 @@ export function stopLanes(): void {
 	originPrimeRuns.clear();
 	preferredSendLaneIds.clear();
 	lastLaneRecycleAt.clear();
-	lastDegradedRepairAt.clear();
 }

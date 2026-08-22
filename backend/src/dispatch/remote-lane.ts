@@ -1,9 +1,8 @@
 /**
  * A second physical machine's h2-lanes pool (server3, the lane-relay box —
  * see backend/src/relay/) folded into this process's own lane candidates as
- * one more entry, ranked by the exact same hot/warm/fallback tiering
- * `sendCandidatesWithCrossover`/`selectPollingLaneCandidate` already apply
- * to local lanes. It never adds a network round trip to a routing decision:
+ * one more entry, ranked by the same fastest-real-result rule that local
+ * lanes use. It never adds a network round trip to a routing decision:
  * its RTT is kept warm in the background from the relay's own periodic
  * report (`updateRemoteLaneFromReport`, called by lane-relay-events.ts) and
  * from this process's own real dispatch outcomes, exactly like a local
@@ -31,7 +30,6 @@ export interface RemoteLaneMetrics {
 	lastSendOkAt: number;
 	lastPollOkAt: number;
 	pollApplicationSamples: number;
-	consecutiveSlowApplicationSamples: number;
 }
 
 interface RemoteOriginState {
@@ -73,7 +71,6 @@ function ensureOrigin(origin: string): RemoteOriginState {
 				lastSendOkAt: 0,
 				lastPollOkAt: 0,
 				pollApplicationSamples: 0,
-				consecutiveSlowApplicationSamples: 0,
 			},
 			reportedApplication: false,
 			reportedAt: 0,
@@ -124,17 +121,10 @@ export function recordRemoteDispatchStart(origin: string): void {
 }
 
 /**
- * Mirrors h2-lanes.ts's own recordApplicationRtt EWMA so the remote lane's
- * score decays/recovers on the same footing as every local one — a fresh
- * outlier must not permanently poison it, and repeated real slowness must
- * still show up as unmistakably slow.
+ * Mirrors h2-lanes.ts: the latest complete LINE result decides the next
+ * request. Keeping an EWMA here would hide a route that just became slower.
  */
-export function recordRemoteDispatchEnd(
-	origin: string,
-	role: "send" | "poll" | undefined,
-	elapsedMs: number,
-	discardCeilingMs: number,
-): void {
+export function recordRemoteDispatchEnd(origin: string, role: "send" | "poll" | undefined, elapsedMs: number): void {
 	const state = ensureOrigin(origin);
 	const m = state.metrics;
 	m.inFlight = Math.max(0, m.inFlight - 1);
@@ -144,15 +134,13 @@ export function recordRemoteDispatchEnd(
 		m.lastOkAt = now;
 		return;
 	}
-	m.consecutiveSlowApplicationSamples = elapsedMs >= discardCeilingMs ? m.consecutiveSlowApplicationSamples + 1 : 0;
 	if (role === "poll") {
-		// Match local poll routing: the latest end-to-end relay result decides
-		// whether Server 3 remains below the active ceiling.
+		// Match local poll routing: the latest end-to-end relay result wins.
 		m.pollRttMs = elapsedMs;
 		m.pollApplicationSamples++;
 		m.lastPollOkAt = now;
 	} else {
-		m.sendRttMs = m.sendRttMs === undefined ? elapsedMs : m.sendRttMs * 0.65 + elapsedMs * 0.35;
+		m.sendRttMs = elapsedMs;
 		m.lastSendOkAt = now;
 	}
 	m.lastOkAt = now;

@@ -29,13 +29,9 @@ interface RuntimeWorkerTuning {
 	relayToken?: string;
 	sendReservedLanes?: number;
 	fastPollSlots?: number;
-	applicationHotCeilingMs?: number;
-	applicationDiscardCeilingMs?: number;
 	applicationSampleMaxAgeMs?: number;
 	laneMaxAgeMs?: number;
 	laneRecycleGapMs?: number;
-	degradedRepairGapMs?: number;
-	degradedRepairMinSamples?: number;
 }
 
 interface RuntimeTopologyPrimary extends RuntimeWorkerTuning {
@@ -68,13 +64,6 @@ function positiveInteger(value: unknown, label: string): number {
 function nonNegativeInteger(value: unknown, label: string): number {
 	if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
 		throw new Error(`${label} must be a non-negative integer`);
-	}
-	return value;
-}
-
-function positiveNumber(value: unknown, label: string): number {
-	if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-		throw new Error(`${label} must be a positive number`);
 	}
 	return value;
 }
@@ -118,28 +107,12 @@ function validateWorkerTuning(worker: RuntimeWorkerTuning, label: string): void 
 	const reserved =
 		worker.sendReservedLanes === undefined ? undefined : positiveInteger(worker.sendReservedLanes, `${label} sendReservedLanes`);
 	const slots = worker.fastPollSlots === undefined ? undefined : positiveInteger(worker.fastPollSlots, `${label} fastPollSlots`);
-	const hotCeiling =
-		worker.applicationHotCeilingMs === undefined
-			? undefined
-			: positiveNumber(worker.applicationHotCeilingMs, `${label} applicationHotCeilingMs`);
-	const discardCeiling =
-		worker.applicationDiscardCeilingMs === undefined
-			? undefined
-			: positiveNumber(worker.applicationDiscardCeilingMs, `${label} applicationDiscardCeilingMs`);
 	if (worker.applicationSampleMaxAgeMs !== undefined) {
 		positiveInteger(worker.applicationSampleMaxAgeMs, `${label} applicationSampleMaxAgeMs`);
 	}
 	const laneMaxAge = worker.laneMaxAgeMs === undefined ? undefined : positiveInteger(worker.laneMaxAgeMs, `${label} laneMaxAgeMs`);
 	const recycleGap =
 		worker.laneRecycleGapMs === undefined ? undefined : positiveInteger(worker.laneRecycleGapMs, `${label} laneRecycleGapMs`);
-	const degradedRepairGap =
-		worker.degradedRepairGapMs === undefined ? undefined : positiveInteger(worker.degradedRepairGapMs, `${label} degradedRepairGapMs`);
-	if (degradedRepairGap !== undefined && degradedRepairGap < 5_000) {
-		throw new Error(`${label} degradedRepairGapMs must be at least 5000`);
-	}
-	if (worker.degradedRepairMinSamples !== undefined) {
-		positiveInteger(worker.degradedRepairMinSamples, `${label} degradedRepairMinSamples`);
-	}
 	if (effectiveLanes !== undefined && reserved !== undefined && reserved >= effectiveLanes) {
 		throw new Error(`${label} sendReservedLanes must leave at least one poll lane`);
 	}
@@ -148,9 +121,6 @@ function validateWorkerTuning(worker: RuntimeWorkerTuning, label: string): void 
 	}
 	if (interval === 0 && (effectiveLanes === undefined || reserved === undefined || slots === undefined)) {
 		throw new Error(`${label} zero-delay requires an effective lane count, sendReservedLanes, and fastPollSlots`);
-	}
-	if (hotCeiling !== undefined && discardCeiling !== undefined && hotCeiling >= discardCeiling) {
-		throw new Error(`${label} applicationHotCeilingMs must be lower than applicationDiscardCeilingMs`);
 	}
 	if (h2Lanes !== undefined && laneMaxAge !== undefined && recycleGap !== undefined && h2Lanes * recycleGap > laneMaxAge) {
 		throw new Error(`${label} lane recycling cannot cover the pool before laneMaxAgeMs`);
@@ -256,10 +226,15 @@ export function applyRuntimeTopologyFile(raw?: string): boolean {
 		delete process.env.WORKER_ROUTES;
 	}
 	const applyTuning = (worker: RuntimeWorkerTuning, defaultInterval: number): void => {
-		// Removed by the fastest-first poll policy. Clear legacy unit values so
-		// foreground traffic cannot resume periodic lane exploration.
+		// Removed by fastest-first routing. Clear legacy unit values so an old
+		// EnvironmentFile cannot silently restore absolute latency thresholds.
 		delete process.env.LINE_H2_POLL_EXPLORE_INTERVAL_MS;
 		delete process.env.LINE_H2_POLL_CALIBRATION_SAMPLES;
+		delete process.env.LINE_H2_APPLICATION_HOT_CEILING_MS;
+		delete process.env.LINE_H2_APPLICATION_DISCARD_CEILING_MS;
+		delete process.env.LINE_H2_APPLICATION_LANE_CEILING_MS;
+		delete process.env.LINE_H2_DEGRADED_REPAIR_GAP_MS;
+		delete process.env.LINE_H2_DEGRADED_REPAIR_MIN_SAMPLES;
 		const interval = worker.fastPollIntervalMs ?? defaultInterval;
 		process.env.SQUARE_FAST_POLL_INTERVAL_MS = String(interval);
 		if (interval === 50) process.env.SQUARE_FAST_POLL_ALLOW_50MS = "1";
@@ -285,17 +260,10 @@ export function applyRuntimeTopologyFile(raw?: string): boolean {
 		}
 		if (worker.sendReservedLanes !== undefined) process.env.LINE_H2_SEND_RESERVED_LANES = String(worker.sendReservedLanes);
 		if (worker.fastPollSlots !== undefined) process.env.SQUARE_FAST_POLL_SLOTS = String(worker.fastPollSlots);
-		if (worker.applicationHotCeilingMs !== undefined)
-			process.env.LINE_H2_APPLICATION_HOT_CEILING_MS = String(worker.applicationHotCeilingMs);
-		if (worker.applicationDiscardCeilingMs !== undefined)
-			process.env.LINE_H2_APPLICATION_DISCARD_CEILING_MS = String(worker.applicationDiscardCeilingMs);
 		if (worker.applicationSampleMaxAgeMs !== undefined)
 			process.env.LINE_H2_APPLICATION_SAMPLE_MAX_AGE_MS = String(worker.applicationSampleMaxAgeMs);
 		if (worker.laneMaxAgeMs !== undefined) process.env.LINE_H2_LANE_MAX_AGE_MS = String(worker.laneMaxAgeMs);
 		if (worker.laneRecycleGapMs !== undefined) process.env.LINE_H2_LANE_RECYCLE_GAP_MS = String(worker.laneRecycleGapMs);
-		if (worker.degradedRepairGapMs !== undefined) process.env.LINE_H2_DEGRADED_REPAIR_GAP_MS = String(worker.degradedRepairGapMs);
-		if (worker.degradedRepairMinSamples !== undefined)
-			process.env.LINE_H2_DEGRADED_REPAIR_MIN_SAMPLES = String(worker.degradedRepairMinSamples);
 	};
 	if (port === topology.primary.port) {
 		process.env.WORKER_ID = topology.primary.workerId;

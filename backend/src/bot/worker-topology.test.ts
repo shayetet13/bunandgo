@@ -220,19 +220,15 @@ describe("worker topology", () => {
 		expect(process.env.SQUARE_FAST_POLL_SLOTS).toBe("4");
 	});
 
-	test("runtime topology applies a balanced hot/warm/discard lane policy", () => {
+	test("runtime topology applies fastest-first tuning and clears legacy ceilings", () => {
 		const tuning = {
 			fastPollIntervalMs: 0,
 			h2Lanes: 16,
 			sendReservedLanes: 4,
 			fastPollSlots: 8,
-			applicationHotCeilingMs: 20,
-			applicationDiscardCeilingMs: 23,
 			applicationSampleMaxAgeMs: 30_000,
 			laneMaxAgeMs: 20 * 60_000,
 			laneRecycleGapMs: 60_000,
-			degradedRepairGapMs: 5_000,
-			degradedRepairMinSamples: 1,
 		};
 		const runtimeFile = JSON.stringify({
 			version: 1,
@@ -240,13 +236,19 @@ describe("worker topology", () => {
 			shards: [{ workerId: "shard-b", port: 8792, ownerIds: [4], ...tuning }],
 			controlPlaneToken: "t".repeat(32),
 		});
-		setTopologyEnv({ PORT: "8791" });
+		setTopologyEnv({
+			PORT: "8791",
+			LINE_H2_APPLICATION_HOT_CEILING_MS: "20",
+			LINE_H2_APPLICATION_DISCARD_CEILING_MS: "23",
+			LINE_H2_DEGRADED_REPAIR_GAP_MS: "5000",
+			LINE_H2_DEGRADED_REPAIR_MIN_SAMPLES: "1",
+		});
 		expect(applyRuntimeTopologyFile(runtimeFile)).toBe(true);
 		expect(process.env.LINE_H2_LANES).toBe("16");
-		expect(process.env.LINE_H2_APPLICATION_HOT_CEILING_MS).toBe("20");
-		expect(process.env.LINE_H2_APPLICATION_DISCARD_CEILING_MS).toBe("23");
-		expect(process.env.LINE_H2_DEGRADED_REPAIR_GAP_MS).toBe("5000");
-		expect(process.env.LINE_H2_DEGRADED_REPAIR_MIN_SAMPLES).toBe("1");
+		expect(process.env.LINE_H2_APPLICATION_HOT_CEILING_MS).toBeUndefined();
+		expect(process.env.LINE_H2_APPLICATION_DISCARD_CEILING_MS).toBeUndefined();
+		expect(process.env.LINE_H2_DEGRADED_REPAIR_GAP_MS).toBeUndefined();
+		expect(process.env.LINE_H2_DEGRADED_REPAIR_MIN_SAMPLES).toBeUndefined();
 	});
 
 	test("balanced-sticky topology gives primary a relay fallback and pins shard traffic to the relay", () => {

@@ -2,19 +2,16 @@ import { describe, expect, test } from "bun:test";
 import { laneRoutingState } from "../lib/lane-routing-state.ts";
 
 describe("lane routing state", () => {
-	test("shows a currently eligible 16.3ms route as HOT", () => {
-		expect(laneRoutingState({ routingEligible: true, applicationRttMs: 16.3 })).toBe("HOT");
+	test("shows the currently preferred route as FASTEST", () => {
+		expect(laneRoutingState({ routingPreferred: true, applicationRttMs: 31.3 })).toBe("FASTEST");
 	});
 
-	test("shows a measured but excluded 27.2ms route as COOL", () => {
-		expect(laneRoutingState({ routingEligible: false, applicationRttMs: 27.2 })).toBe("COOL");
-	});
-
-	test("shows a sub-23ms fallback route as WARM", () => {
-		expect(laneRoutingState({ routingEligible: false, applicationRttMs: 22 })).toBe("WARM");
+	test("shows every slower measured route as STANDBY regardless of RTT", () => {
+		expect(laneRoutingState({ routingPreferred: false, applicationRttMs: 12 })).toBe("STANDBY");
+		expect(laneRoutingState({ routingPreferred: false, applicationRttMs: 82 })).toBe("STANDBY");
 	});
 
 	test("shows WAIT before any application measurement exists", () => {
-		expect(laneRoutingState({ routingEligible: false })).toBe("WAIT");
+		expect(laneRoutingState({ routingPreferred: false })).toBe("WAIT");
 	});
 });

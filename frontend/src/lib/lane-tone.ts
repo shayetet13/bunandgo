@@ -1,7 +1,7 @@
-export function rttToneClass(applicationMeasurement: boolean, routingEligible: boolean): string {
+export function rttToneClass(applicationMeasurement: boolean, routingPreferred: boolean): string {
 	// PING alone proves only that the socket is alive. A lane becomes green
-	// after a real send/poll measurement confirms that application routing is
-	// below the active ceiling.
+	// only when its real send/poll result is currently the fastest. Slower
+	// measured lanes remain neutral standbys; red is reserved for failures.
 	if (!applicationMeasurement) return "chip--idle";
-	return routingEligible ? "chip--go" : "chip--bad";
+	return routingPreferred ? "chip--go" : "chip--idle";
 }

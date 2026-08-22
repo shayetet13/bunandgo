@@ -73,7 +73,7 @@ describe("remoteLaneCandidate", () => {
 		const now = Date.now();
 		updateRemoteLaneFromReport(ORIGIN, 20.5, now);
 		recordRemoteDispatchStart(ORIGIN);
-		recordRemoteDispatchEnd(ORIGIN, "send", 17.3, 21);
+		recordRemoteDispatchEnd(ORIGIN, "send", 17.3);
 		const candidate = remoteLaneCandidate(ORIGIN, now + 1_000);
 		expect(candidate?.sendRttMs).toBe(17.3);
 	});
@@ -85,15 +85,15 @@ describe("recordRemoteDispatchStart / recordRemoteDispatchEnd", () => {
 		recordRemoteDispatchStart(ORIGIN);
 		const midFlight = remoteLaneCandidate(ORIGIN)!;
 		expect(midFlight.inFlight).toBe(1);
-		recordRemoteDispatchEnd(ORIGIN, "send", 18, 21);
+		recordRemoteDispatchEnd(ORIGIN, "send", 18);
 		expect(remoteLaneCandidate(ORIGIN)!.inFlight).toBe(0);
 	});
 
 	test("send and poll RTT are tracked separately", () => {
 		recordRemoteDispatchStart(ORIGIN);
-		recordRemoteDispatchEnd(ORIGIN, "send", 18, 21);
+		recordRemoteDispatchEnd(ORIGIN, "send", 18);
 		recordRemoteDispatchStart(ORIGIN);
-		recordRemoteDispatchEnd(ORIGIN, "poll", 15, 21);
+		recordRemoteDispatchEnd(ORIGIN, "poll", 15);
 		const candidate = remoteLaneCandidate(ORIGIN)!;
 		expect(candidate.sendRttMs).toBe(18);
 		expect(candidate.pollRttMs).toBe(15);
@@ -101,50 +101,34 @@ describe("recordRemoteDispatchStart / recordRemoteDispatchEnd", () => {
 
 	test("uses the latest poll result instead of hiding it in an average", () => {
 		recordRemoteDispatchStart(ORIGIN);
-		recordRemoteDispatchEnd(ORIGIN, "poll", 12, 23);
+		recordRemoteDispatchEnd(ORIGIN, "poll", 12);
 		recordRemoteDispatchStart(ORIGIN);
-		recordRemoteDispatchEnd(ORIGIN, "poll", 31, 23);
+		recordRemoteDispatchEnd(ORIGIN, "poll", 31);
 		expect(remoteLaneCandidate(ORIGIN)!.pollRttMs).toBe(31);
 	});
 
 	test("a warm dispatch releases in-flight state without becoming a send sample", () => {
 		updateRemoteLaneFromReport(ORIGIN, 8, Date.now(), false);
 		recordRemoteDispatchStart(ORIGIN);
-		recordRemoteDispatchEnd(ORIGIN, undefined, 2, 21);
+		recordRemoteDispatchEnd(ORIGIN, undefined, 2);
 		const candidate = remoteLaneCandidate(ORIGIN)!;
 		expect(candidate.inFlight).toBe(0);
 		expect(candidate.sendRttMs).toBeUndefined();
 		expect(candidate.pollRttMs).toBeUndefined();
 	});
 
-	test("smooths repeated samples with an EWMA instead of overwriting", () => {
+	test("uses the latest send result instead of hiding it in an average", () => {
 		recordRemoteDispatchStart(ORIGIN);
-		recordRemoteDispatchEnd(ORIGIN, "send", 20, 21);
+		recordRemoteDispatchEnd(ORIGIN, "send", 20);
 		recordRemoteDispatchStart(ORIGIN);
-		recordRemoteDispatchEnd(ORIGIN, "send", 10, 21);
+		recordRemoteDispatchEnd(ORIGIN, "send", 10);
 		const candidate = remoteLaneCandidate(ORIGIN)!;
-		// 20 * 0.65 + 10 * 0.35 = 16.5 — a single fast sample must not fully
-		// override an established baseline.
-		expect(candidate.sendRttMs).toBeCloseTo(16.5, 5);
-	});
-
-	test("consecutive-slow counter increments at/above the discard ceiling and resets on a fast sample", () => {
-		recordRemoteDispatchStart(ORIGIN);
-		recordRemoteDispatchEnd(ORIGIN, "send", 25, 21);
-		recordRemoteDispatchStart(ORIGIN);
-		recordRemoteDispatchEnd(ORIGIN, "send", 30, 21);
-		let candidate = remoteLaneCandidate(ORIGIN)!;
-		expect(candidate.consecutiveSlowApplicationSamples).toBe(2);
-
-		recordRemoteDispatchStart(ORIGIN);
-		recordRemoteDispatchEnd(ORIGIN, "send", 15, 21);
-		candidate = remoteLaneCandidate(ORIGIN)!;
-		expect(candidate.consecutiveSlowApplicationSamples).toBe(0);
+		expect(candidate.sendRttMs).toBe(10);
 	});
 
 	test("inFlight never goes negative from an unmatched end", () => {
-		recordRemoteDispatchEnd(ORIGIN, "send", 18, 21);
-		recordRemoteDispatchEnd(ORIGIN, "send", 18, 21);
+		recordRemoteDispatchEnd(ORIGIN, "send", 18);
+		recordRemoteDispatchEnd(ORIGIN, "send", 18);
 		expect(remoteLaneCandidate(ORIGIN)!.inFlight).toBe(0);
 	});
 });

@@ -25,29 +25,29 @@
 3. ทำ hot path จาก memory ไม่รอฐานข้อมูล
 4. ใช้ HTTP/2 connection pool ที่แอปควบคุมเอง
 5. วัด `send RTT` และ `poll RTT` จากคำขอ LINE จริง แยกจาก H2 `PING`
-6. ให้ทุก lane ที่มีผลวัดจริงล่าสุดต่ำกว่า `23ms` มีสิทธิ์ส่งได้ ไม่ว่าถูกแบ่งเป็น send/poll lane
+6. ให้ทุก lane ที่มีผลวัดจริงแข่งขันกัน และเลือกค่าล่าสุดที่ต่ำที่สุด ไม่ว่าถูกแบ่งเป็น send/poll lane
 7. ย้าย lane เมื่อ candidate เร็วกว่าตัวปัจจุบันอย่างน้อย `0.50ms`
-8. ซ่อม lane ช้าใน background ทีละเส้น โดยไม่รอใน reply path และไม่ตัด lane ที่กำลังใช้งาน
+8. refresh physical route ตามอายุทีละเส้น โดยไม่รอใน reply path และไม่ตัด lane ที่กำลังใช้งาน
 9. warm network, protocol, crypto, rule matcher และ runtime ก่อนประกาศว่า bot online
 10. วัด p50/p95/p99 และเวลาแต่ละ phase แทนการดูตัวเลขครั้งเดียว
 
-สิ่งสำคัญ: ระบบทำให้ “เลือกเส้นทางที่มีหลักฐานล่าสุดว่าต่ำกว่า 23ms” ได้ แต่รับประกันว่าทุก request จะไม่เกิน 23ms ไม่ได้ เพราะเครือข่าย, LINE edge, packet loss, server load และ route change เกิดหลังการเลือก lane ได้เสมอ เป้าหมายที่ถูกต้องคือรักษา p50/p95 ให้ต่ำ ลดจำนวน spike และฟื้นตัวเองโดยไม่ต้อง restart ตามเวลา
+สิ่งสำคัญ: ระบบเลือกได้เพียง “เส้นทางที่มีผลจริงล่าสุดต่ำที่สุดเมื่อเทียบกับตัวเลือกอื่น” ไม่สามารถรู้ล่วงหน้าว่า request ถัดไปจะได้กี่ ms เพราะเครือข่าย, LINE edge, packet loss, server load และ route change เกิดหลังการเลือก lane ได้เสมอ เป้าหมายที่ถูกต้องคือรักษา p50/p95 ให้ต่ำ ลดจำนวน spike และฟื้นตัวเองโดยไม่ต้อง restart ตามเวลา
 
 ---
 
 ## 2. คำศัพท์ที่ต้องแยกให้ออก
 
-| คำ | ความหมาย | ใช้ตัดสินความเร็วส่งได้หรือไม่ |
-| --- | --- | --- |
-| H2 PING | RTT ระหว่าง process กับ HTTP/2 edge/socket | ใช้เช็ก socket และแนวโน้ม network เท่านั้น |
-| Poll RTT | เวลาคำขอ poll จริงไปถึง LINE และได้ response | ใช้เป็น application measurement ได้ |
-| Send RTT | เวลาส่งข้อความจริงจนอ่าน response body ครบ | ใช้เป็น application measurement ได้ |
-| Application RTT | ค่าล่าสุดระหว่าง send RTT หรือ poll RTT | ใช้ตัดสิน HOT/COOL และเลือก lane |
-| Inbound delay | เวลาจาก timestamp ที่ LINE สร้างข้อความ จน process ได้ event | เป็นความช้าก่อนโค้ดตอบเริ่มทำงาน |
-| Internal/code time | decrypt + match + limiter + routing + encode/parse | ส่วนที่แอปควบคุมได้ |
-| Upstream/LINE time | เวลาคำขอออกจากแอปไป LINE และได้ผลกลับ | ส่วนใหญ่ขึ้นกับ route และ LINE |
-| Lane | HTTP/2 session หนึ่งเส้นไปยัง origin เดียว | เป็นตัวเลือกเส้นทาง ไม่ใช่ bot |
-| Worker | OS process หนึ่งตัวที่มี memory และ lane pool ของตัวเอง | bot ใน worker เดียวกันแชร์ pool |
+| คำ                 | ความหมาย                                                     | ใช้ตัดสินความเร็วส่งได้หรือไม่             |
+| ------------------ | ------------------------------------------------------------ | ------------------------------------------ |
+| H2 PING            | RTT ระหว่าง process กับ HTTP/2 edge/socket                   | ใช้เช็ก socket และแนวโน้ม network เท่านั้น |
+| Poll RTT           | เวลาคำขอ poll จริงไปถึง LINE และได้ response                 | ใช้เป็น application measurement ได้        |
+| Send RTT           | เวลาส่งข้อความจริงจนอ่าน response body ครบ                   | ใช้เป็น application measurement ได้        |
+| Application RTT    | ค่าล่าสุดระหว่าง send RTT หรือ poll RTT                      | ใช้ตัดสิน HOT/COOL และเลือก lane           |
+| Inbound delay      | เวลาจาก timestamp ที่ LINE สร้างข้อความ จน process ได้ event | เป็นความช้าก่อนโค้ดตอบเริ่มทำงาน           |
+| Internal/code time | decrypt + match + limiter + routing + encode/parse           | ส่วนที่แอปควบคุมได้                        |
+| Upstream/LINE time | เวลาคำขอออกจากแอปไป LINE และได้ผลกลับ                        | ส่วนใหญ่ขึ้นกับ route และ LINE             |
+| Lane               | HTTP/2 session หนึ่งเส้นไปยัง origin เดียว                   | เป็นตัวเลือกเส้นทาง ไม่ใช่ bot             |
+| Worker             | OS process หนึ่งตัวที่มี memory และ lane pool ของตัวเอง      | bot ใน worker เดียวกันแชร์ pool            |
 
 ### จุดที่เคยทำให้เข้าใจผิด
 
@@ -172,10 +172,10 @@ raceLatencyMs โดยประมาณ = inboundMs + replyLatencyMs
 
 ผลวัดจริงเมื่อเพิ่ม concurrent poll จาก 1 เป็น 2:
 
-| ค่า | 1 poll | 2 polls |
-| --- | ---: | ---: |
-| reply total | 17.8ms | 36.3ms |
-| upstream send | 16.6ms | 35.5ms |
+| ค่า           | 1 poll | 2 polls |
+| ------------- | -----: | ------: |
+| reply total   | 17.8ms |  36.3ms |
+| upstream send | 16.6ms |  35.5ms |
 
 สรุป: parallelism ที่แย่ง connection pool เดียวกันทำให้ช้าลง ไม่ใช่เร็วขึ้น
 
@@ -284,27 +284,26 @@ LINE_H2_SEND_RESERVED_LANES=4
 
 กฎที่แก้แล้ว:
 
-- lane ทุก partition ที่มี **application RTT ล่าสุด `< 23ms`** เข้ากลุ่ม send candidate ได้
+- lane ทุก partition ที่มี **application RTT จริง** เข้ากลุ่ม send candidate ได้
 - ถ้ามี candidate ที่ idle ให้ตัด lane ที่มี in-flight ออกก่อน
-- ถ้าไม่มี lane ใดพิสูจน์ได้ว่าต่ำกว่า 23ms ให้ fallback ไป send-reserved lanes
+- ถ้ายังไม่มี application sample ให้ bootstrap จาก send-reserved lanes
 - ถ้า reserved lanes ล่มทั้งหมด ให้ขยายไปทุก usable lane แทนการส่งไม่ออก
 
-### 7.4 กฎ `< 23ms` แบบละเอียด
+### 7.4 กฎ fastest-first แบบละเอียด
 
 ```text
-routingEligible =
+routingPreferred =
   lane ready
   AND application RTT มีค่า
-  AND application RTT < 23.00ms
-  AND อายุ sample <= 30,000ms
+  AND application RTT ต่ำที่สุดใน worker นั้น
 ```
 
 จุดสำคัญ:
 
-- `23.0ms` ไม่ผ่าน เพราะโค้ดใช้ `< 23` ไม่ใช่ `<= 23`
+- ไม่มีตัวเลข pass/fail หรือ discard ceiling
 - ใช้ผลจริงล่าสุดระหว่าง send/poll ไม่ใช้คะแนนย้อนหลังหรือค่า minimum ตลอดชีวิต
-- sample เก่ากว่า 30 วินาทีไม่ถือว่ายืนยันเส้นทางปัจจุบัน
-- PING อย่างเดียวไม่ทำให้ lane เป็น HOT
+- PING อย่างเดียวใช้ได้เฉพาะ bootstrap ก่อนมีผลจริง
+- Server 3 report เก่ากว่า 3 วินาทีไม่ถูกนำมาเปรียบเทียบ
 
 ### 7.5 กฎสลับ `0.50ms`
 
@@ -317,12 +316,12 @@ improvement = currentApplicationRtt - candidateApplicationRtt
 
 ตัวอย่าง:
 
-| Lane ปัจจุบัน | Candidate | ผล |
-| ---: | ---: | --- |
-| send 22.0ms | poll 18.0ms | ย้ายไป poll lane |
-| send 22.0ms | poll 21.5ms | ย้าย เพราะเร็วขึ้น 0.50ms พอดี |
-| send 22.0ms | poll 21.51ms | ไม่ย้าย เพราะเร็วขึ้น 0.49ms |
-| send 22.0ms | poll 24.0ms | ไม่ย้ายไปตัวช้ากว่า และ 24ms ไม่ HOT |
+| Lane ปัจจุบัน |    Candidate | ผล                             |
+| ------------: | -----------: | ------------------------------ |
+|   send 22.0ms |  poll 18.0ms | ย้ายไป poll lane               |
+|   send 22.0ms |  poll 21.5ms | ย้าย เพราะเร็วขึ้น 0.50ms พอดี |
+|   send 22.0ms | poll 21.51ms | ไม่ย้าย เพราะเร็วขึ้น 0.49ms   |
+|   send 22.0ms |  poll 24.0ms | ไม่ย้ายไปตัวช้ากว่า            |
 
 margin ป้องกัน lane churn จาก noise เล็กมาก หากตั้ง `0.01ms` ระบบจะสลับตาม jitter และอาจเสีย soft affinity มากกว่ากำไร
 
@@ -332,7 +331,7 @@ margin ป้องกัน lane churn จาก noise เล็กมาก �
 
 - อยู่เส้นเดิมเมื่อความต่างต่ำกว่า 0.5ms
 - ย้ายเมื่อมี application path ที่เร็วกว่าอย่างมีนัย
-- ลบ affinity ทันทีเมื่อ lane GOAWAY/dead หรือหลุดจาก candidate set
+- ลบ affinity ทันทีเมื่อ lane GOAWAY/dead หรือไม่มี application measurement
 
 hard pin เคยทำให้มี 6 physical sessions แต่พฤติกรรมจริงเหมือนมี lane เดียวจนกว่าจะตาย
 
@@ -342,10 +341,9 @@ hard pin เคยทำให้มี 6 physical sessions แต่พฤต�
 
 ```text
 networkPingEWMA = old × 0.70 + sample × 0.30
-applicationEWMA = old × 0.65 + sample × 0.35
 ```
 
-ค่าแรกของ lane ใช้ sample ตรง ๆ จากนั้นจึง smooth
+เฉพาะ network PING ใช้ EWMA ส่วนค่า `send/poll` ใช้ผลจริงล่าสุดโดยตรง เพื่อให้รอบที่ช้าลงเปลี่ยนการจัดอันดับครั้งถัดไปทันที
 
 ### 7.8 In-flight penalty
 
@@ -355,32 +353,28 @@ applicationEWMA = old × 0.65 + sample × 0.35
 score = RTT + inFlight × 4ms
 ```
 
-แต่ใน send crossover ถ้ามี eligible idle lane ระบบเลือกเฉพาะ idle ก่อน ช่วยไม่ให้ reply ไปต่อท้าย poll stream โดยไม่จำเป็น
+แต่ในการส่ง ถ้ามี measured idle lane ระบบเลือกเฉพาะ idle ก่อน ช่วยไม่ให้ reply ไปต่อท้าย poll stream โดยไม่จำเป็น
 
 ### 7.9 Poll exploration
 
-ต้องสำรวจ lane เพื่อรู้ว่า standby ฟื้นหรือยัง แต่การส่ง foreground poll เข้า lane ที่รู้ว่าช้าเป็นสาเหตุให้เห็น 26–27ms แทรกได้
+ต้องวัด lane ก่อนจึงจะรู้ว่าเส้นไหนเร็วที่สุดจริง โดยไม่ใช้ PING เปล่าเป็นคำตอบสุดท้าย
 
 กฎปัจจุบัน:
 
-- วัด lane ที่ยังไม่เคยมี poll sample ก่อน
-- เมื่อมี lane ต่ำกว่า 23ms ให้ foreground poll เลือกเฉพาะกลุ่มต่ำกว่า 23ms
-- explore lane ที่เก่าที่สุดในกลุ่ม eligible ทุกประมาณ 5 วินาที
-- lane ที่รู้ว่า `>=23ms` ให้ background repair ดูแล ไม่ส่ง foreground poll ไปลองระหว่างมี lane เร็ว
-- ถ้าทุก lane ช้า ให้ใช้ตัวเร็วที่สุดเป็น fallback เพื่อให้ polling ยังเดิน
+- วัดทุก lane ที่ยังไม่เคยมี poll sample หนึ่งครั้ง รวม send-reserved lane
+- เมื่อวัดครบแล้ว ให้ foreground poll เลือกค่าจริงล่าสุดที่ต่ำที่สุดใน poll partition
+- lane ที่ reconnect จะกลับเป็น unmeasured และได้รับการ calibrate ใหม่หนึ่งครั้ง
+- ไม่มีเกณฑ์ผ่าน/ตกตามจำนวน ms; ถ้าทุก lane ช้า ก็ยังเลือกตัวที่เร็วที่สุด
 
-### 7.10 Background repair
+### 7.10 Relative routing
 
-ทุก H2 PING tick (`15s`) ระบบพิจารณาซ่อม lane ช้า:
+ระบบไม่ซ่อมหรือตัด lane จากเส้นตาย 20/23ms อีกต่อไป แต่เปรียบเทียบผลจริงระหว่าง lane โดยตรง:
 
-1. ต้องมี measured route อย่างน้อย 2 เส้น
-2. เก็บเส้น measured ที่เร็วที่สุดไว้เป็น fallback เสมอ
-3. เลือก lane แย่ที่สุดที่ `>=23ms` และ `inFlight=0`
-4. retire เป็น draining แล้ว reconnect เฉพาะเส้นนั้น
-5. เว้นการ repair origin เดียวกันอย่างน้อย `60s`
-6. ไม่ทำ age recycle ใน tick เดียวกับ degraded repair
-
-bug เดิมคือ “ถ้าทุก lane เกิน 23ms ห้ามซ่อมทั้งหมด” ทำให้ pool ติดอยู่ที่ 30–40ms จน restart วิธีแก้คือเก็บตัวเร็วที่สุดไว้และซ่อมตัวแย่ที่สุดทีละเส้น
+1. เลือก measured idle lane ที่มีผลล่าสุดต่ำที่สุด
+2. สลับเมื่ออีก lane เร็วกว่าอย่างน้อย switch margin เพื่อกันการสั่นจาก noise
+3. Server 2 และ Server 3 ใช้กฎเปรียบเทียบเดียวกัน
+4. แต่ละ request ออกเพียงเครื่องเดียวและ lane เดียว จึงไม่เกิดข้อความซ้ำ
+5. การเปลี่ยน physical route ใช้ age-based recycle ด้านล่าง ไม่ใช้ latency ceiling
 
 ### 7.11 Age-based rolling recycle
 
@@ -444,10 +438,10 @@ lane pool key ด้วย origin และอยู่ใน process ดัง�
 
 ผลวัดที่บันทึกไว้:
 
-| Origin | Cold | Warm |
-| --- | ---: | ---: |
+| Origin               |  Cold | Warm |
+| -------------------- | ----: | ---: |
 | `legy.line-apps.com` | 146ms | 29ms |
-| `gf.line.naver.jp` | 335ms | 99ms |
+| `gf.line.naver.jp`   | 335ms | 99ms |
 
 ### 8.2 Runtime/protocol warm-up ระดับ bot
 
@@ -593,25 +587,25 @@ bug เดิม: error ตอน decrypt E2EE หลุดออกจาก de
 
 แก้โดย hard-cap `SQUARE_FAST_POLL_WORKERS=1` ใน runtime แม้ env ขอ 8
 
-### 10.6 Lane pool ทั้งชุดเกิน 23ms แล้วไม่ฟื้น
+### 10.6 Lane pool ทั้งชุดช้าลงพร้อมกัน
 
 สาเหตุ: policy เดิมซ่อม lane ช้าเฉพาะตอนมี healthy lane ต่ำกว่า 23ms ถ้าทุกเส้นช้าไม่มีเส้นใดถูก recycle
 
-แก้โดยเก็บ fastest fallback และซ่อม worst idle measured lane ทีละเส้น
+ปัจจุบันไม่มี 23ms ceiling แล้ว ระบบใช้ fastest measured lane ต่อไป และ age recycle จะเปิด physical route ใหม่ทีละเส้นโดยไม่ตัดงานที่กำลังวิ่ง
 
 ### 10.7 Lane 0–4 เร็วแต่ระบบไม่ใช้
 
 สาเหตุ: static send/poll partition จำกัด candidate และ preferred affinity เก่าอาจ pin เส้นเดิม
 
-แก้โดย sub-23ms crossover ทุก partition + soft affinity + live eligibility
+แก้โดย calibrate ทุก physical lane หนึ่งครั้ง จากนั้นให้ measured lane ทุก partition แข่งขันกันด้วยค่าจริง + soft affinity
 
 ### 10.8 Poll exploration ทำให้มี 26–27ms โผล่
 
-สาเหตุ: foreground exploration ส่ง poll ไป lane ที่รู้อยู่แล้วว่าเกิน ceiling
+สาเหตุ: การ calibrate จำเป็นต้องส่ง poll จริงหนึ่งครั้งไปยัง lane ที่ยังไม่เคยวัด จึงอาจเจอ route ช้าในครั้งแรก
 
-แก้โดย explore เฉพาะ eligible set เมื่อมี sub-23ms route และส่ง slow route ไป background repair
+ปัจจุบัน calibrate เฉพาะ lane ใหม่/reconnect หนึ่งครั้ง เมื่อวัดครบแล้วทุก poll จะเลือกผลล่าสุดที่ต่ำที่สุด
 
-### 10.9 Dashboard แสดง HOT ไม่ตรงกับ routing จริง
+### 10.9 Dashboard แสดง FASTEST ไม่ตรงกับ routing จริง
 
 สาเหตุ: UI เดิมคำนวณ HOT จากจำนวนดาวย้อนหลัง (`stars >= bananas`) และใช้ average/history RTT จึงเห็น lane 26.8ms เป็น HOT หรือ lane 16.3ms เป็น COOL ได้
 
@@ -619,12 +613,12 @@ bug เดิม: error ตอน decrypt E2EE หลุดออกจาก de
 
 - `applicationRttMs`
 - `applicationSampleAt`
-- `routingEligible`
+- `routingPreferred`
 
 UI แสดง:
 
-- HOT = eligible ปัจจุบัน
-- COOL = มี app measurement แต่ไม่ eligible
+- FASTEST = ค่าจริงต่ำที่สุดของ worker นั้น
+- STANDBY = มี app measurement แต่ช้ากว่า
 - WAIT = ยังไม่มี app measurement
 - ดาว/กล้วย = คะแนนย้อนหลังเท่านั้น
 
@@ -708,15 +702,13 @@ Typecheck: ยังไม่ยืนยัน เนื่องจาก loca
 - GOAWAY lane ถูกนำออกจาก rotation
 - AbortSignal ยกเลิก in-flight request ได้
 - application RTT สำคัญกว่า PING
-- recovered network route กลับมา eligible ได้
-- poll calibrate/exploit/explore ถูกลำดับ
-- ไม่ explore lane `>=23ms` เมื่อมี sub-23ms lane
-- ทุก lane `<23ms` ข้าม reservation มาเป็น send candidate ได้
+- Server 2/3 เปรียบเทียบด้วยค่าจริงโดยไม่มี absolute ceiling
+- poll calibrate ทุก lane หนึ่งครั้งก่อนเลือกค่าต่ำที่สุด
+- send-reserved lane ได้รับ poll calibration ก่อนกลับสู่ steady-state partition
+- measured lane ทุกค่าแข่งขันกันได้ ไม่ว่าจะเป็น 20/40/80ms
 - สลับที่ 0.50ms แต่ไม่สลับที่ 0.49ms
 - ไม่ recycle in-flight lane
 - ต้องมี standby ก่อน age recycle
-- เมื่อทุก lane ช้า เก็บ fastest และซ่อม worst
-- ไม่ซ่อม measured route เพียงเส้นเดียว
 - header HTTP/1 ถูกตัดก่อนส่ง H2
 - compressed response ยัง decode ได้
 
@@ -777,17 +769,17 @@ A 10 นาที → B 10 นาที → A 10 นาที → B 10 นาท
 
 ### 12.3 ตัวชี้วัด
 
-| Metric | เหตุผล |
-| --- | --- |
-| inbound p50/p95 | ดูว่า source ไหนเห็นข้อความก่อน |
-| reply total p50/p95/p99 | ดูประสบการณ์หลักและ tail |
-| LINE/upstream p50/p95 | แยก network จากโค้ด |
-| code p50/p95 | ป้องกัน regression ในแอป |
-| duplicate count | ความเร็วต้องไม่แลกกับตอบซ้ำ |
-| error/rate-limit | config เร็วแต่โดนจำกัดไม่ถือว่าดี |
-| reconnect/GOAWAY | ดูความนิ่งระยะยาว |
-| per-lane app RTT | ดู pool มี route ดีจริงกี่เส้น |
-| source winner | push/normal/dedicated ใครชนะจริง |
+| Metric                  | เหตุผล                            |
+| ----------------------- | --------------------------------- |
+| inbound p50/p95         | ดูว่า source ไหนเห็นข้อความก่อน   |
+| reply total p50/p95/p99 | ดูประสบการณ์หลักและ tail          |
+| LINE/upstream p50/p95   | แยก network จากโค้ด               |
+| code p50/p95            | ป้องกัน regression ในแอป          |
+| duplicate count         | ความเร็วต้องไม่แลกกับตอบซ้ำ       |
+| error/rate-limit        | config เร็วแต่โดนจำกัดไม่ถือว่าดี |
+| reconnect/GOAWAY        | ดูความนิ่งระยะยาว                 |
+| per-lane app RTT        | ดู pool มี route ดีจริงกี่เส้น    |
+| source winner           | push/normal/dedicated ใครชนะจริง  |
 
 ### 12.4 เกณฑ์รับ config
 
@@ -893,13 +885,10 @@ CONTROL_PLANE_URL=http://127.0.0.1:8791
 LINE_TRANSPORT=hybrid
 LINE_H2_LANES=6
 LINE_H2_SEND_RESERVED_LANES=0
-LINE_H2_APPLICATION_LANE_CEILING_MS=23
 LINE_H2_APPLICATION_SAMPLE_MAX_AGE_MS=30000
 LINE_H2_APPLICATION_SWITCH_MARGIN_MS=0.5
 LINE_H2_RTT_SWITCH_MARGIN_MS=0.75
 LINE_H2_IN_FLIGHT_PENALTY_MS=4
-LINE_H2_POLL_EXPLORE_INTERVAL_MS=5000
-LINE_H2_DEGRADED_REPAIR_GAP_MS=60000
 LINE_H2_LANE_MAX_AGE_MS=900000
 LINE_H2_LANE_RECYCLE_GAP_MS=60000
 
@@ -1128,4 +1117,3 @@ inbound สูง?
 ```
 
 ถ้าทำครบ ระบบจะไม่ต้องพึ่ง restart เพื่อกลับมาเร็วเป็นปกติในสถานการณ์ทั่วไป และเมื่อมี spike จะบอกได้ว่าเกิดก่อนรับ event, ในโค้ด, ใน connection/lane หรือที่ LINE แทนการเดาจากตัวเลขรวมเพียงค่าเดียว
-

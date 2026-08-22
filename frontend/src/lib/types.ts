@@ -149,7 +149,7 @@ export interface LaneStat {
 	lastPollOkAt: number;
 	applicationRttMs?: number;
 	applicationSampleAt: number;
-	routingEligible: boolean;
+	routingPreferred: boolean;
 	consecutiveFailures: number;
 }
 
@@ -319,7 +319,7 @@ export interface LaneRaceLane {
 	pollRttMs?: number;
 	applicationRttMs?: number;
 	applicationSampleAt: number;
-	routingEligible: boolean;
+	routingPreferred: boolean;
 	send: LaneRaceScore;
 	poll: LaneRaceScore;
 }

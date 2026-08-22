@@ -44,7 +44,7 @@ function fixtureLane(): LaneStat {
 		lastPollOkAt: FIXTURE_TS,
 		applicationRttMs: 15.2,
 		applicationSampleAt: FIXTURE_TS,
-		routingEligible: true,
+		routingPreferred: true,
 		consecutiveFailures: 0,
 		openedAt: FIXTURE_TS - 500,
 	};
@@ -62,7 +62,7 @@ function fixtureRace(): LaneRaceLaneView {
 		inFlight: 0,
 		applicationRttMs: 15.2,
 		applicationSampleAt: FIXTURE_TS,
-		routingEligible: true,
+		routingPreferred: true,
 		send: fixtureScore(),
 		poll: fixtureScore(),
 	};
@@ -134,7 +134,7 @@ describe("lane relay report intake", () => {
 			...fixtureLane(),
 			applicationRttMs: undefined,
 			applicationSampleAt: 0,
-			routingEligible: false,
+			routingPreferred: false,
 			rttMs: 6.4,
 		};
 		const response = await app.request("/internal/lane-relay-events", {
@@ -159,7 +159,7 @@ describe("lane relay report intake", () => {
 			id: 1,
 			applicationRttMs: undefined,
 			applicationSampleAt: 0,
-			routingEligible: false,
+			routingPreferred: false,
 			rttMs: 1.2,
 		};
 		const provenLane: LaneStat = { ...fixtureLane(), id: 2, applicationRttMs: 18.5 };
