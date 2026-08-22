@@ -429,6 +429,29 @@ const RESUME_STAGGER_MS = 3000;
  * because only a human with the phone can fix that.
  */
 export async function resumePreviouslyRunningBots(): Promise<void> {
+	// A resumed LINE client may begin polling while its stored token is being
+	// restored, before attemptLogin reaches its later per-bot readiness gate.
+	// On a process restart that let every poll lane receive its first real RPC
+	// while connections were still coming up, producing a one-off 26–61ms
+	// burst. Join the process-wide warmer first so no session can create poll
+	// traffic until the owned/relay route is actually ready. Keep retrying in
+	// the background instead of falling through cold; the API remains online
+	// and systemd can still stop the process normally.
+	if (previouslyRunningBotIds.length > 0 && process.env.NODE_ENV !== "test") {
+		let warmAttempt = 0;
+		for (;;) {
+			try {
+				await ensureWarm({ url: DISPATCH_URL, token: DISPATCH_TOKEN });
+				break;
+			} catch (error) {
+				warmAttempt++;
+				console.error(
+					`[resume] waiting for a warm LINE route (attempt ${warmAttempt}): ${error instanceof Error ? error.message : String(error)}`,
+				);
+				await new Promise((resolve) => setTimeout(resolve, Math.min(5_000, warmAttempt * 1_000)));
+			}
+		}
+	}
 	for (const botId of previouslyRunningBotIds) {
 		const bot = getBot(botId);
 		if (!bot) continue;
