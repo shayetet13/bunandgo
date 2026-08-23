@@ -3,7 +3,7 @@ import { decodeDispatchResponse, encodeDispatchRequest } from "./binary-protocol
 import { markRelayDispatch, markRelayResult } from "../metrics/fast-path.ts";
 import { attachRawDispatchBody } from "./raw-response.ts";
 import { attachHotLineFetch } from "./direct-request.ts";
-import { laneFetch } from "./h2-lanes.ts";
+import { H2_LANE_ROLE_HEADER, H2_LANE_ROUTE_KEY_HEADER, laneFetch } from "./h2-lanes.ts";
 import { PREWARM_SQUARE_ACK, PREWARM_TALK_ACK } from "./prewarm-ack.ts";
 
 export interface DispatchConfig {
@@ -148,7 +148,10 @@ async function fetchLineDirect(info: RequestInfo | URL, init?: RequestInit, prew
 			markRelayResult(0, performance.now() - upstreamStart);
 			return laneResponse;
 		}
-		const response = await globalThis.fetch(info, init);
+		const publicHeaders = new Headers(init?.headers);
+		publicHeaders.delete(H2_LANE_ROLE_HEADER);
+		publicHeaders.delete(H2_LANE_ROUTE_KEY_HEADER);
+		const response = await globalThis.fetch(info, { ...init, headers: publicHeaders });
 		const body = new Uint8Array(await response.arrayBuffer());
 		markRelayResult(0, performance.now() - upstreamStart);
 		return attachRawDispatchBody(response, body);
@@ -164,7 +167,13 @@ async function fetchLineDirect(info: RequestInfo | URL, init?: RequestInit, prew
  * `ClientInit.fetch` when constructing the vendored BaseClient — this is
  * the library's own supported extension point, not a monkey-patch.
  */
-export function createDispatchFetch(config: DispatchConfig): FetchLike {
+export function createDispatchFetch(config: DispatchConfig, botRouteKey?: string | number): FetchLike {
+	const routeKey = botRouteKey === undefined ? undefined : String(botRouteKey);
+	const routeHeaders = (source?: HeadersInit): Headers => {
+		const headers = new Headers(source);
+		if (routeKey) headers.set(H2_LANE_ROUTE_KEY_HEADER, routeKey);
+		return headers;
+	};
 	const dispatchFetch: FetchLike = async (request: Request): Promise<Response> => {
 		if (request.url.includes(PUSH_STREAM_PATH)) {
 			return globalThis.fetch(request);
@@ -180,12 +189,22 @@ export function createDispatchFetch(config: DispatchConfig): FetchLike {
 		// sends already measure close to the documented warm baseline through
 		// the Go relay; revisit only if that stops being true.)
 		if (transport === "direct" || (transport !== "go" && compactTalk)) {
-			return fetchLineDirect(request);
+			const body = request.body ? new Uint8Array(await request.arrayBuffer()) : undefined;
+			return fetchLineDirect(request.url, {
+				method: request.method,
+				headers: routeHeaders(request.headers),
+				body,
+				signal: request.signal,
+			});
 		}
 
 		const bodyBuf = request.body ? new Uint8Array(await request.arrayBuffer()) : new Uint8Array(0);
 		const headers: Record<string, string> = {};
 		request.headers.forEach((value, key) => {
+			// The Go sender has zero LINE-protocol knowledge and forwards every
+			// header it receives verbatim (see backend/sender/dispatch_handler.go),
+			// so process-local routing hints must never reach this point.
+			if (key === H2_LANE_ROLE_HEADER || key === H2_LANE_ROUTE_KEY_HEADER) return;
 			headers[key] = value;
 		});
 
@@ -206,11 +225,12 @@ export function createDispatchFetch(config: DispatchConfig): FetchLike {
 	return attachHotLineFetch(
 		dispatchFetch,
 		(info, init) => {
+			const routedInit = { ...init, headers: routeHeaders(init?.headers) };
 			// Explicit operational rollback retains the Go relay semantics.
 			if (process.env.LINE_TRANSPORT === "go") {
-				return Promise.resolve(dispatchFetch(new Request(info, init)));
+				return Promise.resolve(dispatchFetch(new Request(info, routedInit)));
 			}
-			return fetchLineDirect(info, init);
+			return fetchLineDirect(info, routedInit);
 		},
 		(info, init) => {
 			const body = String(info).includes("/SQ1") ? PREWARM_SQUARE_ACK : PREWARM_TALK_ACK;

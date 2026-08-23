@@ -7,6 +7,7 @@ import {
 	ensureLanes,
 	fastestSendCandidates,
 	H2_LANE_ROLE_HEADER,
+	H2_LANE_ROUTE_KEY_HEADER,
 	laneCandidates,
 	laneFetch,
 	laneStats,
@@ -402,6 +403,68 @@ describe("RTT-aware lane ranking", () => {
 		expect(shouldPreferRemoteLane({ rttMs: 50, lastOkAt: 1, inFlight: 0 }, busyLocal)).toBe(false);
 	});
 
+	test("routes local vs remote independently per bot when only one bot is cooling on each side", () => {
+		const now = Date.now();
+		// Same two physical lane objects shared by both bots: local is cooling
+		// for bot-a only, remote is cooling for bot-b only.
+		const local = {
+			sendRttMs: 18,
+			lastSendOkAt: now,
+			lastOkAt: now,
+			inFlight: 0,
+			sendRouteProfiles: new Map([
+				["bot-a", { samples: [30], lastAt: now, slowUntil: now + 15_000 }],
+				["bot-b", { samples: [16, 17], lastAt: now, slowUntil: 0 }],
+			]),
+		};
+		const remote = {
+			sendRttMs: 20,
+			lastSendOkAt: now,
+			lastOkAt: now,
+			inFlight: 0,
+			sendRouteProfiles: new Map([
+				["bot-a", { samples: [19], lastAt: now, slowUntil: 0 }],
+				["bot-b", { samples: [30], lastAt: now, slowUntil: now + 15_000 }],
+			]),
+		};
+
+		// bot-a: local is cooling, remote is not -> hand off to remote.
+		expect(shouldPreferRemoteLane(remote, local, "send", "bot-a")).toBe(true);
+		// bot-b: remote is cooling, local is not -> stay local.
+		expect(shouldPreferRemoteLane(remote, local, "send", "bot-b")).toBe(false);
+	});
+
+	test("fails open to the lower predicted route when both sides are cooling for the same bot", () => {
+		const now = Date.now();
+		const cooling = now + 15_000;
+		const local = {
+			sendRttMs: 26,
+			lastSendOkAt: now,
+			lastOkAt: now,
+			inFlight: 0,
+			sendRouteProfiles: new Map([["bot-a", { samples: [26], lastAt: now, slowUntil: cooling }]]),
+		};
+		const remoteFaster = {
+			sendRttMs: 24,
+			lastSendOkAt: now,
+			lastOkAt: now,
+			inFlight: 0,
+			sendRouteProfiles: new Map([["bot-a", { samples: [24], lastAt: now, slowUntil: cooling }]]),
+		};
+		// Both cooling, but the remote's own real result is still faster.
+		expect(shouldPreferRemoteLane(remoteFaster, local, "send", "bot-a")).toBe(true);
+
+		const remoteSlower = {
+			sendRttMs: 30,
+			lastSendOkAt: now,
+			lastOkAt: now,
+			inFlight: 0,
+			sendRouteProfiles: new Map([["bot-a", { samples: [30], lastAt: now, slowUntil: cooling }]]),
+		};
+		// Both cooling, and local remains the faster of the two -> no message lost, no pointless hop.
+		expect(shouldPreferRemoteLane(remoteSlower, local, "send", "bot-a")).toBe(false);
+	});
+
 	test("prefers a materially faster route even after accounting for one in-flight stream", () => {
 		expect(shouldPreferLane({ rttMs: 1.0, lastOkAt: 10, inFlight: 1 }, { rttMs: 8.0, lastOkAt: 20, inFlight: 0 }, "send")).toBeTrue();
 	});
@@ -556,6 +619,71 @@ describe("send-reserved lanes", () => {
 		expect(selectFastestSendLaneCandidate(lanes)?.id).toBe(1);
 	});
 
+	test("predicts the fastest lane independently for each bot", () => {
+		const now = Date.now();
+		const lanes = [
+			{
+				id: 0,
+				sendRttMs: 18,
+				sendRouteProfiles: new Map([
+					["bot-a", { samples: [14, 15, 15], lastAt: now, slowUntil: 0 }],
+					["bot-b", { samples: [24, 25, 25], lastAt: now, slowUntil: 0 }],
+				]),
+				lastSendOkAt: now,
+				lastOkAt: now,
+				inFlight: 0,
+			},
+			{
+				id: 1,
+				sendRttMs: 19,
+				sendRouteProfiles: new Map([
+					["bot-a", { samples: [20, 20, 21], lastAt: now, slowUntil: 0 }],
+					["bot-b", { samples: [16, 17, 17], lastAt: now, slowUntil: 0 }],
+				]),
+				lastSendOkAt: now,
+				lastOkAt: now,
+				inFlight: 0,
+			},
+		];
+		expect(selectFastestSendLaneCandidate(lanes, undefined, "bot-a", now)?.id).toBe(0);
+		expect(selectFastestSendLaneCandidate(lanes, undefined, "bot-b", now)?.id).toBe(1);
+	});
+
+	test("does not let one bot's cooldown remove a lane for every bot", () => {
+		const now = Date.now();
+		const lanes = [
+			{
+				id: 0,
+				sendRttMs: 16,
+				sendRouteProfiles: new Map([["bot-a", { samples: [30], lastAt: now, slowUntil: now + 15_000 }]]),
+				lastSendOkAt: now,
+				lastOkAt: now,
+				inFlight: 0,
+			},
+			{ id: 1, sendRttMs: 20, lastSendOkAt: now, lastOkAt: now, inFlight: 0 },
+		];
+		expect(fastestSendCandidates(lanes, "bot-a", now).map((lane) => lane.id)).toEqual([1]);
+		expect(fastestSendCandidates(lanes, "bot-b", now).map((lane) => lane.id)).toEqual([0, 1]);
+	});
+
+	test("prefers a stable lane over a lower median with repeated jitter", () => {
+		const lanes = [
+			{ id: 0, sendRttMs: 15, sendRttSamples: [15, 15, 16, 15, 48], lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 },
+			{ id: 1, sendRttMs: 17, sendRttSamples: [17, 17, 18, 17, 18], lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 },
+		];
+		expect(selectFastestSendLaneCandidate(lanes)?.id).toBe(1);
+	});
+
+	test("uses measured HTTP/2 capacity instead of an arbitrary in-flight penalty", () => {
+		const lanes = [
+			{ id: 0, sendRttMs: 15, sendRttSamples: [15], streamCapacity: 2, lastSendOkAt: 1, lastOkAt: 1, inFlight: 2 },
+			{ id: 1, sendRttMs: 18, sendRttSamples: [18], streamCapacity: 2, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 },
+		];
+		expect(selectFastestSendLaneCandidate(lanes)?.id).toBe(1);
+		lanes[0]!.inFlight = 1;
+		expect(selectFastestSendLaneCandidate(lanes)?.id).toBe(0);
+	});
+
 	test("keeps a route above 23ms out while a non-cooling alternative exists", () => {
 		const lanes = [
 			{ id: 0, sendRttMs: 18, sendSlowUntil: Date.now() + 20_000, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 },
@@ -645,6 +773,7 @@ describe("lane request encoding", () => {
 				"Transfer-Encoding": "chunked",
 				"accept-encoding": "gzip",
 				[H2_LANE_ROLE_HEADER]: "send",
+				[H2_LANE_ROUTE_KEY_HEADER]: "bot-12",
 				"x-line-access": "token",
 			},
 		});
@@ -657,6 +786,7 @@ describe("lane request encoding", () => {
 		// node:http2 does not decompress, and gzip buys nothing on an ACK.
 		expect(headers["accept-encoding"]).toBe("identity");
 		expect(headers[H2_LANE_ROLE_HEADER]).toBeUndefined();
+		expect(headers[H2_LANE_ROUTE_KEY_HEADER]).toBeUndefined();
 		expect(headers["x-line-access"]).toBe("token");
 	});
 

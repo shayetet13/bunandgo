@@ -42,12 +42,17 @@ Primary and Shard B each race 16 local H2 lanes against Server 3's 32-lane
 relay pool; neither worker is pinned to one physical machine. Four low-numbered
 local lanes are the cold-start send preference and eight zero-delay poll slots
 can be active per worker. SEND and POLL measurements never rank each other.
-SEND routing uses the median of the three most recent SEND results without
-turning `inFlight` into invented milliseconds; `inFlight` breaks only an exact
-RTT tie. A raw SEND result above 23ms cools that route for 15 seconds while an
-alternative exists. If every route is cooling, the lowest measured route still
-carries the request so the guardrail cannot turn a network-wide slowdown into
-dropped messages.
+SEND routing predicts each candidate's completion time per bot from up to the
+seven most recent SEND results for that bot's own route key (falling back to
+the lane's shared history when that bot has no fresh sample yet):
+`p50 + (p95 - p50) x 0.35 + queue waves x p50`, where a queue wave only exists
+once `inFlight` reaches the peer's own advertised HTTP/2 `maxConcurrentStreams`
+— `inFlight` is never turned into an invented millisecond penalty, and it
+still only breaks an exact predicted-time tie. A raw SEND result above 23ms
+cools that bot's route on that lane for 15 seconds while an alternative
+exists, without cooling the lane for every other bot. If every route is
+cooling, the lowest predicted route still carries the request so the
+guardrail cannot turn a network-wide slowdown into dropped messages.
 
 Server 3 owns no bot, login, session, database, or public API runtime. Its
 single-file relay bundle accepts only `legy.line-apps.com`; login/control stays

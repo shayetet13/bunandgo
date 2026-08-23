@@ -10,6 +10,14 @@
  */
 
 import { nextSendSlowUntil } from "./lane-speed-policy.ts";
+import {
+	freshSendRouteProfile,
+	getOrCreateSendRouteProfile,
+	percentile,
+	recordSendRouteSample,
+	SEND_SAMPLE_WINDOW,
+	type SendRouteProfile,
+} from "./send-prediction.ts";
 
 /** Well above any real local lane id (0..31, see h2-lanes.ts's 32-lane cap)
  * so the two id spaces can never collide when merged into one array. */
@@ -32,6 +40,9 @@ export interface RemoteLaneMetrics {
 	lastPollOkAt: number;
 	sendSlowUntil: number;
 	pollApplicationSamples: number;
+	sendRttSamples?: readonly number[];
+	sendRouteProfiles?: ReadonlyMap<string, SendRouteProfile>;
+	streamCapacity?: number;
 }
 
 interface RemoteOriginState {
@@ -39,6 +50,7 @@ interface RemoteOriginState {
 	/** Role-specific samples measured by this process across the full S2→S3→LINE path. */
 	sendSamples: number[];
 	pollSamples: number[];
+	sendRouteProfiles: Map<string, SendRouteProfile>;
 	/** Server3 self-report is a bootstrap only; own end-to-end samples win. */
 	reportedPingRttMs?: number;
 	reportedSendRttMs?: number;
@@ -56,7 +68,7 @@ export interface RemoteLaneReport {
 	pollSampleAt?: number;
 }
 
-const APPLICATION_RTT_WINDOW = 3;
+const APPLICATION_RTT_WINDOW = SEND_SAMPLE_WINDOW;
 
 function recordMedian(samples: number[], sampleMs: number): number {
 	samples.push(sampleMs);
@@ -98,6 +110,7 @@ function ensureOrigin(origin: string): RemoteOriginState {
 			},
 			sendSamples: [],
 			pollSamples: [],
+			sendRouteProfiles: new Map(),
 			reportedSendSampleAt: 0,
 			reportedPollSampleAt: 0,
 			reportedAt: 0,
@@ -125,43 +138,49 @@ export function updateRemoteLaneFromReport(origin: string, report: RemoteLaneRep
  * configured or has nothing recent enough to trust — callers append the
  * result to their local `usable` array before ranking, never replace it.
  */
-export function remoteLaneCandidate(origin: string, now: number = Date.now()): RemoteLaneMetrics | undefined {
+export function remoteLaneCandidate(origin: string, now: number = Date.now(), routeKey?: string): RemoteLaneMetrics | undefined {
 	if (!remoteDispatchConfig()) return undefined;
 	const state = origins.get(origin);
 	if (!state) return undefined;
 	const reportFresh = now - state.reportedAt <= REPORT_STALE_MS;
 	const ownSendFresh = state.metrics.lastSendOkAt > 0 && now - state.metrics.lastSendOkAt <= APPLICATION_SAMPLE_MAX_AGE_MS;
+	const routeProfile = freshSendRouteProfile(state.sendRouteProfiles, routeKey, now);
 	const ownPollFresh = state.metrics.lastPollOkAt > 0 && now - state.metrics.lastPollOkAt <= APPLICATION_SAMPLE_MAX_AGE_MS;
-	if (!reportFresh && !ownSendFresh && !ownPollFresh) return undefined;
+	if (!reportFresh && !ownSendFresh && !ownPollFresh && !routeProfile) return undefined;
 	const reportedSendFresh =
 		reportFresh && state.reportedSendSampleAt > 0 && now - state.reportedSendSampleAt <= APPLICATION_SAMPLE_MAX_AGE_MS;
 	const reportedPollFresh =
 		reportFresh && state.reportedPollSampleAt > 0 && now - state.reportedPollSampleAt <= APPLICATION_SAMPLE_MAX_AGE_MS;
-	const sendRttMs = ownSendFresh ? state.metrics.sendRttMs : reportedSendFresh ? state.reportedSendRttMs : undefined;
+	const routeRttMs = percentile(routeProfile?.samples ?? [], 0.5);
+	const sendRttMs = routeRttMs ?? (ownSendFresh ? state.metrics.sendRttMs : reportedSendFresh ? state.reportedSendRttMs : undefined);
 	const pollRttMs = ownPollFresh ? state.metrics.pollRttMs : reportedPollFresh ? state.reportedPollRttMs : undefined;
 	if ((!reportFresh || state.reportedPingRttMs === undefined) && sendRttMs === undefined && pollRttMs === undefined) return undefined;
 	return {
 		...state.metrics,
+		sendRttSamples: routeProfile?.samples ?? (ownSendFresh ? state.sendSamples : undefined),
+		sendRouteProfiles: state.sendRouteProfiles,
 		rttMs: reportFresh ? state.reportedPingRttMs : undefined,
 		sendRttMs,
 		pollRttMs,
-		sendSlowUntil: ownSendFresh
-			? state.metrics.sendSlowUntil
-			: reportedSendFresh && state.reportedSendRttMs !== undefined
-				? nextSendSlowUntil(state.reportedSendRttMs, state.reportedSendSampleAt)
-				: 0,
-		lastSendOkAt: ownSendFresh ? state.metrics.lastSendOkAt : reportedSendFresh ? state.reportedSendSampleAt : 0,
+		sendSlowUntil: routeKey
+			? (routeProfile?.slowUntil ?? 0)
+			: ownSendFresh
+				? state.metrics.sendSlowUntil
+				: reportedSendFresh && state.reportedSendRttMs !== undefined
+					? nextSendSlowUntil(state.reportedSendRttMs, state.reportedSendSampleAt)
+					: 0,
+		lastSendOkAt: routeProfile?.lastAt ?? (ownSendFresh ? state.metrics.lastSendOkAt : reportedSendFresh ? state.reportedSendSampleAt : 0),
 		lastPollOkAt: ownPollFresh ? state.metrics.lastPollOkAt : reportedPollFresh ? state.reportedPollSampleAt : 0,
 		lastOkAt: Math.max(state.metrics.lastOkAt, state.reportedAt),
 	};
 }
 
-export function recordRemoteDispatchStart(origin: string): void {
+export function recordRemoteDispatchStart(origin: string, _routeKey?: string): void {
 	ensureOrigin(origin).metrics.inFlight++;
 }
 
 /** Mirrors h2-lanes.ts's role-specific median-of-three route score. */
-export function recordRemoteDispatchEnd(origin: string, role: "send" | "poll" | undefined, elapsedMs: number): void {
+export function recordRemoteDispatchEnd(origin: string, role: "send" | "poll" | undefined, elapsedMs: number, routeKey?: string): void {
 	const state = ensureOrigin(origin);
 	const m = state.metrics;
 	m.inFlight = Math.max(0, m.inFlight - 1);
@@ -177,8 +196,10 @@ export function recordRemoteDispatchEnd(origin: string, role: "send" | "poll" | 
 		m.lastPollOkAt = now;
 	} else {
 		m.sendRttMs = recordMedian(state.sendSamples, elapsedMs);
+		m.sendRttSamples = state.sendSamples;
 		m.lastSendOkAt = now;
 		m.sendSlowUntil = nextSendSlowUntil(Math.max(elapsedMs, m.sendRttMs), now);
+		if (routeKey) recordSendRouteSample(getOrCreateSendRouteProfile(state.sendRouteProfiles, routeKey), elapsedMs, now);
 	}
 	m.lastOkAt = now;
 }

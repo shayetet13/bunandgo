@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
-import { H2_LANE_ROLE_HEADER, laneFetch, laneRaceView, laneStats } from "../dispatch/h2-lanes.ts";
+import { H2_LANE_ROLE_HEADER, H2_LANE_ROUTE_KEY_HEADER, laneFetch, laneRaceView, laneStats } from "../dispatch/h2-lanes.ts";
 import { relayConfig } from "./config.ts";
 
 function safeTokenEqual(left: string | undefined, right: string | undefined): boolean {
@@ -69,7 +69,10 @@ relayRoute.post("/dispatch", async (c) => {
 	const startedAt = performance.now();
 	try {
 		const laneResponse = await laneFetch(target, { method, headers: requestHeaders, body });
-		const response = laneResponse ?? (await globalThis.fetch(target, { method, headers: requestHeaders, body }));
+		const publicHeaders = { ...requestHeaders };
+		delete publicHeaders[H2_LANE_ROLE_HEADER];
+		delete publicHeaders[H2_LANE_ROUTE_KEY_HEADER];
+		const response = laneResponse ?? (await globalThis.fetch(target, { method, headers: publicHeaders, body }));
 		const responseBody = new Uint8Array(await response.arrayBuffer());
 		return c.json({
 			status: response.status,

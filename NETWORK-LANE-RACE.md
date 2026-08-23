@@ -101,7 +101,7 @@ PING ใหม่ = PING เดิม × 0.70 + ตัวอย่างให�
 | `pollRttMs` | POLL จริง | ไม่ใช้แทน SEND |
 | `applicationRttMs` | ค่าของ SEND/POLL role ที่มีผลล่าสุดสำหรับหน้าจอ | ใช้แสดงผลเท่านั้น |
 
-SEND และ POLL ใช้ median ของผลล่าสุดสูงสุดสามครั้งแยกกัน เพื่อกรอง spike เดี่ยว แต่ยังตอบสนองเมื่อเส้นทางช้าติดต่อกัน
+POLL ใช้ median ของผลล่าสุดสูงสุดเจ็ดครั้ง เพื่อกรอง spike เดี่ยว แต่ยังตอบสนองเมื่อเส้นทางช้าติดต่อกัน SEND ไม่ใช้ median เฉย ๆ อีกต่อไป แต่ทำนาย completion time จากหน้าต่างเจ็ดผลล่าสุด **แยกต่อบอท** (ดูหัวข้อ "กฎเลือก SEND lane")
 
 ### สีของค่าจริง
 
@@ -114,32 +114,39 @@ SEND และ POLL ใช้ median ของผลล่าสุดสูง�
 
 ## กฎเลือก SEND lane
 
-คะแนนของ lane ที่มี SEND measurement แล้ว:
+ทุก bot มี route key ของตัวเอง (`x-linebot-lane-route-key`, ภายในกระบวนการ/ระหว่าง Server 2 ↔ Server 3 เท่านั้น — ไม่ถึง LINE) แต่ละ lane เก็บ SEND history แยกต่อ bot route key ไม่ใช่แยกต่อ origin เฉยๆ อีกต่อไป คะแนนของ lane ต่อ bot หนึ่งตัวคือ **predicted completion time**:
 
 ```text
-SEND score = median SEND RTT 3 ครั้งล่าสุด
+predicted completion = p50 + (p95 - p50) × 0.35 + queue waves × p50
+
+p50/p95   = จากหน้าต่างผลจริงล่าสุดสูงสุด 7 ครั้งของบอทนั้นบน lane นั้น
+            (ถ้าบอทนั้นยังไม่มีผลสดบน lane นี้ ใช้ prior ของ lane แทนเพื่อ bootstrap)
+queue waves = floor(inFlight / maxConcurrentStreams ที่ peer ประกาศจริงผ่าน HTTP/2 SETTINGS)
 ```
+
+ไม่มี penalty เดา เช่น `inFlight × 4ms` คิว cost เกิดเฉพาะเมื่อ HTTP/2 concurrency ของ lane นั้นเต็มจริง
 
 ตัวอย่าง:
 
-| Lane | SEND RTT | In-flight | Score |
-|---|---:|---:|---:|
-| A | 18ms | 0 | 18ms |
-| B | 15ms | 1 | 15ms |
-| C | 21ms | 0 | 21ms |
+| Lane | p50 (บอทนี้) | p95 (บอทนี้) | Predicted | หมายเหตุ |
+|---|---:|---:|---:|---|
+| A | 15ms | 48ms | ~26.6ms | median ต่ำแต่ jitter สูง (เคย spike ถึง 48ms) |
+| B | 17ms | 18ms | ~17.4ms | นิ่งกว่า ชนะแม้ median สูงกว่า A |
 
-ระบบเลือก Lane B เพราะ SEND RTT จริงต่ำที่สุด `inFlight` ใช้ตัดสินเฉพาะเมื่อ RTT เท่ากันพอดี
+ระบบเลือก Lane B เพราะ predicted completion ต่ำที่สุด ไม่ใช่แค่ median ต่ำที่สุด `inFlight` ใช้ตัดสินเฉพาะเมื่อ predicted score เท่ากันพอดี
+
+บอทแต่ละตัวสามารถชนะคนละ lane กันได้ในเวลาเดียวกัน และ cooldown (raw SEND > 23ms) ของบอทหนึ่งจะพักเฉพาะ bot-route นั้นบน lane นั้น ไม่ลาม lane ทิ้งไปทั้งกลุ่มสำหรับบอทอื่น bot-route profile หมดอายุหลัง 30 วินาทีไม่มีผลจริงใหม่ แล้ว fallback กลับไปใช้ prior ของ lane
 
 ### Soft affinity
 
-ระบบมี switch margin `0.1ms` เพื่อให้ความต่างระดับเสี้ยว millisecond มีผลต่อผู้ชนะ โดยยังไม่สลับเมื่อค่าต่างกันต่ำกว่า `0.1ms`
+ระบบจำ preferred send lane **แยกต่อบอท** (`origin + bot route key`) ไม่ใช่ต่อ origin เฉยๆ และมี switch margin `0.1ms` เพื่อให้ความต่างระดับเสี้ยว millisecond มีผลต่อผู้ชนะ โดยยังไม่สลับเมื่อค่าต่างกันต่ำกว่า `0.1ms`
 
 ```text
 เดิม 18.0ms / ใหม่ 17.91ms / ต่าง 0.09ms → อยู่ lane เดิม
 เดิม 18.0ms / ใหม่ 17.90ms / ต่าง 0.10ms → ย้ายได้
 ```
 
-นี่ไม่ใช่การล็อก lane ถาวร เพราะทุก request จะคำนวณใหม่
+นี่ไม่ใช่การล็อก lane ถาวร เพราะทุก request จะคำนวณใหม่ต่อบอทนั้นเอง
 
 ### Lane ที่ยังไม่มี SEND sample
 
@@ -155,8 +162,9 @@ cold lane = ไม่มีสิทธิ์ชนะ lane ที่มี SEND
 
 - ต่ำกว่า 20ms: เป้าหมายปกติ
 - 20–23ms: ยังใช้งานได้ แต่แพ้ค่าที่ต่ำกว่าเสมอ
-- มากกว่า 23ms: พัก 15 วินาทีเมื่อมี route อื่น
-- ถ้าทุก route พักพร้อมกัน: ใช้ SEND RTT ต่ำที่สุดต่อเพื่อไม่ทิ้งข้อความ
+- มากกว่า 23ms: พัก 15 วินาทีเมื่อมี route อื่น — พักเฉพาะ **bot-route** นั้นบน lane นั้น ไม่ใช่ทั้ง lane สำหรับบอทอื่น
+- ถ้าทุก route พักพร้อมกัน (สำหรับบอทนั้น): ใช้ SEND RTT ต่ำที่สุดต่อเพื่อไม่ทิ้งข้อความ
+- ผลเร็วครั้งถัดไปของบอทนั้นล้าง cooldown ของบอทนั้นทันที
 
 ## กฎเลือก POLL lane
 
@@ -194,7 +202,7 @@ Server 3 ส่งรายงานกลับ Server 2 ทุกหนึ่�
 
 ถ้ารายงานเก่ากว่าสามวินาที Server 3 จะถูกถอดออกจาก candidate และหายจากหน้าจอจนกว่าจะมีรายงานใหม่
 
-SEND/POLL sample ที่เก่ากว่าประมาณ 30 วินาทีจะไม่ถูกอ้างว่าเป็นค่าปัจจุบัน
+SEND/POLL sample ที่เก่ากว่าประมาณ 30 วินาทีจะไม่ถูกอ้างว่าเป็นค่าปัจจุบัน — สำหรับ SEND นี่คือ per-bot-route profile (สูงสุด 2,048 บอทต่อ physical lane, evict แบบ least-recently-used) ที่หมดอายุแล้ว fallback ไปใช้ prior ของ lane แทน ไม่ใช่ทิ้งค่าทั้งหมด
 
 เมื่อ Primary ส่งผ่าน Server 3 ระบบวัดแบบ end-to-end:
 
@@ -277,7 +285,7 @@ SEND และ POLL มีตารางคะแนนแยกกัน ห�
 
 ### Average RTT
 
-`avgRttMs` เป็นค่าเฉลี่ยประวัติ ใช้ดูแนวโน้มระยะยาว แต่ routing ใช้ median ของผลล่าสุดสูงสุดสามครั้ง
+`avgRttMs` เป็นค่าเฉลี่ยประวัติ ใช้ดูแนวโน้มระยะยาว แต่ routing ของ SEND ใช้ predicted completion จากหน้าต่างผลจริงล่าสุดสูงสุดเจ็ดครั้งต่อบอท (ดูหัวข้อ "กฎเลือก SEND lane") ส่วน POLL ยังใช้ median ของผลล่าสุดสูงสุดเจ็ดครั้ง
 
 ดังนั้นค่าต่อไปนี้สามารถเกิดพร้อมกันได้:
 

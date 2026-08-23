@@ -78,6 +78,18 @@ describe("remoteLaneCandidate", () => {
 		const candidate = remoteLaneCandidate(ORIGIN, now + 1_000);
 		expect(candidate?.sendRttMs).toBe(17.3);
 	});
+
+	test("keeps end-to-end SEND history separate for each bot route", () => {
+		const now = Date.now();
+		recordRemoteDispatchStart(ORIGIN, "bot-a");
+		recordRemoteDispatchEnd(ORIGIN, "send", 18, "bot-a");
+		recordRemoteDispatchStart(ORIGIN, "bot-b");
+		recordRemoteDispatchEnd(ORIGIN, "send", 35, "bot-b");
+		expect(remoteLaneCandidate(ORIGIN, now + 1_000, "bot-a")?.sendRttMs).toBe(18);
+		expect(remoteLaneCandidate(ORIGIN, now + 1_000, "bot-a")?.sendSlowUntil).toBe(0);
+		expect(remoteLaneCandidate(ORIGIN, now + 1_000, "bot-b")?.sendRttMs).toBe(35);
+		expect(remoteLaneCandidate(ORIGIN, now + 1_000, "bot-b")?.sendSlowUntil).toBeGreaterThan(now);
+	});
 });
 
 describe("recordRemoteDispatchStart / recordRemoteDispatchEnd", () => {

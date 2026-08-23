@@ -410,7 +410,7 @@ function buildInit(botId: number, device: Device) {
 	return {
 		device,
 		storage: new SqliteStorage(botId),
-		fetch: createDispatchFetch({ url: DISPATCH_URL, token: DISPATCH_TOKEN as string }),
+		fetch: createDispatchFetch({ url: DISPATCH_URL, token: DISPATCH_TOKEN as string }, botId),
 	};
 }
 

@@ -295,15 +295,21 @@ LINE_H2_SEND_RESERVED_LANES=4
 routingPreferred =
   lane ready
   AND SEND RTT มีค่า
-  AND median SEND RTT 3 ครั้งล่าสุดต่ำที่สุดใน worker นั้น
+  AND predicted completion (ต่อบอทนั้น) ต่ำที่สุดใน worker นั้น
+
+predicted completion = p50 + (p95 - p50) × 0.35 + queue waves × p50
+  p50/p95     = หน้าต่างผลจริงล่าสุดสูงสุด 7 ครั้งของ "บอทนั้น" บน lane นั้น
+                (ไม่มีผลสดของบอทนั้น → ใช้ prior ของ lane เพื่อ bootstrap)
+  queue waves = floor(inFlight / maxConcurrentStreams ที่ peer ประกาศจริง)
 ```
 
 จุดสำคัญ:
 
-- เป้าหมายปกติคือ SEND ต่ำกว่า 20ms; ผลดิบที่เกิน 23ms ทำให้ lane พัก 15 วินาทีเมื่อยังมีทางเลือก
+- เป้าหมายปกติคือ SEND ต่ำกว่า 20ms; ผลดิบที่เกิน 23ms ทำให้ **bot-route นั้นบน lane นั้น** พัก 15 วินาทีเมื่อยังมีทางเลือก โดยไม่พัก lane ทิ้งสำหรับบอทอื่น
 - SEND และ POLL แยกคะแนนกันเด็ดขาด
-- PING ไม่ถูกนับเป็น SEND ระหว่าง Server 2/3 และ concurrency ไม่ถูกแปลงเป็นเวลาปลอมเพื่อให้ cold route ชนะ SEND ที่วัดแล้ว
+- PING ไม่ถูกนับเป็น SEND ระหว่าง Server 2/3 และ concurrency ไม่ถูกแปลงเป็นเวลาปลอมเพื่อให้ cold route ชนะ SEND ที่วัดแล้ว — คิว cost เกิดเฉพาะเมื่อ HTTP/2 capacity ของ lane นั้นเต็มจริงเท่านั้น
 - Server 3 report เก่ากว่า 3 วินาทีไม่ถูกนำมาเปรียบเทียบ
+- แต่ละบอทมี route key ของตัวเอง (internal header, ไม่ถึง LINE) จึงชนะคนละ lane กันได้พร้อมกัน jitter สูง (median ต่ำแต่ p95 กระโดด) แพ้ lane ที่นิ่งกว่าได้แม้ median สูงกว่า
 
 ### 7.5 กฎสลับ `0.10ms`
 
@@ -327,13 +333,13 @@ margin ป้องกัน lane churn จาก noise เล็กมาก �
 
 ### 7.6 Soft affinity
 
-ระบบจำ preferred send lane แต่ไม่ hard-pin:
+ระบบจำ preferred send lane **แยกต่อบอท** (key = `origin + bot route key`, ไม่ใช่ต่อ origin เฉยๆ) แต่ไม่ hard-pin:
 
 - อยู่เส้นเดิมเมื่อความต่างต่ำกว่า 0.1ms
 - ย้ายเมื่อมี application path ที่เร็วกว่าอย่างมีนัย
-- ลบ affinity ทันทีเมื่อ lane GOAWAY/dead หรือไม่มี application measurement
+- ลบ affinity ทันทีเมื่อ lane GOAWAY/dead หรือไม่มี application measurement (ลบเฉพาะ key ที่ชี้ไป lane นั้น ไม่กระทบบอทอื่นที่ชี้ lane อื่น)
 
-hard pin เคยทำให้มี 6 physical sessions แต่พฤติกรรมจริงเหมือนมี lane เดียวจนกว่าจะตาย
+hard pin เคยทำให้มี 6 physical sessions แต่พฤติกรรมจริงเหมือนมี lane เดียวจนกว่าจะตาย เดิม affinity ผูกด้วย origin อย่างเดียวทำให้ทุกบอทของ worker แชร์ preferred lane เดียวกัน ปัจจุบันแต่ละบอทมี soft affinity อิสระ จึงชนะคนละ lane กันได้พร้อมกัน
 
 ### 7.7 EWMA
 
@@ -343,17 +349,17 @@ hard pin เคยทำให้มี 6 physical sessions แต่พฤต�
 networkPingEWMA = old × 0.70 + sample × 0.30
 ```
 
-เฉพาะ network PING ใช้ EWMA ส่วนค่า `send/poll` ใช้ median ของ 3 ผลล่าสุดแยก role เพื่อตัด spike เดี่ยว แต่สองผลช้าติดต่อกันยังเปลี่ยนการจัดอันดับได้ทันที
+เฉพาะ network PING ใช้ EWMA ส่วนค่า POLL ใช้ median ของ 7 ผลล่าสุดแยก role เพื่อตัด spike เดี่ยว แต่สองผลช้าติดต่อกันยังเปลี่ยนการจัดอันดับได้ทันที SEND ไม่ใช้ median เฉยๆ อีกต่อไป แต่ทำนาย completion time จากหน้าต่างผลจริงล่าสุดสูงสุด 7 ครั้งของบอทนั้น (ดู 7.4) ซึ่งครอบคลุม p95/jitter แทนการมองแค่ค่ากลาง
 
-### 7.8 In-flight tie-breaker
+### 7.8 In-flight / capacity tie-breaker
 
-การจัดอันดับ SEND ใช้ผลจริงโดยตรง:
+การจัดอันดับ SEND ใช้ predicted completion ต่อบอทโดยตรง:
 
 ```text
-score = median SEND RTT 3 ครั้งล่าสุด
+score = p50(บอทนี้) + (p95(บอทนี้) - p50(บอทนี้)) × 0.35 + queue waves × p50(บอทนี้)
 ```
 
-ไม่บวก `inFlight × 4ms` เพราะ HTTP/2 multiplex ได้และตัวเลขนั้นไม่ใช่เวลาที่ LINE วัดจริง หาก RTT เท่ากันพอดีจึงเลือก lane ที่มี in-flight ต่ำกว่า
+ไม่บวก `inFlight × 4ms` เพราะ HTTP/2 multiplex ได้และตัวเลขนั้นไม่ใช่เวลาที่ LINE วัดจริง คิวคอสต์เกิดเฉพาะเมื่อ `inFlight` ชน `maxConcurrentStreams` ที่ peer ประกาศจริงผ่าน HTTP/2 SETTINGS เท่านั้น หาก predicted score เท่ากันพอดีจึงเลือก lane ที่มี in-flight ต่ำกว่า
 
 ### 7.9 Poll exploration
 
@@ -370,11 +376,11 @@ score = median SEND RTT 3 ครั้งล่าสุด
 
 ระบบเปรียบเทียบผลจริงระหว่าง lane โดยตรง และใช้ 20/23ms เป็น target/guardrail:
 
-1. เลือก `median SEND 3 ครั้งล่าสุด` ต่ำที่สุดโดยไม่บวก load penalty
+1. เลือก predicted completion ต่อบอทต่ำที่สุด (หน้าต่าง 7 ผลล่าสุดของบอทนั้น + jitter weight 0.35 + queue cost จาก HTTP/2 capacity จริง) โดยไม่บวก load penalty เดา
 2. สลับเมื่ออีก lane เร็วกว่าอย่างน้อย switch margin เพื่อกันการสั่นจาก noise
-3. Server 2 และ Server 3 ใช้กฎเปรียบเทียบเดียวกัน
+3. Server 2 และ Server 3 ใช้กฎเปรียบเทียบเดียวกัน รวมทั้ง per-bot route key และ per-bot cooldown
 4. แต่ละ request ออกเพียงเครื่องเดียวและ lane เดียว จึงไม่เกิดข้อความซ้ำ
-5. ผลดิบเกิน 23ms พัก route 15 วินาทีถ้ามีทางเลือก; ถ้าทุก route ช้าให้ใช้ค่าต่ำที่สุดเพื่อไม่ทิ้งข้อความ
+5. ผลดิบเกิน 23ms พัก bot-route นั้น 15 วินาทีถ้ามีทางเลือก (ไม่พัก lane ทิ้งสำหรับบอทอื่น); ถ้าทุก route ของบอทนั้นช้าให้ใช้ค่าต่ำที่สุดเพื่อไม่ทิ้งข้อความ
 
 ### 7.11 Age-based rolling recycle
 
@@ -595,9 +601,9 @@ bug เดิม: error ตอน decrypt E2EE หลุดออกจาก de
 
 ### 10.7 Lane 0–4 เร็วแต่ระบบไม่ใช้
 
-สาเหตุ: static send/poll partition จำกัด candidate และ preferred affinity เก่าอาจ pin เส้นเดิม
+สาเหตุ: static send/poll partition จำกัด candidate และ preferred affinity เก่าอาจ pin เส้นเดิม — เดิมยังผูก affinity ด้วย origin เดียวทำให้ทุกบอทแชร์ preferred lane เดียวกัน บอทหนึ่ง jitter สูงจึงพาทุกบอทติดไปด้วย
 
-แก้โดย calibrate ทุก physical lane หนึ่งครั้ง จากนั้นให้ measured lane ทุก partition แข่งขันกันด้วยค่าจริง + soft affinity
+แก้โดย calibrate ทุก physical lane หนึ่งครั้ง จากนั้นให้ measured lane ทุก partition แข่งขันกันด้วย predicted completion ต่อบอท + soft affinity แยกต่อบอท
 
 ### 10.8 Poll exploration ทำให้มี 26–27ms โผล่
 
@@ -892,6 +898,12 @@ LINE_H2_SEND_SLOW_THRESHOLD_MS=23
 LINE_H2_SEND_SLOW_COOLDOWN_MS=15000
 LINE_H2_LANE_MAX_AGE_MS=900000
 LINE_H2_LANE_RECYCLE_GAP_MS=60000
+
+# Per-bot SEND completion prediction (send-prediction.ts)
+LINE_H2_SEND_SAMPLE_WINDOW=7
+LINE_H2_SEND_ROUTE_SAMPLE_MAX_AGE_MS=30000
+LINE_H2_SEND_JITTER_WEIGHT=0.35
+LINE_H2_MAX_SEND_ROUTE_PROFILES=2048
 
 SQUARE_FAST_POLL=1
 SQUARE_FAST_POLL_INTERVAL_MS=100
