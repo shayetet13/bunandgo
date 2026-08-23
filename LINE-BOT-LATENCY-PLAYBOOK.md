@@ -26,7 +26,7 @@
 4. ใช้ HTTP/2 connection pool ที่แอปควบคุมเอง
 5. วัด `send RTT` และ `poll RTT` จากคำขอ LINE จริง แยกจาก H2 `PING`
 6. ให้ทุก lane ที่มีผลวัดจริงแข่งขันกัน และเลือกค่าล่าสุดที่ต่ำที่สุด ไม่ว่าถูกแบ่งเป็น send/poll lane
-7. ย้าย lane เมื่อ candidate เร็วกว่าตัวปัจจุบันอย่างน้อย `0.50ms`
+7. ย้าย lane เมื่อ candidate เร็วกว่าตัวปัจจุบันอย่างน้อย `0.10ms`
 8. refresh physical route ตามอายุทีละเส้น โดยไม่รอใน reply path และไม่ตัด lane ที่กำลังใช้งาน
 9. warm network, protocol, crypto, rule matcher และ runtime ก่อนประกาศว่า bot online
 10. วัด p50/p95/p99 และเวลาแต่ละ phase แทนการดูตัวเลขครั้งเดียว
@@ -53,7 +53,7 @@
 
 - `PING 0.9ms` แต่ application RTT `26.5ms` ไม่ได้แปลว่า lane ส่งได้ใน 0.9ms
 - PING ไปถึง edge ได้เร็ว แต่ poll/send ยังต้องผ่าน logic ของ LINE
-- ค่า `0.5ms` ในกฎปัจจุบันคือ **ระยะห่างขั้นต่ำในการสลับ lane** ไม่ใช่ poll interval
+- ค่า `0.1ms` ในกฎปัจจุบันคือ **ระยะห่างขั้นต่ำในการสลับ lane** ไม่ใช่ poll interval
 - HOT ไม่ควรแปลจากคะแนนดาวย้อนหลัง ต้องแปลจาก eligibility ปัจจุบัน
 
 ---
@@ -305,13 +305,13 @@ routingPreferred =
 - PING ไม่ถูกนับเป็น SEND ระหว่าง Server 2/3; Server 3 ที่ยังไม่มี SEND sample จะได้ทดลองหนึ่งงานเฉพาะเมื่อเลนที่พิสูจน์แล้วกำลังรับ concurrent load และคะแนน cold-route แบบเผื่อความเสี่ยงชนะเท่านั้น
 - Server 3 report เก่ากว่า 3 วินาทีไม่ถูกนำมาเปรียบเทียบ
 
-### 7.5 กฎสลับ `0.50ms`
+### 7.5 กฎสลับ `0.10ms`
 
 ```text
 improvement = currentApplicationRtt - candidateApplicationRtt
 
-ถ้า improvement >= 0.50ms → ย้ายไป candidate
-ถ้า improvement < 0.50ms  → อยู่ lane เดิม
+ถ้า improvement >= 0.10ms → ย้ายไป candidate
+ถ้า improvement < 0.10ms  → อยู่ lane เดิม
 ```
 
 ตัวอย่าง:
@@ -319,8 +319,8 @@ improvement = currentApplicationRtt - candidateApplicationRtt
 | Lane ปัจจุบัน |    Candidate | ผล                             |
 | ------------: | -----------: | ------------------------------ |
 |   send 22.0ms |  send 18.0ms | ย้ายไป candidate               |
-|   send 22.0ms |  send 21.5ms | ย้าย เพราะเร็วขึ้น 0.50ms พอดี |
-|   send 22.0ms | send 21.51ms | ไม่ย้าย เพราะเร็วขึ้น 0.49ms   |
+|   send 22.0ms |  send 21.9ms | ย้าย เพราะเร็วขึ้น 0.10ms พอดี |
+|   send 22.0ms | send 21.91ms | ไม่ย้าย เพราะเร็วขึ้น 0.09ms   |
 |   send 22.0ms |  poll 10.0ms | ไม่ใช้ POLL ตัดสิน SEND         |
 
 margin ป้องกัน lane churn จาก noise เล็กมาก หากตั้ง `0.01ms` ระบบจะสลับตาม jitter และอาจเสีย soft affinity มากกว่ากำไร
@@ -329,7 +329,7 @@ margin ป้องกัน lane churn จาก noise เล็กมาก �
 
 ระบบจำ preferred send lane แต่ไม่ hard-pin:
 
-- อยู่เส้นเดิมเมื่อความต่างต่ำกว่า 0.5ms
+- อยู่เส้นเดิมเมื่อความต่างต่ำกว่า 0.1ms
 - ย้ายเมื่อมี application path ที่เร็วกว่าอย่างมีนัย
 - ลบ affinity ทันทีเมื่อ lane GOAWAY/dead หรือไม่มี application measurement
 
@@ -706,7 +706,7 @@ Typecheck: ยังไม่ยืนยัน เนื่องจาก loca
 - poll calibrate ทุก lane หนึ่งครั้งก่อนเลือกค่าต่ำที่สุด
 - send-reserved lane ได้รับ poll calibration ก่อนกลับสู่ steady-state partition
 - measured lane ทุกค่าแข่งขันกันได้ ไม่ว่าจะเป็น 20/40/80ms
-- สลับที่ 0.50ms แต่ไม่สลับที่ 0.49ms
+- สลับที่ 0.10ms แต่ไม่สลับที่ 0.09ms
 - ไม่ recycle in-flight lane
 - ต้องมี standby ก่อน age recycle
 - header HTTP/1 ถูกตัดก่อนส่ง H2
@@ -886,8 +886,8 @@ LINE_TRANSPORT=hybrid
 LINE_H2_LANES=6
 LINE_H2_SEND_RESERVED_LANES=0
 LINE_H2_APPLICATION_SAMPLE_MAX_AGE_MS=30000
-LINE_H2_APPLICATION_SWITCH_MARGIN_MS=0.5
-LINE_H2_RTT_SWITCH_MARGIN_MS=0.75
+LINE_H2_APPLICATION_SWITCH_MARGIN_MS=0.1
+LINE_H2_RTT_SWITCH_MARGIN_MS=0.1
 LINE_H2_IN_FLIGHT_PENALTY_MS=4
 LINE_H2_LANE_MAX_AGE_MS=900000
 LINE_H2_LANE_RECYCLE_GAP_MS=60000
@@ -974,7 +974,7 @@ SQUARE_FAST_POLL_WORKERS=1
 - GOAWAY draining
 - application RTT EWMA
 - sub-23 crossover
-- 0.5ms soft switch
+- 0.1ms soft switch
 - background repair
 - age recycle
 
@@ -1075,7 +1075,7 @@ inbound สูง?
 - [ ] startup warm ไม่ส่งข้อความจริง
 - [ ] application RTT แยกจาก PING
 - [ ] `<23ms` eligibility ใช้ sample สด
-- [ ] switch 0.50ms มี test boundary
+- [ ] switch 0.10ms มี test boundary
 - [ ] poll ไม่แย่ง send ทุก lane
 - [ ] DB/log/UI อยู่นอก hot path
 
@@ -1103,7 +1103,7 @@ inbound สูง?
 
 ## 21. ข้อสรุปสำหรับนำไปใช้กับเว็บใหม่
 
-หลักที่ควรยกไปทั้งชุดไม่ใช่เลข 23 หรือ 0.5 เพียงสองค่า แต่คือวงจร:
+หลักที่ควรยกไปทั้งชุดไม่ใช่เลข 23 หรือ 0.1 เพียงสองค่า แต่คือวงจร:
 
 ```text
 วัดงานจริง

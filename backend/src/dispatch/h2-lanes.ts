@@ -257,7 +257,7 @@ function pickLane(lanes: Lane[], role: LaneRole): Lane | undefined {
 
 // Route differences below this are noise; retain the old freshness/load
 // preference instead of bouncing streams between effectively equal paths.
-const RTT_SWITCH_MARGIN_MS = Math.max(0, Number(process.env.LINE_H2_RTT_SWITCH_MARGIN_MS ?? 0.75));
+const RTT_SWITCH_MARGIN_MS = Math.max(0, Number(process.env.LINE_H2_RTT_SWITCH_MARGIN_MS ?? 0.1));
 
 interface LaneChoiceMetrics {
 	rttMs?: number;
@@ -269,7 +269,7 @@ interface LaneChoiceMetrics {
 	inFlight: number;
 }
 
-const APPLICATION_SWITCH_MARGIN_MS = Math.max(0, Number(process.env.LINE_H2_APPLICATION_SWITCH_MARGIN_MS ?? 0.5));
+const APPLICATION_SWITCH_MARGIN_MS = Math.max(0, Number(process.env.LINE_H2_APPLICATION_SWITCH_MARGIN_MS ?? 0.1));
 const IN_FLIGHT_PENALTY_MS = Math.max(0, Number(process.env.LINE_H2_IN_FLIGHT_PENALTY_MS ?? 4));
 const APPLICATION_RTT_WINDOW = 3;
 
@@ -341,7 +341,7 @@ export function selectFastestSendLaneCandidate<T extends LaneChoiceMetrics & { i
 		}
 	}
 	const preferred = preferredId === undefined ? undefined : candidates.find((lane) => lane.id === preferredId);
-	return preferred && sendLaneScore(preferred, candidates) <= bestScore + APPLICATION_SWITCH_MARGIN_MS ? preferred : best;
+	return preferred && sendLaneScore(preferred, candidates) < bestScore + APPLICATION_SWITCH_MARGIN_MS ? preferred : best;
 }
 
 /** Chooses Server 3 only from a role-matched real result. Transport PING keeps
@@ -361,13 +361,13 @@ export function shouldPreferRemoteLane(remote: LaneChoiceMetrics, local: LaneCho
 		// breaks the bootstrap deadlock without duplicating or hedging a send.
 		if (local.sendRttMs === undefined) return false;
 		const candidates = [local, remote];
-		return sendLaneScore(remote, candidates) + APPLICATION_SWITCH_MARGIN_MS < sendLaneScore(local, candidates);
+		return sendLaneScore(remote, candidates) + APPLICATION_SWITCH_MARGIN_MS <= sendLaneScore(local, candidates);
 	}
 	if (local.sendRttMs === undefined) return true;
 	return shouldPreferFastestSendLane(remote, local);
 }
 
-/** Applies the exact 0.50ms handoff rule to real application measurements. */
+/** Applies the exact 0.10ms handoff rule to real application measurements. */
 export function shouldPreferFastestSendLane(
 	candidate: LaneChoiceMetrics,
 	current: LaneChoiceMetrics,
@@ -400,8 +400,8 @@ export function shouldPreferLane(candidate: LaneChoiceMetrics, current: LaneChoi
 		const margin = role === "send" ? APPLICATION_SWITCH_MARGIN_MS : RTT_SWITCH_MARGIN_MS;
 		const candidateScore = candidateRtt + candidate.inFlight * IN_FLIGHT_PENALTY_MS;
 		const currentScore = currentRtt + current.inFlight * IN_FLIGHT_PENALTY_MS;
-		if (candidateScore + margin < currentScore) return true;
-		if (currentScore + margin < candidateScore) return false;
+		if (candidateScore + margin <= currentScore) return true;
+		if (currentScore + margin <= candidateScore) return false;
 	}
 
 	return role === "send"

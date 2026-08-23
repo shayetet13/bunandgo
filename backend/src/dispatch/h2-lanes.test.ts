@@ -400,6 +400,18 @@ describe("RTT-aware lane ranking", () => {
 		).toBe(true);
 	});
 
+	test("switches SEND at the exact default 0.10ms boundary", () => {
+		const current = { sendRttMs: 22, lastSendOkAt: 10, lastOkAt: 10, inFlight: 0 };
+		expect(shouldPreferFastestSendLane({ sendRttMs: 21.9, lastSendOkAt: 9, lastOkAt: 9, inFlight: 0 }, current)).toBe(true);
+		expect(shouldPreferFastestSendLane({ sendRttMs: 21.91, lastSendOkAt: 9, lastOkAt: 9, inFlight: 0 }, current)).toBe(false);
+	});
+
+	test("switches POLL at the exact default 0.10ms boundary", () => {
+		const current = { pollRttMs: 22, lastPollOkAt: 10, lastOkAt: 10, inFlight: 0 };
+		expect(shouldPreferLane({ pollRttMs: 21.9, lastPollOkAt: 9, lastOkAt: 9, inFlight: 0 }, current, "poll")).toBe(true);
+		expect(shouldPreferLane({ pollRttMs: 21.91, lastPollOkAt: 9, lastOkAt: 9, inFlight: 0 }, current, "poll")).toBe(false);
+	});
+
 	test("calibrates every unmeasured poll lane before settling on a winner", () => {
 		const lanes = [
 			{ id: 4, pollRttMs: 21, lastPollOkAt: 300, lastOkAt: 300, inFlight: 0 },
@@ -427,8 +439,8 @@ describe("RTT-aware lane ranking", () => {
 	});
 
 	test("keeps freshness/load tie-breakers when RTTs differ only by noise", () => {
-		expect(shouldPreferLane({ rttMs: 2.3, lastOkAt: 10, inFlight: 0 }, { rttMs: 2.8, lastOkAt: 20, inFlight: 0 }, "send")).toBeFalse();
-		expect(shouldPreferLane({ rttMs: 2.3, lastOkAt: 10, inFlight: 0 }, { rttMs: 2.8, lastOkAt: 20, inFlight: 1 }, "poll")).toBeTrue();
+		expect(shouldPreferLane({ rttMs: 2.75, lastOkAt: 10, inFlight: 0 }, { rttMs: 2.8, lastOkAt: 20, inFlight: 0 }, "send")).toBeFalse();
+		expect(shouldPreferLane({ rttMs: 2.75, lastOkAt: 10, inFlight: 0 }, { rttMs: 2.8, lastOkAt: 20, inFlight: 1 }, "poll")).toBeTrue();
 	});
 });
 
@@ -507,6 +519,14 @@ describe("send-reserved lanes", () => {
 		expect(selectFastestSendLaneCandidate(lanes)?.id).toBe(1);
 	});
 
+	test("releases soft affinity at the exact 0.10ms boundary", () => {
+		const lanes = [
+			{ id: 0, sendRttMs: 22, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 },
+			{ id: 1, sendRttMs: 21.9, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 },
+		];
+		expect(selectFastestSendLaneCandidate(lanes, 0)?.id).toBe(1);
+	});
+
 	test("uses the reserved partition only before any real application result exists", () => {
 		const unmeasured = [
 			{ id: 0, rttMs: 8, lastOkAt: 1, inFlight: 0 },
@@ -522,9 +542,9 @@ describe("send-reserved lanes", () => {
 
 	test("never lets POLL switch a SEND route and keeps the SEND margin", () => {
 		const current = { sendRttMs: 22, lastSendOkAt: 100, lastOkAt: 100, inFlight: 0 };
-		expect(shouldPreferFastestSendLane({ pollRttMs: 1, lastPollOkAt: 100, lastOkAt: 100, inFlight: 0 }, current, 0.5)).toBeFalse();
-		expect(shouldPreferFastestSendLane({ sendRttMs: 21.5, lastSendOkAt: 100, lastOkAt: 100, inFlight: 0 }, current, 0.5)).toBeTrue();
-		expect(shouldPreferFastestSendLane({ sendRttMs: 21.51, lastSendOkAt: 101, lastOkAt: 101, inFlight: 0 }, current, 0.5)).toBeFalse();
+		expect(shouldPreferFastestSendLane({ pollRttMs: 1, lastPollOkAt: 100, lastOkAt: 100, inFlight: 0 }, current, 0.1)).toBeFalse();
+		expect(shouldPreferFastestSendLane({ sendRttMs: 21.9, lastSendOkAt: 100, lastOkAt: 100, inFlight: 0 }, current, 0.1)).toBeTrue();
+		expect(shouldPreferFastestSendLane({ sendRttMs: 21.91, lastSendOkAt: 101, lastOkAt: 101, inFlight: 0 }, current, 0.1)).toBeFalse();
 	});
 });
 
