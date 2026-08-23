@@ -7,9 +7,7 @@ export function LatencyBreakdown({ sample }: { sample?: LatencySample }) {
 	if (!sample || !b) {
 		return (
 			<section className="panel" style={{ padding: "var(--space-md)" }}>
-				<div className="label" style={{ color: "var(--signal-go)" }}>
-					LATENCY BREAKDOWN
-				</div>
+				<div className="label">LATENCY BREAKDOWN</div>
 				<p className="hint">ส่งข้อความรอบใหม่เพื่อดูว่าเวลาใช้ไปกับ LINE และโค้ดส่วนใดบ้าง</p>
 			</section>
 		);
@@ -34,9 +32,7 @@ export function LatencyBreakdown({ sample }: { sample?: LatencySample }) {
 		<section className="panel" style={{ padding: "var(--space-md)" }}>
 			<div style={{ display: "flex", justifyContent: "space-between", gap: "var(--space-md)", flexWrap: "wrap" }}>
 				<div>
-					<div className="label" style={{ color: "var(--signal-go)" }}>
-						LATENCY BREAKDOWN · ล่าสุด
-					</div>
+					<div className="label">LATENCY BREAKDOWN · ล่าสุด</div>
 					<div style={{ fontWeight: 700 }}>
 						{sample.surface.toUpperCase()} · {sample.source === "auto" ? "ตอบอัตโนมัติ" : "ทดสอบ"}
 					</div>

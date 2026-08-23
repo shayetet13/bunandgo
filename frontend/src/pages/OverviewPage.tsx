@@ -66,8 +66,11 @@ function DashboardClock({ uptimeSeconds }: { uptimeSeconds?: number }) {
 	}).format(clock);
 
 	return (
-		<div className="panel" style={{ minWidth: 240, padding: "var(--space-md)", textAlign: "right" }}>
-			<div className="label" style={{ color: "var(--signal-go)", marginBottom: "var(--space-xs)" }}>
+		<div
+			className="panel"
+			style={{ flex: "1 1 220px", minWidth: 0, maxWidth: "100%", boxSizing: "border-box", padding: "var(--space-md)", textAlign: "right" }}
+		>
+			<div className="label" style={{ marginBottom: "var(--space-xs)" }}>
 				SYSTEM CLOCK · BANGKOK
 			</div>
 			<div className="mono" style={{ fontSize: "1.45rem", fontWeight: 800, lineHeight: 1.1 }}>
@@ -107,7 +110,7 @@ export function OverviewPage({
 			<section
 				className="panel"
 				style={{
-					padding: "var(--space-xl)",
+					padding: "var(--space-lg)",
 					display: "flex",
 					justifyContent: "space-between",
 					alignItems: "center",
@@ -116,7 +119,7 @@ export function OverviewPage({
 				}}
 			>
 				<div style={{ maxWidth: 560 }}>
-					<div className="label" style={{ color: "var(--signal-go)", marginBottom: "var(--space-sm)" }}>
+					<div className="label" style={{ marginBottom: "var(--space-sm)" }}>
 						((•)) LIVE OPERATIONS
 					</div>
 					<h2 style={{ margin: "0 0 var(--space-sm)", fontSize: "2.1rem", fontWeight: 800, lineHeight: 1.2 }}>
@@ -157,7 +160,10 @@ export function OverviewPage({
 						</button>
 					</div>
 				</div>
-				<div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "var(--space-md)", flexWrap: "wrap" }}>
+				<div
+					className="overview-hero-side"
+					style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "var(--space-md)", flexWrap: "wrap" }}
+				>
 					<DashboardClock uptimeSeconds={health?.uptimeSeconds} />
 					<RadarVisual activeCount={onlineCount} />
 				</div>
@@ -201,18 +207,14 @@ export function OverviewPage({
 				style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 300px", gap: "var(--space-lg)", alignItems: "start" }}
 			>
 				<section className="panel" style={{ padding: "var(--space-md)" }}>
-					<div className="label" style={{ color: "var(--signal-go)" }}>
-						TOTAL DISPATCH
-					</div>
+					<div className="label">TOTAL DISPATCH</div>
 					<div style={{ fontWeight: 700, marginBottom: "var(--space-sm)" }}>ความเร็วในการส่ง (60 นาทีล่าสุด)</div>
 					<DispatchChart samples={historySamples} rangeMinutes={60} />
 				</section>
 
 				<section className="panel" style={{ padding: "var(--space-md)" }}>
 					<div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "var(--space-sm)" }}>
-						<div className="label" style={{ color: "var(--signal-go)" }}>
-							INFRASTRUCTURE
-						</div>
+						<div className="label">INFRASTRUCTURE</div>
 						<span className={`chip ${infraOk ? "chip--go" : "chip--bad"}`}>{infraOk ? "OK" : "ปัญหา"}</span>
 					</div>
 					<div style={{ fontWeight: 700, marginBottom: "var(--space-sm)" }}>สุขภาพระบบ</div>
