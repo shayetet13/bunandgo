@@ -368,6 +368,35 @@ function clearLoginPending(rt: BotRuntime): void {
 	rt.loginPhase = undefined;
 }
 
+/**
+ * Publishes one identity-lock rejection for both login-time and live-session
+ * checks. Keeping the reporting here prevents the two enforcement paths from
+ * drifting into different rules or dashboard payloads.
+ */
+function reportIdLockMismatch(botId: number, bot: Bot | undefined, lineDisplayName: string, nameMismatch: boolean): void {
+	botEvents.emit("id_lock_mismatch", {
+		botId,
+		botName: bot?.name ?? String(botId),
+		reason: nameMismatch ? "name" : "account",
+		...(nameMismatch ? { previousName: bot?.lockedLineDisplayName ?? undefined, attemptedName: lineDisplayName } : {}),
+	});
+	recordAnomaly({
+		botId,
+		kind: nameMismatch ? "id_lock_name_mismatch" : "id_lock_mismatch",
+		severity: "critical",
+		detail: nameMismatch
+			? `นโยบาย 1 บัญชี LINE ต่อ 1 บอท — ตรวจพบชื่อบัญชี ("${lineDisplayName}") ไม่ตรงกับชื่อที่ผูกไว้ตั้งแต่ครั้งแรก ("${bot?.lockedLineDisplayName}") แม้บัญชี (mid) จะตรงกัน ระบบจึงยุติเซสชันและจะไม่อนุญาตให้เข้าสู่ระบบจนกว่าชื่อจะตรงหรือผู้ดูแลจะรีเซ็ตการผูก`
+			: "ตรวจพบบัญชี LINE อื่น — บอทนี้ผูกไว้กับบัญชีแรกที่เคยเข้าสู่ระบบสำเร็จแล้ว ระบบจึงยุติเซสชัน",
+	});
+	logBotEvent(
+		botId,
+		nameMismatch ? "id_lock_name_rejected" : "id_lock_rejected",
+		nameMismatch
+			? "ปฏิเสธ/ยุติเซสชัน — ชื่อบัญชี LINE ไม่ตรงกับที่ผูกไว้กับบอทนี้ (นโยบาย 1 บัญชี LINE ต่อ 1 บอท)"
+			: "ปฏิเสธ/ยุติเซสชัน — บัญชี LINE ไม่ตรงกับที่ผูกไว้กับบอทนี้",
+	);
+}
+
 function getRuntime(botId: number): BotRuntime {
 	let rt = runtimes.get(botId);
 	if (!rt) {
@@ -630,27 +659,7 @@ async function attemptLogin(botId: number, device: Device, options: AttemptLogin
 				clearLoginPending(rt);
 				updateBotStatus(botId, "offline");
 				botEvents.emit("bot_status", { botId, status: "offline" });
-				botEvents.emit("id_lock_mismatch", {
-					botId,
-					botName: loginBot?.name ?? String(botId),
-					reason: isNameMismatch ? "name" : "account",
-					...(isNameMismatch ? { previousName: loginBot?.lockedLineDisplayName ?? undefined, attemptedName: lineDisplayName } : {}),
-				});
-				recordAnomaly({
-					botId,
-					kind: isNameMismatch ? "id_lock_name_mismatch" : "id_lock_mismatch",
-					severity: "critical",
-					detail: isNameMismatch
-						? `นโยบาย 1 บัญชี LINE ต่อ 1 บอท — ชื่อบัญชีที่เข้าสู่ระบบ ("${lineDisplayName}") ไม่ตรงกับชื่อที่ผูกไว้ตั้งแต่ครั้งแรก ("${loginBot?.lockedLineDisplayName}") แม้บัญชี (mid) จะตรงกัน อาจมีการแชร์/โอนบัญชีให้คนอื่นใช้งาน หากต้องการเพิ่มบัญชี/อุปกรณ์ กรุณาติดต่อผู้ดูแลระบบ`
-						: "มีความพยายามเข้าสู่ระบบด้วยบัญชี LINE อื่น — บอทนี้ผูกไว้กับบัญชีแรกที่เคยเข้าสู่ระบบสำเร็จแล้ว",
-				});
-				logBotEvent(
-					botId,
-					isNameMismatch ? "id_lock_name_rejected" : "id_lock_rejected",
-					isNameMismatch
-						? "ปฏิเสธการเข้าสู่ระบบ — ชื่อบัญชี LINE ไม่ตรงกับที่ผูกไว้กับบอทนี้ (นโยบาย 1 บัญชี LINE ต่อ 1 บอท)"
-						: "ปฏิเสธการเข้าสู่ระบบ — บัญชี LINE ไม่ตรงกับที่ผูกไว้กับบอทนี้",
-				);
+				reportIdLockMismatch(botId, loginBot, lineDisplayName, isNameMismatch);
 				return;
 			}
 		}
@@ -1346,10 +1355,11 @@ function startSquareProactiveRefresh(botId: number, rt: BotRuntime): void {
  * Periodically proves the session still works, and rebuilds it when it
  * does not.
  *
- * `noop` is the cheapest authenticated call available, so a failure means
- * the session itself is gone rather than a particular feature being
- * unavailable. Recovery reuses the normal login path, which prefers the
- * stored token and only asks for a QR scan when that is refused.
+ * `getMyProfile` proves authentication and returns the current account name
+ * in the same request. That lets this watchdog enforce the first-login
+ * account/name lock throughout a live session without adding another timer
+ * or another LINE request. Recovery reuses the normal login path, which
+ * prefers the stored token and only asks for a QR scan when that is refused.
  */
 function startWatchdog(botId: number, device: Device, rt: BotRuntime): void {
 	stopWatchdog(rt);
@@ -1361,8 +1371,23 @@ function startWatchdog(botId: number, device: Device, rt: BotRuntime): void {
 			if (!client || rt.stopRequested) return;
 
 			try {
-				await client.base.talk.noop();
+				// This must be a fresh RPC. client.base.profile is the login-time
+				// cache and therefore cannot reveal a display-name change made
+				// from the LINE app while this bot remains online.
+				const profile = await client.getMyProfile();
 				if (rt.client !== client) return;
+
+				if (!profile.mid) throw new Error("LINE profile response has no mid");
+				const bot = getBot(botId);
+				const idLockOutcome = bot ? evaluateIdLock(bot, profile.mid, profile.displayName ?? "") : "exempt";
+				if (idLockOutcome === "mismatch" || idLockOutcome === "name_mismatch") {
+					reportIdLockMismatch(botId, bot, profile.displayName ?? "", idLockOutcome === "name_mismatch");
+					// stopBot clears listeners/timers and marks the bot offline but
+					// deliberately retains the stored token. A later manual start
+					// must pass the same identity check before it can go online.
+					stopBot(botId);
+					return;
+				}
 				rt.watchdogFailures = 0;
 			} catch (err) {
 				if (rt.client !== client) return;
