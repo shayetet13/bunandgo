@@ -10,6 +10,7 @@ import {
 	remoteDispatchConfig,
 	remoteLaneCandidate,
 } from "./remote-lane.ts";
+import { nextSendSlowUntil, sendCandidatesOutsideCooldown } from "./lane-speed-policy.ts";
 
 /**
  * A small pool of HTTP/2 connections ("lanes") to a LINE host that this
@@ -52,8 +53,7 @@ export function relayOriginAllowed(origin: string): boolean {
  * them entirely.
  *
  * Polling and sending share one pool, and enough concurrent pollers can leave
- * every proven-fast lane occupied; `IN_FLIGHT_PENALTY_MS` then scores those
- * routes as worse.
+ * every proven-fast lane occupied.
  * That is the mechanism behind the `SQUARE_FAST_POLL_WORKERS=2` result
  * recorded in `bot/fast-square-poller.ts`: eight continuous polls over six
  * lanes left a reply no uncontended route, and `upstream` went 16.6ms ->
@@ -129,6 +129,8 @@ interface Lane {
 	pollRttSamples: number[];
 	lastSendOkAt: number;
 	lastPollOkAt: number;
+	/** A raw SEND result above 23ms temporarily removes this lane while another route is available. */
+	sendSlowUntil: number;
 	consecutiveFailures: number;
 	/** Wall-clock time this physical HTTP/2 session connected. */
 	openedAt: number;
@@ -152,6 +154,7 @@ export interface LaneStat {
 	pollRttMs?: number;
 	lastSendOkAt: number;
 	lastPollOkAt: number;
+	sendSlowUntil: number;
 	/** Dashboard-only freshest role view; routing uses the role fields above. */
 	applicationRttMs?: number;
 	applicationSampleAt: number;
@@ -267,10 +270,10 @@ interface LaneChoiceMetrics {
 	lastPollOkAt?: number;
 	lastOkAt: number;
 	inFlight: number;
+	sendSlowUntil?: number;
 }
 
 const APPLICATION_SWITCH_MARGIN_MS = Math.max(0, Number(process.env.LINE_H2_APPLICATION_SWITCH_MARGIN_MS ?? 0.1));
-const IN_FLIGHT_PENALTY_MS = Math.max(0, Number(process.env.LINE_H2_IN_FLIGHT_PENALTY_MS ?? 4));
 const APPLICATION_RTT_WINDOW = 3;
 
 function estimatedSendRtt(lane: LaneChoiceMetrics): number | undefined {
@@ -289,15 +292,15 @@ function applicationSampleAt(lane: LaneChoiceMetrics): number {
 }
 
 /**
- * Keeps every usable route in the competition once any real SEND result
- * exists. Cold routes carry a conservative application-scale estimate in
- * sendLaneScore, so concurrency can discover them without ever using POLL as
- * a SEND measurement. Before the first SEND, the configured send partition
- * provides the transport-level bootstrap.
+ * Keeps every non-cooling route in the competition once any real SEND result
+ * exists. A cold route stays ready but cannot outrank measured work using only
+ * PING. If all measured routes are cooling, an unmeasured survivor can bootstrap
+ * the next SEND; before the first SEND, the configured partition bootstraps it.
  */
 export function fastestSendCandidates<T extends LaneChoiceMetrics & { id: number }>(usable: T[]): T[] {
-	if (usable.some((lane) => lane.sendRttMs !== undefined)) return usable;
-	return laneCandidates(usable, "send");
+	const available = sendCandidatesOutsideCooldown(usable);
+	if (available.some((lane) => lane.sendRttMs !== undefined)) return available;
+	return laneCandidates(available, "send");
 }
 
 function median(values: number[]): number | undefined {
@@ -307,23 +310,16 @@ function median(values: number[]): number | undefined {
 }
 
 /**
- * Scores every candidate in one common application-RTT scale. A cold lane is
- * not mistaken for a 1-2ms application route merely because its H2 PING is
- * low. It can still be explored naturally when proven lanes are busy, without
- * fabricating traffic or duplicating a user's message.
+ * Scores every candidate in one common application-RTT scale. A measured lane
+ * is ranked only by its real SEND median — in-flight streams are not invented
+ * into milliseconds. A cold lane cannot outrank any measured SEND route merely
+ * because its transport PING is low; PING is used only before the first real
+ * SEND result exists.
  */
 export function sendLaneScore(lane: LaneChoiceMetrics, candidates: LaneChoiceMetrics[]): number {
-	const measured = candidates.map((candidate) => candidate.sendRttMs).filter((value): value is number => value !== undefined);
-	const measuredBaseline = median(measured);
-	const pings = candidates.map((candidate) => candidate.rttMs).filter((value): value is number => value !== undefined);
-	const fastestPing = pings.length > 0 ? Math.min(...pings) : undefined;
-	let base = lane.sendRttMs;
-	if (base === undefined && measuredBaseline !== undefined) {
-		const pingDelta = lane.rttMs !== undefined && fastestPing !== undefined ? Math.max(0, lane.rttMs - fastestPing) : 0;
-		base = measuredBaseline + IN_FLIGHT_PENALTY_MS + pingDelta;
-	}
-	base ??= lane.rttMs;
-	return (base ?? Number.POSITIVE_INFINITY) + lane.inFlight * IN_FLIGHT_PENALTY_MS;
+	if (lane.sendRttMs !== undefined) return lane.sendRttMs;
+	if (candidates.some((candidate) => candidate.sendRttMs !== undefined)) return Number.POSITIVE_INFINITY;
+	return lane.rttMs ?? Number.POSITIVE_INFINITY;
 }
 
 export function selectFastestSendLaneCandidate<T extends LaneChoiceMetrics & { id: number }>(
@@ -335,7 +331,11 @@ export function selectFastestSendLaneCandidate<T extends LaneChoiceMetrics & { i
 	let bestScore = sendLaneScore(best, candidates);
 	for (const lane of candidates.slice(1)) {
 		const score = sendLaneScore(lane, candidates);
-		if (score < bestScore || (score === bestScore && lane.id < best.id)) {
+		if (
+			score < bestScore ||
+			(score === bestScore && lane.inFlight < best.inFlight) ||
+			(score === bestScore && lane.inFlight === best.inFlight && lane.id < best.id)
+		) {
 			best = lane;
 			bestScore = score;
 		}
@@ -354,14 +354,14 @@ export function shouldPreferRemoteLane(remote: LaneChoiceMetrics, local: LaneCho
 		return shouldPreferLane(remote, local, "poll");
 	}
 	if (role !== "send") return false;
+	const available = sendCandidatesOutsideCooldown([local, remote]);
+	if (!available.includes(local)) return true;
+	if (!available.includes(remote)) return false;
 	if (remote.sendRttMs === undefined) {
 		// A PING-only Server3 must never displace an idle proven SEND route.
-		// Under real concurrency it may take one request as a cold candidate,
-		// using the same conservative score as an unmeasured local lane. That
-		// breaks the bootstrap deadlock without duplicating or hedging a send.
-		if (local.sendRttMs === undefined) return false;
-		const candidates = [local, remote];
-		return sendLaneScore(remote, candidates) + APPLICATION_SWITCH_MARGIN_MS <= sendLaneScore(local, candidates);
+		// Concurrency is not proof that the relay is faster, so it does not earn
+		// a user's SEND while a measured local route remains available.
+		return false;
 	}
 	if (local.sendRttMs === undefined) return true;
 	return shouldPreferFastestSendLane(remote, local);
@@ -378,9 +378,7 @@ export function shouldPreferFastestSendLane(
 	if (candidateRtt !== undefined && currentRtt === undefined) return true;
 	if (candidateRtt === undefined && currentRtt !== undefined) return false;
 	if (candidateRtt !== undefined && currentRtt !== undefined) {
-		const candidateScore = candidateRtt + candidate.inFlight * IN_FLIGHT_PENALTY_MS;
-		const currentScore = currentRtt + current.inFlight * IN_FLIGHT_PENALTY_MS;
-		const improvementMs = currentScore - candidateScore;
+		const improvementMs = currentRtt - candidateRtt;
 		if (improvementMs > 0 && improvementMs >= marginMs) return true;
 		if (improvementMs < 0 && -improvementMs >= marginMs) return false;
 		// Both lanes have real measurements but the difference is below the
@@ -398,10 +396,8 @@ export function shouldPreferLane(candidate: LaneChoiceMetrics, current: LaneChoi
 	if (candidateRtt !== undefined && currentRtt === undefined) return true;
 	if (candidateRtt !== undefined && currentRtt !== undefined) {
 		const margin = role === "send" ? APPLICATION_SWITCH_MARGIN_MS : RTT_SWITCH_MARGIN_MS;
-		const candidateScore = candidateRtt + candidate.inFlight * IN_FLIGHT_PENALTY_MS;
-		const currentScore = currentRtt + current.inFlight * IN_FLIGHT_PENALTY_MS;
-		if (candidateScore + margin <= currentScore) return true;
-		if (currentScore + margin <= candidateScore) return false;
+		if (candidateRtt + margin <= currentRtt) return true;
+		if (currentRtt + margin <= candidateRtt) return false;
 	}
 
 	return role === "send"
@@ -474,6 +470,7 @@ function recordApplicationRtt(lane: Lane, role: LaneRole, sampleMs: number): voi
 	if (lane.sendRttSamples.length > APPLICATION_RTT_WINDOW) lane.sendRttSamples.shift();
 	lane.sendRttMs = median(lane.sendRttSamples);
 	lane.lastSendOkAt = now;
+	lane.sendSlowUntil = nextSendSlowUntil(Math.max(sampleMs, lane.sendRttMs ?? sampleMs), now);
 }
 
 function pingLane(lane: Lane): void {
@@ -583,6 +580,7 @@ function openLane(lane: Lane): Promise<void> {
 	lane.pollRttSamples = [];
 	lane.lastSendOkAt = 0;
 	lane.lastPollOkAt = 0;
+	lane.sendSlowUntil = 0;
 	lane.openedAt = 0;
 
 	return new Promise<void>((resolve, reject) => {
@@ -724,6 +722,7 @@ export async function ensureLanes(origin: string): Promise<void> {
 			pollRttSamples: [],
 			lastSendOkAt: 0,
 			lastPollOkAt: 0,
+			sendSlowUntil: 0,
 			consecutiveFailures: 0,
 			openedAt: 0,
 			disposed: false,
@@ -1039,7 +1038,7 @@ export function laneStats(): LaneStat[] {
 	const stats: LaneStat[] = [];
 	for (const [origin, lanes] of pools) {
 		const sendMeasured = lanes.filter((lane) => isUsable(lane) && lane.sendRttMs !== undefined);
-		const fastest = selectFastestSendLaneCandidate(sendMeasured);
+		const fastest = selectFastestSendLaneCandidate(fastestSendCandidates(sendMeasured));
 		for (const lane of lanes) {
 			const applicationRttMs = latestApplicationRtt(lane);
 			stats.push({
@@ -1053,6 +1052,7 @@ export function laneStats(): LaneStat[] {
 				pollRttMs: lane.pollRttMs,
 				lastSendOkAt: lane.lastSendOkAt,
 				lastPollOkAt: lane.lastPollOkAt,
+				sendSlowUntil: lane.sendSlowUntil,
 				applicationRttMs,
 				applicationSampleAt: applicationSampleAt(lane),
 				routingPreferred: isUsable(lane) && lane.id === fastest?.id,
@@ -1073,6 +1073,7 @@ export interface LaneRaceLaneView {
 	pollRttMs?: number;
 	applicationRttMs?: number;
 	applicationSampleAt: number;
+	sendSlowUntil: number;
 	routingPreferred: boolean;
 	send: LaneRaceScore;
 	poll: LaneRaceScore;
@@ -1095,6 +1096,7 @@ export function laneRaceView(): LaneRaceLaneView[] {
 		pollRttMs: lane.pollRttMs,
 		applicationRttMs: lane.applicationRttMs,
 		applicationSampleAt: lane.applicationSampleAt,
+		sendSlowUntil: lane.sendSlowUntil,
 		routingPreferred: lane.routingPreferred,
 		send: laneRaceScore(lane.origin, lane.id, "send"),
 		poll: laneRaceScore(lane.origin, lane.id, "poll"),

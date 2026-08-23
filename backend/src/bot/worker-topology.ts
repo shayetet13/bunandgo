@@ -235,6 +235,7 @@ export function applyRuntimeTopologyFile(raw?: string): boolean {
 		delete process.env.LINE_H2_APPLICATION_LANE_CEILING_MS;
 		delete process.env.LINE_H2_DEGRADED_REPAIR_GAP_MS;
 		delete process.env.LINE_H2_DEGRADED_REPAIR_MIN_SAMPLES;
+		delete process.env.LINE_H2_IN_FLIGHT_PENALTY_MS;
 		const interval = worker.fastPollIntervalMs ?? defaultInterval;
 		process.env.SQUARE_FAST_POLL_INTERVAL_MS = String(interval);
 		if (interval === 50) process.env.SQUARE_FAST_POLL_ALLOW_50MS = "1";

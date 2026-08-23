@@ -22,8 +22,8 @@
     {
       "workerId": "shard-b",
       "port": 8792,
-      "laneSource": "relay",
-      "h2Lanes": 0,
+      "laneSource": "local",
+      "h2Lanes": 16,
       "relayLanes": 32,
       "relayUrl": "http://10.90.0.2:8795/dispatch",
       "relayToken": "replace-with-a-different-random-32-character-secret",

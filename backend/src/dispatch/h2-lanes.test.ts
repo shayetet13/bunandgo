@@ -79,6 +79,23 @@ describe("owned HTTP/2 lanes", () => {
 		expect(await readResponseBytes(response!)).toEqual(new Uint8Array([0x82, 0x21, 0x00]));
 	});
 
+	test("cools a lane after a raw SEND result above 23ms", async () => {
+		const { origin, server } = await startServer((stream) => {
+			setTimeout(() => {
+				stream.respond({ ":status": 200 });
+				stream.end();
+			}, 30);
+		});
+		running = server;
+
+		await ensureLanes(origin);
+		await laneFetch(`${origin}/CA5`, { method: "POST", body: new Uint8Array([1]) as BodyInit });
+
+		const used = laneStats().find((lane) => lane.lastSendOkAt > 0);
+		expect(used?.sendRttMs).toBeGreaterThan(23);
+		expect(used?.sendSlowUntil).toBeGreaterThan(Date.now());
+	});
+
 	test("delivers the request body unchanged", async () => {
 		let received: Buffer | undefined;
 		const { origin, server } = await startServer((stream) => {
@@ -359,6 +376,18 @@ describe("RTT-aware lane ranking", () => {
 		expect(shouldPreferRemoteLane({ sendRttMs: 31, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 }, local)).toBe(false);
 	});
 
+	test("routes around a cooling result above 23ms when the other server is available", () => {
+		const now = Date.now();
+		const local = { sendRttMs: 18, sendSlowUntil: now + 15_000, lastSendOkAt: now, lastOkAt: now, inFlight: 0 };
+		expect(shouldPreferRemoteLane({ sendRttMs: 21, sendSlowUntil: 0, lastSendOkAt: now, lastOkAt: now, inFlight: 0 }, local)).toBe(true);
+		expect(
+			shouldPreferRemoteLane(
+				{ sendRttMs: 17, sendSlowUntil: now + 15_000, lastSendOkAt: now, lastOkAt: now, inFlight: 0 },
+				{ sendRttMs: 20, sendSlowUntil: 0, lastSendOkAt: now, lastOkAt: now, inFlight: 0 },
+			),
+		).toBe(false);
+	});
+
 	test("does not mistake an unmeasured Server 3 PING for a SEND result", () => {
 		const local = { rttMs: 12, sendRttMs: 25, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 };
 		expect(shouldPreferRemoteLane({ rttMs: 8, lastOkAt: 1, inFlight: 0 }, local)).toBe(false);
@@ -367,9 +396,9 @@ describe("RTT-aware lane ranking", () => {
 		expect(shouldPreferRemoteLane({ sendRttMs: 50, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 }, undefined)).toBe(true);
 	});
 
-	test("lets a cold Server 3 earn its first SEND sample only under real concurrency", () => {
+	test("does not invent a cold Server 3 SEND score from concurrency", () => {
 		const busyLocal = { rttMs: 12, sendRttMs: 25, lastSendOkAt: 1, lastOkAt: 1, inFlight: 2 };
-		expect(shouldPreferRemoteLane({ rttMs: 8, lastOkAt: 1, inFlight: 0 }, busyLocal)).toBe(true);
+		expect(shouldPreferRemoteLane({ rttMs: 8, lastOkAt: 1, inFlight: 0 }, busyLocal)).toBe(false);
 		expect(shouldPreferRemoteLane({ rttMs: 50, lastOkAt: 1, inFlight: 0 }, busyLocal)).toBe(false);
 	});
 
@@ -377,8 +406,8 @@ describe("RTT-aware lane ranking", () => {
 		expect(shouldPreferLane({ rttMs: 1.0, lastOkAt: 10, inFlight: 1 }, { rttMs: 8.0, lastOkAt: 20, inFlight: 0 }, "send")).toBeTrue();
 	});
 
-	test("does not chase a slightly faster ping when that lane is occupied", () => {
-		expect(shouldPreferLane({ rttMs: 2.3, lastOkAt: 10, inFlight: 1 }, { rttMs: 5.6, lastOkAt: 20, inFlight: 0 }, "send")).toBeFalse();
+	test("chooses the faster SEND estimate even when that lane already has a stream", () => {
+		expect(shouldPreferLane({ rttMs: 2.3, lastOkAt: 10, inFlight: 1 }, { rttMs: 5.6, lastOkAt: 20, inFlight: 0 }, "send")).toBeTrue();
 	});
 
 	test("ranks send lanes by real application RTT before network ping", () => {
@@ -511,12 +540,28 @@ describe("send-reserved lanes", () => {
 		expect(selectFastestSendLaneCandidate(candidates)?.id).toBe(0);
 	});
 
-	test("spreads concurrent sends when the load penalty exceeds a close route", () => {
+	test("keeps the lowest real SEND RTT despite an in-flight stream", () => {
 		const lanes = [
 			{ id: 0, sendRttMs: 18, lastSendOkAt: 1, lastOkAt: 1, inFlight: 1 },
 			{ id: 1, sendRttMs: 19, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 },
 		];
+		expect(selectFastestSendLaneCandidate(lanes)?.id).toBe(0);
+	});
+
+	test("uses in-flight only to break an exact RTT tie", () => {
+		const lanes = [
+			{ id: 0, sendRttMs: 18, lastSendOkAt: 1, lastOkAt: 1, inFlight: 2 },
+			{ id: 1, sendRttMs: 18, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 },
+		];
 		expect(selectFastestSendLaneCandidate(lanes)?.id).toBe(1);
+	});
+
+	test("keeps a route above 23ms out while a non-cooling alternative exists", () => {
+		const lanes = [
+			{ id: 0, sendRttMs: 18, sendSlowUntil: Date.now() + 20_000, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 },
+			{ id: 1, sendRttMs: 21, sendSlowUntil: 0, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 },
+		];
+		expect(fastestSendCandidates(lanes).map((lane) => lane.id)).toEqual([1]);
 	});
 
 	test("releases soft affinity at the exact 0.10ms boundary", () => {

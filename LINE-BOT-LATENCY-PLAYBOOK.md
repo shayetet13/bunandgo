@@ -285,7 +285,7 @@ LINE_H2_SEND_RESERVED_LANES=4
 กฎที่แก้แล้ว:
 
 - lane ทุก partition ที่มี **SEND RTT จริง** เข้ากลุ่ม send candidate ได้
-- ไม่ตัด lane ที่มี in-flight ทิ้ง เพราะ HTTP/2 multiplex ได้; ใช้ load penalty เปรียบเทียบแทน
+- ไม่ตัด lane ที่มี in-flight ทิ้ง เพราะ HTTP/2 multiplex ได้; in-flight ใช้ตัดสินเฉพาะเมื่อ RTT เท่ากันจริง
 - ถ้ายังไม่มี SEND sample ให้ bootstrap จาก send-reserved lanes โดยไม่ใช้ POLL เป็นคะแนน SEND
 - ถ้า reserved lanes ล่มทั้งหมด ให้ขยายไปทุก usable lane แทนการส่งไม่ออก
 
@@ -295,14 +295,14 @@ LINE_H2_SEND_RESERVED_LANES=4
 routingPreferred =
   lane ready
   AND SEND RTT มีค่า
-  AND median SEND RTT 3 ครั้งล่าสุด + load penalty ต่ำที่สุดใน worker นั้น
+  AND median SEND RTT 3 ครั้งล่าสุดต่ำที่สุดใน worker นั้น
 ```
 
 จุดสำคัญ:
 
-- ไม่มีตัวเลข pass/fail หรือ discard ceiling
+- เป้าหมายปกติคือ SEND ต่ำกว่า 20ms; ผลดิบที่เกิน 23ms ทำให้ lane พัก 15 วินาทีเมื่อยังมีทางเลือก
 - SEND และ POLL แยกคะแนนกันเด็ดขาด
-- PING ไม่ถูกนับเป็น SEND ระหว่าง Server 2/3; Server 3 ที่ยังไม่มี SEND sample จะได้ทดลองหนึ่งงานเฉพาะเมื่อเลนที่พิสูจน์แล้วกำลังรับ concurrent load และคะแนน cold-route แบบเผื่อความเสี่ยงชนะเท่านั้น
+- PING ไม่ถูกนับเป็น SEND ระหว่าง Server 2/3 และ concurrency ไม่ถูกแปลงเป็นเวลาปลอมเพื่อให้ cold route ชนะ SEND ที่วัดแล้ว
 - Server 3 report เก่ากว่า 3 วินาทีไม่ถูกนำมาเปรียบเทียบ
 
 ### 7.5 กฎสลับ `0.10ms`
@@ -345,15 +345,15 @@ networkPingEWMA = old × 0.70 + sample × 0.30
 
 เฉพาะ network PING ใช้ EWMA ส่วนค่า `send/poll` ใช้ median ของ 3 ผลล่าสุดแยก role เพื่อตัด spike เดี่ยว แต่สองผลช้าติดต่อกันยังเปลี่ยนการจัดอันดับได้ทันที
 
-### 7.8 In-flight penalty
+### 7.8 In-flight tie-breaker
 
-การจัดอันดับทั่วไปคิดคะแนน:
+การจัดอันดับ SEND ใช้ผลจริงโดยตรง:
 
 ```text
-score = RTT + inFlight × 4ms
+score = median SEND RTT 3 ครั้งล่าสุด
 ```
 
-การส่งไม่ตัด occupied lane ทิ้ง แต่คิด `inFlight × 4ms` เพื่อให้เลนเร็วที่ multiplex อยู่ยังชนะเลนว่างที่ช้ากว่ามากได้
+ไม่บวก `inFlight × 4ms` เพราะ HTTP/2 multiplex ได้และตัวเลขนั้นไม่ใช่เวลาที่ LINE วัดจริง หาก RTT เท่ากันพอดีจึงเลือก lane ที่มี in-flight ต่ำกว่า
 
 ### 7.9 Poll exploration
 
@@ -368,13 +368,13 @@ score = RTT + inFlight × 4ms
 
 ### 7.10 Relative routing
 
-ระบบไม่ซ่อมหรือตัด lane จากเส้นตาย 20/23ms อีกต่อไป แต่เปรียบเทียบผลจริงระหว่าง lane โดยตรง:
+ระบบเปรียบเทียบผลจริงระหว่าง lane โดยตรง และใช้ 20/23ms เป็น target/guardrail:
 
-1. เลือกคะแนน `median SEND 3 ครั้งล่าสุด + load penalty` ต่ำที่สุด
+1. เลือก `median SEND 3 ครั้งล่าสุด` ต่ำที่สุดโดยไม่บวก load penalty
 2. สลับเมื่ออีก lane เร็วกว่าอย่างน้อย switch margin เพื่อกันการสั่นจาก noise
 3. Server 2 และ Server 3 ใช้กฎเปรียบเทียบเดียวกัน
 4. แต่ละ request ออกเพียงเครื่องเดียวและ lane เดียว จึงไม่เกิดข้อความซ้ำ
-5. การเปลี่ยน physical route ใช้ age-based recycle ด้านล่าง ไม่ใช้ latency ceiling
+5. ผลดิบเกิน 23ms พัก route 15 วินาทีถ้ามีทางเลือก; ถ้าทุก route ช้าให้ใช้ค่าต่ำที่สุดเพื่อไม่ทิ้งข้อความ
 
 ### 7.11 Age-based rolling recycle
 
@@ -589,9 +589,9 @@ bug เดิม: error ตอน decrypt E2EE หลุดออกจาก de
 
 ### 10.6 Lane pool ทั้งชุดช้าลงพร้อมกัน
 
-สาเหตุ: policy เดิมซ่อม lane ช้าเฉพาะตอนมี healthy lane ต่ำกว่า 23ms ถ้าทุกเส้นช้าไม่มีเส้นใดถูก recycle
+สาเหตุเดิม: policy ซ่อม lane ช้าเฉพาะตอนมี healthy lane ต่ำกว่า 23ms ถ้าทุกเส้นช้าไม่มีเส้นใดถูก recycle
 
-ปัจจุบันไม่มี 23ms ceiling แล้ว ระบบใช้ fastest measured lane ต่อไป และ age recycle จะเปิด physical route ใหม่ทีละเส้นโดยไม่ตัดงานที่กำลังวิ่ง
+ปัจจุบันผล SEND ดิบเกิน 23ms จะพัก lane 15 วินาทีเมื่อมีทางเลือก ส่วนกรณีทุกเส้นเกินพร้อมกันยังใช้ fastest measured lane ต่อเพื่อไม่ทิ้งข้อความ และ age recycle จะเปิด physical route ใหม่ทีละเส้นโดยไม่ตัดงานที่กำลังวิ่ง
 
 ### 10.7 Lane 0–4 เร็วแต่ระบบไม่ใช้
 
@@ -888,7 +888,8 @@ LINE_H2_SEND_RESERVED_LANES=0
 LINE_H2_APPLICATION_SAMPLE_MAX_AGE_MS=30000
 LINE_H2_APPLICATION_SWITCH_MARGIN_MS=0.1
 LINE_H2_RTT_SWITCH_MARGIN_MS=0.1
-LINE_H2_IN_FLIGHT_PENALTY_MS=4
+LINE_H2_SEND_SLOW_THRESHOLD_MS=23
+LINE_H2_SEND_SLOW_COOLDOWN_MS=15000
 LINE_H2_LANE_MAX_AGE_MS=900000
 LINE_H2_LANE_RECYCLE_GAP_MS=60000
 

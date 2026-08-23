@@ -9,6 +9,8 @@
  * lane's PING, SEND and POLL samples without mixing their roles.
  */
 
+import { nextSendSlowUntil } from "./lane-speed-policy.ts";
+
 /** Well above any real local lane id (0..31, see h2-lanes.ts's 32-lane cap)
  * so the two id spaces can never collide when merged into one array. */
 export const REMOTE_LANE_ID = 900;
@@ -28,6 +30,7 @@ export interface RemoteLaneMetrics {
 	pollRttMs?: number;
 	lastSendOkAt: number;
 	lastPollOkAt: number;
+	sendSlowUntil: number;
 	pollApplicationSamples: number;
 }
 
@@ -90,6 +93,7 @@ function ensureOrigin(origin: string): RemoteOriginState {
 				lastOkAt: 0,
 				lastSendOkAt: 0,
 				lastPollOkAt: 0,
+				sendSlowUntil: 0,
 				pollApplicationSamples: 0,
 			},
 			sendSamples: [],
@@ -141,6 +145,11 @@ export function remoteLaneCandidate(origin: string, now: number = Date.now()): R
 		rttMs: reportFresh ? state.reportedPingRttMs : undefined,
 		sendRttMs,
 		pollRttMs,
+		sendSlowUntil: ownSendFresh
+			? state.metrics.sendSlowUntil
+			: reportedSendFresh && state.reportedSendRttMs !== undefined
+				? nextSendSlowUntil(state.reportedSendRttMs, state.reportedSendSampleAt)
+				: 0,
 		lastSendOkAt: ownSendFresh ? state.metrics.lastSendOkAt : reportedSendFresh ? state.reportedSendSampleAt : 0,
 		lastPollOkAt: ownPollFresh ? state.metrics.lastPollOkAt : reportedPollFresh ? state.reportedPollSampleAt : 0,
 		lastOkAt: Math.max(state.metrics.lastOkAt, state.reportedAt),
@@ -169,6 +178,7 @@ export function recordRemoteDispatchEnd(origin: string, role: "send" | "poll" | 
 	} else {
 		m.sendRttMs = recordMedian(state.sendSamples, elapsedMs);
 		m.lastSendOkAt = now;
+		m.sendSlowUntil = nextSendSlowUntil(Math.max(elapsedMs, m.sendRttMs), now);
 	}
 	m.lastOkAt = now;
 }

@@ -131,6 +131,16 @@ describe("recordRemoteDispatchStart / recordRemoteDispatchEnd", () => {
 		expect(candidate.sendRttMs).toBe(20);
 	});
 
+	test("cools the remote route from a raw result above 23ms even when its median remains fast", () => {
+		recordRemoteDispatchStart(ORIGIN);
+		recordRemoteDispatchEnd(ORIGIN, "send", 18);
+		recordRemoteDispatchStart(ORIGIN);
+		recordRemoteDispatchEnd(ORIGIN, "send", 40);
+		const candidate = remoteLaneCandidate(ORIGIN)!;
+		expect(candidate.sendRttMs).toBe(40);
+		expect(candidate.sendSlowUntil).toBeGreaterThan(Date.now());
+	});
+
 	test("a failed dispatch releases inFlight without becoming a latency sample", () => {
 		updateRemoteLaneFromReport(ORIGIN, { pingRttMs: 8 }, Date.now());
 		recordRemoteDispatchStart(ORIGIN);

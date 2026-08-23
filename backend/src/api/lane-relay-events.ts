@@ -53,6 +53,7 @@ const laneStatSchema = z.object({
 	pollRttMs: z.number().optional(),
 	lastSendOkAt: z.number(),
 	lastPollOkAt: z.number(),
+	sendSlowUntil: z.number(),
 	applicationRttMs: z.number().optional(),
 	applicationSampleAt: z.number(),
 	routingPreferred: z.boolean(),
@@ -69,6 +70,7 @@ const laneRaceViewSchema = z.object({
 	pollRttMs: z.number().optional(),
 	applicationRttMs: z.number().optional(),
 	applicationSampleAt: z.number(),
+	sendSlowUntil: z.number(),
 	routingPreferred: z.boolean(),
 	send: laneScoreSchema,
 	poll: laneScoreSchema,
@@ -120,7 +122,7 @@ laneRelayEventsRoute.post("/", async (c) => {
 	for (const lane of lanes as LaneStat[]) {
 		if (lane.state !== "ready") continue;
 		const sendAgeMs = ts - lane.lastSendOkAt;
-		if (lane.sendRttMs !== undefined && sendAgeMs >= 0 && sendAgeMs <= APPLICATION_SAMPLE_MAX_AGE_MS) {
+		if (lane.sendRttMs !== undefined && lane.sendSlowUntil <= ts && sendAgeMs >= 0 && sendAgeMs <= APPLICATION_SAMPLE_MAX_AGE_MS) {
 			const best = bestSendByOrigin.get(lane.origin);
 			if (!best || lane.sendRttMs < best.rttMs) {
 				bestSendByOrigin.set(lane.origin, { rttMs: lane.sendRttMs, sampleAt: receivedAt - sendAgeMs });

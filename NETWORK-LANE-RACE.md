@@ -10,7 +10,7 @@ Bot บน Server 2
       ├─ แยกประเภทงาน SEND / POLL / WARM
       ├─ ตรวจ local lanes บน Server 2
       ├─ ตรวจ remote candidate จาก Server 3
-      ├─ คำนวณ RTT + จำนวนงานที่กำลังทำ
+      ├─ เปรียบเทียบ SEND/POLL RTT จริงตาม role
       └─ เลือกเพียง 1 server และ 1 lane
                     │
                     ▼
@@ -24,7 +24,7 @@ Bot บน Server 2
 
 - `NETWORK · LINE ↔ AKAMAI` แสดงสถานะ connection และค่าปัจจุบัน
 - `LANE RACE` แสดงคะแนนและประวัติผลงานของแต่ละ lane
-- ไม่มีเกณฑ์บังคับต่ำกว่า `20ms` หรือ `23ms`
+- เป้าหมาย SEND ต่ำกว่า `20ms`; ผลเกิน `23ms` ทำให้ route พักชั่วคราวเมื่อมีทางเลือก
 - แต่ละ request ใช้เพียงหนึ่ง server และหนึ่ง lane เพื่อป้องกันข้อความซ้ำ
 
 ## โครงสร้าง Server 2/3
@@ -32,7 +32,7 @@ Bot บน Server 2
 | Worker | ที่อยู่ | Lane source | จำนวน lane |
 |---|---|---|---:|
 | Primary | Server 2 | Local และมี Server 3 เป็น remote candidate | 16 local + 32 remote |
-| Shard B | Server 2 | Relay-only ผ่าน Server 3 | 32 remote |
+| Shard B | Server 2 | Local และมี Server 3 เป็น remote candidate | 16 local + 32 remote |
 | Lane Relay | Server 3 | เชื่อม `legy.line-apps.com` | 32 |
 
 Server 3 ไม่มี bot, login, LINE session หรือฐานข้อมูล และไม่รับ `gf.line.naver.jp`
@@ -105,19 +105,19 @@ SEND และ POLL ใช้ median ของผลล่าสุดสูง�
 
 ### สีของค่าจริง
 
-- เขียว: เป็น SEND route ที่ได้คะแนนดีที่สุดใน worker นั้น (`routingPreferred`)
+- เขียว: เป็น SEND route ที่เร็วที่สุดและไม่อยู่ใน cooldown (`routingPreferred`)
 - เทา/ปกติ: มีผลจริงแล้ว แต่เป็น standby
 - ไม่มีค่าจริง: อุ่นแล้วแต่ยังไม่มี SEND/POLL จริง
 - แดง: connection failure ไม่ได้หมายถึง RTT สูง
 
-ไม่มีเงื่อนไขว่าต้องต่ำกว่า `20ms` จึงจะเป็นสีเขียว ตัวอย่าง `จริง 28.3ms` สามารถเป็นสีเขียวได้หากเป็นตัวเลือกที่ดีที่สุดใน worker นั้น
+ค่าต่ำกว่า `20ms` คือเป้าหมาย ไม่ใช่การแต่งสีให้ผ่าน หากทุก route ช้าพร้อมกัน ค่า `จริง 28.3ms` ยังอาจเป็นสีเขียวได้เมื่อเป็นค่าต่ำที่สุด เพราะระบบต้องส่งต่อแทนการทิ้งข้อความ
 
 ## กฎเลือก SEND lane
 
 คะแนนของ lane ที่มี SEND measurement แล้ว:
 
 ```text
-SEND score = median SEND RTT + inFlight × 4ms
+SEND score = median SEND RTT 3 ครั้งล่าสุด
 ```
 
 ตัวอย่าง:
@@ -125,10 +125,10 @@ SEND score = median SEND RTT + inFlight × 4ms
 | Lane | SEND RTT | In-flight | Score |
 |---|---:|---:|---:|
 | A | 18ms | 0 | 18ms |
-| B | 15ms | 1 | 19ms |
+| B | 15ms | 1 | 15ms |
 | C | 21ms | 0 | 21ms |
 
-ระบบเลือก Lane A เพราะคะแนนรวมต่ำที่สุด แม้ Lane B จะมี RTT เดิมต่ำกว่า
+ระบบเลือก Lane B เพราะ SEND RTT จริงต่ำที่สุด `inFlight` ใช้ตัดสินเฉพาะเมื่อ RTT เท่ากันพอดี
 
 ### Soft affinity
 
@@ -143,17 +143,20 @@ SEND score = median SEND RTT + inFlight × 4ms
 
 ### Lane ที่ยังไม่มี SEND sample
 
-ระบบไม่ถือว่า lane เร็วเพียงเพราะ PING ต่ำ แต่ให้คะแนน cold route แบบระวัง:
+ระบบไม่ถือว่า lane เร็วเพียงเพราะ PING ต่ำ:
 
 ```text
-cold score =
-median ของ SEND lanes ที่วัดแล้ว
-+ 4ms ค่าเผื่อ cold route
-+ ส่วนต่าง PING
-+ inFlight penalty
+cold lane = ไม่มีสิทธิ์ชนะ lane ที่มี SEND measurement จริง
 ```
 
-เมื่อ route ที่พิสูจน์แล้วกำลังรับ concurrent load ระบบสามารถทดลอง cold lane หนึ่งงานเพื่อเก็บ SEND sample จริง โดยไม่ส่งข้อความซ้ำ
+ถ้า measured route อยู่ใน cooldown ทั้งหมด ระบบจึงให้ cold lane ที่พร้อมอยู่รับงานหนึ่งครั้งเพื่อสร้าง SEND sample โดยไม่ส่งข้อความซ้ำ
+
+### Guardrail 20/23ms
+
+- ต่ำกว่า 20ms: เป้าหมายปกติ
+- 20–23ms: ยังใช้งานได้ แต่แพ้ค่าที่ต่ำกว่าเสมอ
+- มากกว่า 23ms: พัก 15 วินาทีเมื่อมี route อื่น
+- ถ้าทุก route พักพร้อมกัน: ใช้ SEND RTT ต่ำที่สุดต่อเพื่อไม่ทิ้งข้อความ
 
 ## กฎเลือก POLL lane
 
@@ -162,7 +165,7 @@ median ของ SEND lanes ที่วัดแล้ว
 3. ให้ POLL จริงหนึ่งงานผ่าน lane
 4. ทำซ้ำจน lane ได้รับการ calibrate
 5. หลัง calibrate เลือก lane ที่ `pollRttMs` ต่ำที่สุด
-6. คิด `inFlight × 4ms` เพิ่มในคะแนน
+6. ถ้า POLL RTT เท่ากันจึงใช้ in-flight เป็นตัวตัดสิน
 
 POLL มี switch margin `0.1ms` สำหรับการเปรียบเทียบ local/remote และบันทึก LANE RACE สูงสุดหนึ่งตัวอย่างต่อ lane ต่อนาที เพื่อลดงานฐานข้อมูล
 

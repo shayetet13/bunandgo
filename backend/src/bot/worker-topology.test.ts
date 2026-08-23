@@ -40,6 +40,7 @@ const ENV_KEYS = [
 	"LINE_H2_LANE_RECYCLE_GAP_MS",
 	"LINE_H2_DEGRADED_REPAIR_GAP_MS",
 	"LINE_H2_DEGRADED_REPAIR_MIN_SAMPLES",
+	"LINE_H2_IN_FLIGHT_PENALTY_MS",
 ] as const;
 const original = new Map<string, string | undefined>();
 
@@ -242,6 +243,7 @@ describe("worker topology", () => {
 			LINE_H2_APPLICATION_DISCARD_CEILING_MS: "23",
 			LINE_H2_DEGRADED_REPAIR_GAP_MS: "5000",
 			LINE_H2_DEGRADED_REPAIR_MIN_SAMPLES: "1",
+			LINE_H2_IN_FLIGHT_PENALTY_MS: "4",
 		});
 		expect(applyRuntimeTopologyFile(runtimeFile)).toBe(true);
 		expect(process.env.LINE_H2_LANES).toBe("16");
@@ -249,9 +251,10 @@ describe("worker topology", () => {
 		expect(process.env.LINE_H2_APPLICATION_DISCARD_CEILING_MS).toBeUndefined();
 		expect(process.env.LINE_H2_DEGRADED_REPAIR_GAP_MS).toBeUndefined();
 		expect(process.env.LINE_H2_DEGRADED_REPAIR_MIN_SAMPLES).toBeUndefined();
+		expect(process.env.LINE_H2_IN_FLIGHT_PENALTY_MS).toBeUndefined();
 	});
 
-	test("balanced-sticky topology gives primary a relay fallback and pins shard traffic to the relay", () => {
+	test("balanced-sticky topology lets both workers race local and relay routes", () => {
 		const runtimeFile = JSON.stringify({
 			version: 1,
 			assignmentMode: "balanced-sticky",
@@ -273,8 +276,8 @@ describe("worker topology", () => {
 					workerId: "shard-b",
 					port: 8792,
 					fastPollIntervalMs: 0,
-					h2Lanes: 0,
-					laneSource: "relay",
+					h2Lanes: 16,
+					laneSource: "local",
 					relayLanes: 32,
 					relayUrl: "http://10.90.0.2:8795/dispatch",
 					relayToken: "r".repeat(32),
@@ -297,9 +300,10 @@ describe("worker topology", () => {
 		setTopologyEnv({ PORT: "8792" });
 		expect(applyRuntimeTopologyFile(runtimeFile)).toBe(true);
 		expect(process.env.WORKER_ROUTES).toBeUndefined();
-		expect(process.env.LINE_H2_LANES).toBe("0");
-		expect(process.env.LINE_EFFECTIVE_H2_LANES).toBe("32");
-		expect(process.env.LINE_RELAY_MODE).toBe("always");
+		expect(process.env.LINE_H2_LANES).toBe("16");
+		expect(process.env.LINE_EFFECTIVE_H2_LANES).toBe("16");
+		expect(process.env.LINE_RELAY_MODE).toBeUndefined();
+		expect(process.env.LINE_RELAY_URL).toBe("http://10.90.0.2:8795/dispatch");
 		expect(validateWorkerTopology().controlPlaneUrl?.port).toBe("8791");
 	});
 
