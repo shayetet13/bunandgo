@@ -441,6 +441,45 @@ const migrations: Migration[] = [
 			db.exec("CREATE INDEX IF NOT EXISTS idx_bots_display_order ON bots(display_order, slot, id)");
 		},
 	},
+	{
+		// Admin-authored notices shown on every user's console. Same story as
+		// scheduled_posts/priority_answers: SCHEMA_SQL creates it for a fresh
+		// database, this is what puts it on the existing production file.
+		id: "032_announcements_table",
+		up: (db) => {
+			db.exec(`
+				CREATE TABLE IF NOT EXISTS announcements (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					title TEXT NOT NULL,
+					body TEXT NOT NULL,
+					created_by_user_id INTEGER,
+					created_at INTEGER NOT NULL,
+					updated_at INTEGER NOT NULL
+				)
+			`);
+			db.exec("CREATE INDEX IF NOT EXISTS idx_announcements_created_at ON announcements(created_at DESC)");
+		},
+	},
+	{
+		// Periodic CPU/RAM history for the dashboard's Servers tab. Same story
+		// as announcements/scheduled_posts: SCHEMA_SQL creates it for a fresh
+		// database, this puts it on the existing production file.
+		id: "033_server_load_samples_table",
+		up: (db) => {
+			db.exec(`
+				CREATE TABLE IF NOT EXISTS server_load_samples (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					server_id TEXT NOT NULL,
+					ts INTEGER NOT NULL,
+					cpu_percent REAL NOT NULL,
+					memory_percent REAL NOT NULL,
+					capacity_percent REAL NOT NULL,
+					event_loop_lag_ms REAL
+				)
+			`);
+			db.exec("CREATE INDEX IF NOT EXISTS idx_server_load_samples_server_ts ON server_load_samples(server_id, ts)");
+		},
+	},
 ];
 
 /**

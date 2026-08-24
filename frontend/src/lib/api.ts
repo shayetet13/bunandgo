@@ -1,5 +1,6 @@
 import type {
 	ActiveSessionInfo,
+	Announcement,
 	Anomaly,
 	AnomalySummaryRow,
 	Bot,
@@ -18,6 +19,7 @@ import type {
 	RoomBotInfo,
 	Rule,
 	ScheduledPost,
+	ServerLoadSample,
 	SquareMemberInfo,
 	Surface,
 	UserActionLogEntry,
@@ -177,6 +179,10 @@ export const api = {
 			method: "POST",
 			body: JSON.stringify({ confirm: "restart-linebot-worker" }),
 		}),
+	// Servers tab — CPU/RAM trend for all three machines, recorded on a shared
+	// ~30s clock (not sampled live on request; see server-load-history.ts).
+	systemLoadHistory: (hours: number) => request<ServerLoadSample[]>(`/api/system/load-history?hours=${hours}`),
+
 	// Admin-only — gates the "user"-role console only; the bot keeps running.
 	getMaintenanceMode: () => request<{ enabled: boolean }>("/api/system/maintenance-mode"),
 	setMaintenanceMode: (enabled: boolean) =>
@@ -221,4 +227,12 @@ export const api = {
 			method: "POST",
 			body: JSON.stringify({ surface, targetMid, text }),
 		}),
+
+	// Admin-authored notices shown on every user's console. Newest first.
+	listAnnouncements: () => request<Announcement[]>("/api/announcements"),
+	createAnnouncement: (input: { title: string; body: string }) =>
+		request<Announcement>("/api/announcements", { method: "POST", body: JSON.stringify(input) }),
+	updateAnnouncement: (id: number, input: { title: string; body: string }) =>
+		request<Announcement>(`/api/announcements/${id}`, { method: "PUT", body: JSON.stringify(input) }),
+	deleteAnnouncement: (id: number) => request<{ ok: boolean }>(`/api/announcements/${id}`, { method: "DELETE" }),
 };

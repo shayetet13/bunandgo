@@ -5,29 +5,21 @@ import { db } from "../../db/sqlite.ts";
 import { laneStats } from "../../dispatch/h2-lanes.ts";
 import { WORKER_ID } from "../../dispatch/lane-race.ts";
 import { getSystemLoadSnapshot } from "../../monitoring/system-load.ts";
+import { fetchServer1Status, type ServerLoad } from "../../monitoring/server-load-history.ts";
 import { botEvents, getRuntimeDiagnostics } from "../../bot/session-manager.ts";
 import { isControlPlane } from "../../bot/worker-topology.ts";
 import { workerEventRelayDiagnostics } from "../worker-events.ts";
-import { remoteLaneStats } from "../lane-relay-events.ts";
+import { latestRemoteServerLoad, remoteLaneStats } from "../lane-relay-events.ts";
 import { requireAdmin } from "../../auth/request-user.ts";
 
 export const healthRoute = new Hono();
 healthRoute.use("*", requireAdmin);
 
 const DISPATCH_ADDR = process.env.DISPATCH_ADDR ?? "127.0.0.1:4790";
-const SERVER1_STATUS_URL = process.env.SERVER1_STATUS_URL ?? "http://10.77.0.1:8792/healthz";
 const processStartedAt = Date.now();
 
-interface ServerLoad {
-	cpuPercent: number;
-	memoryPercent: number;
-	capacityPercent: number;
-	exceeded: boolean;
-	sampledAt: number;
-}
-
 interface ServerStatus {
-	id: "server1" | "server2";
+	id: "server1" | "server2" | "server3";
 	label: string;
 	role: string;
 	reachable: boolean;
@@ -74,37 +66,33 @@ function localServerStatus(senderHealthy: boolean, dbHealthy: boolean): ServerSt
 }
 
 async function server1Status(): Promise<ServerStatus> {
-	try {
-		const res = await fetch(SERVER1_STATUS_URL, { signal: AbortSignal.timeout(1_500) });
-		if (!res.ok) throw new Error(`status agent responded ${res.status}`);
-		const status = (await res.json()) as Partial<ServerStatus>;
-		if (status.id !== "server1" || !status.load || typeof status.load.capacityPercent !== "number")
-			throw new Error("invalid status agent response");
-		return {
-			id: "server1",
-			label: "Server 1",
-			role: "AWS gateway",
-			reachable: true,
-			serviceHealthy: status.serviceHealthy === true,
-			load: status.load as ServerLoad,
-			detail: status.detail,
-		};
-	} catch {
-		return {
-			id: "server1",
-			label: "Server 1",
-			role: "AWS gateway",
-			reachable: false,
-			serviceHealthy: false,
-			detail: "ไม่สามารถติดต่อ Server 1 ผ่าน WireGuard",
-		};
-	}
+	const status = await fetchServer1Status();
+	return { id: "server1", label: "Server 1", role: "AWS gateway", ...status };
+}
+
+/** Server 3 owns no bot/login session (see remote-lane.ts) — it only shows up
+ * here at all once its lane relay has reported a fresh host-load snapshot;
+ * before that (or once its report goes stale) it simply drops off the list
+ * rather than showing a permanently "unreachable" card for an optional box. */
+function server3Status(): ServerStatus | undefined {
+	const load = latestRemoteServerLoad();
+	if (!load) return undefined;
+	return {
+		id: "server3",
+		label: "Server 3",
+		role: "Lane relay",
+		reachable: true,
+		serviceHealthy: !load.exceeded,
+		load,
+		detail: load.exceeded ? "โหลดเกินขีดจำกัดที่ตั้งไว้" : "Lane relay ปกติ",
+	};
 }
 
 healthRoute.get("/", async (c) => {
 	const bots = listBotsForUser(requestUser(c)!, { includeAllWorkers: isControlPlane() });
 	const [senderHealthy, server1] = await Promise.all([checkSenderHealthy(), server1Status()]);
 	const dbHealthy = checkDbHealthy();
+	const server3 = server3Status();
 	return c.json({
 		senderHealthy,
 		dbHealthy,
@@ -112,7 +100,9 @@ healthRoute.get("/", async (c) => {
 		botsOnline: bots.filter((b) => b.status === "online").length,
 		botsTotal: bots.length,
 		systemLoad: getSystemLoadSnapshot(),
-		servers: [server1, localServerStatus(senderHealthy, dbHealthy)],
+		servers: server3
+			? [server1, localServerStatus(senderHealthy, dbHealthy), server3]
+			: [server1, localServerStatus(senderHealthy, dbHealthy)],
 		// Surfaced so a reply riding the fetch fallback instead of an owned
 		// lane is visible here rather than only as unexplained jitter on the
 		// latency chart. Tagged with workerId and merged with whatever a lane

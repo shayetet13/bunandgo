@@ -20,6 +20,7 @@ import { healthRoute } from "./routes/health.ts";
 import { usersRoute } from "./routes/users.ts";
 import { logsRoute } from "./routes/logs.ts";
 import { systemRoute } from "./routes/system.ts";
+import { announcementsRoute } from "./routes/announcements.ts";
 import { confirmRoute } from "./routes/confirm.ts";
 import { securityHeaders } from "./security-headers.ts";
 import { rejectCrossSiteWrite, rejectUntrustedWebSocketOrigin } from "./request-security.ts";
@@ -34,6 +35,7 @@ import {
 } from "./worker-proxy.ts";
 import { eventBotId, FORWARDED_EVENTS, startWorkerEventRelay, type ForwardedEventName, workerEventsRoute } from "./worker-events.ts";
 import { laneRelayEventsRoute } from "./lane-relay-events.ts";
+import { startServerLoadHistoryRecorder } from "../monitoring/server-load-history.ts";
 
 const { upgradeWebSocket, websocket } = createBunWebSocket<ServerWebSocket>();
 
@@ -106,6 +108,8 @@ app.use("/api/users", requireAuth);
 app.use("/api/users/*", requireAuth);
 app.use("/api/logs/*", requireAuth);
 app.use("/api/system/*", requireAuth);
+app.use("/api/announcements", requireAuth);
+app.use("/api/announcements/*", requireAuth);
 
 // Keep one public Nginx upstream (the control plane), then route every
 // runtime-sensitive operation to the process that owns the bot/user.
@@ -129,6 +133,7 @@ app.route("/api/health", healthRoute);
 app.route("/api/users", usersRoute);
 app.route("/api/logs", logsRoute);
 app.route("/api/system", systemRoute);
+app.route("/api/announcements", announcementsRoute);
 // Deliberately outside requireAuth — see confirm.ts for why.
 app.route("/api/confirm", confirmRoute);
 
@@ -202,6 +207,10 @@ startWorkerEventRelay();
 // Repairs stable bot labels left by the older allocator and compacts the
 // independently persisted card positions without undoing a user's drag.
 resequenceBotSlots();
+
+// No-op on a shard or on server3 (shouldRunControlPlaneJobs() gates it) — one
+// process per deployment records all three machines' CPU/RAM history.
+startServerLoadHistoryRecorder();
 
 // Deliberately after the listener is up and not awaited: resuming walks every
 // bot with a stagger between them, and the dashboard should be reachable (and

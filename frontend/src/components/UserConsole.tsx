@@ -1,6 +1,7 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api.ts";
 import type {
+	Announcement,
 	Bot,
 	BotStatus,
 	ChatRow,
@@ -23,7 +24,6 @@ import {
 	scheduledPostStatusOf,
 } from "../lib/scheduled-post-status.ts";
 import { RULE_MATCH_GUIDES, ruleMatchFeedback, validateRuleMatchValue } from "../lib/rule-input.ts";
-import { buildRaceCommentary } from "../lib/race-commentary.ts";
 import type { QrState } from "./BotsPanel.tsx";
 import { QrPanel } from "./QrPanel.tsx";
 import { StartConfirmPanel } from "./StartConfirmPanel.tsx";
@@ -72,6 +72,10 @@ function timeLabel(timestamp: number): string {
 	return new Intl.DateTimeFormat("th-TH", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(timestamp);
 }
 
+function announceTimeLabel(timestamp: number): string {
+	return new Intl.DateTimeFormat("th-TH", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).format(timestamp);
+}
+
 function surfaceLabel(surface: LatencySample["surface"]): string {
 	return surface === "square" ? "OP" : "กลุ่ม";
 }
@@ -86,6 +90,44 @@ function errorText(err: unknown): string {
 	return err instanceof Error ? err.message : String(err);
 }
 
+/**
+ * A short synthesized siren "wail" — no audio asset to host or license, just
+ * an oscillator sweep. Fires once per page load, only when there is an
+ * actual admin announcement to draw attention to. Browsers that block audio
+ * without a preceding user gesture (or that lack AudioContext) simply get no
+ * sound; this is decoration, never load-bearing, so failures are swallowed.
+ */
+function playAnnouncementSiren(): void {
+	try {
+		const AudioContextCtor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+		if (!AudioContextCtor) return;
+		const ctx = new AudioContextCtor();
+		void ctx.resume?.().catch(() => {});
+		const oscillator = ctx.createOscillator();
+		const gain = ctx.createGain();
+		oscillator.type = "sine";
+		oscillator.connect(gain);
+		gain.connect(ctx.destination);
+		const now = ctx.currentTime;
+		const peak = 0.16;
+		gain.gain.setValueAtTime(0.0001, now);
+		gain.gain.linearRampToValueAtTime(peak, now + 0.06);
+		// Two rise/fall wails, like a siren winding up and down twice.
+		oscillator.frequency.setValueAtTime(620, now);
+		oscillator.frequency.linearRampToValueAtTime(980, now + 0.5);
+		oscillator.frequency.linearRampToValueAtTime(620, now + 1);
+		oscillator.frequency.linearRampToValueAtTime(980, now + 1.5);
+		oscillator.frequency.linearRampToValueAtTime(620, now + 2);
+		gain.gain.setValueAtTime(peak, now + 1.85);
+		gain.gain.linearRampToValueAtTime(0.0001, now + 2.1);
+		oscillator.start(now);
+		oscillator.stop(now + 2.15);
+		oscillator.onended = () => void ctx.close().catch(() => {});
+	} catch {
+		// Best-effort only.
+	}
+}
+
 export function UserConsole({ username, onLogout }: UserConsoleProps) {
 	const [bots, setBots] = useState<Bot[]>([]);
 	const [logs, setLogs] = useState<LatencySample[]>([]);
@@ -95,6 +137,7 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 	const [confirmByBot, setConfirmByBot] = useState<Record<number, ConfirmState>>({});
 	const [errorMessage, setErrorMessage] = useState<string>();
 	const [idLockAlert, setIdLockAlert] = useState<IdLockMismatchEvent>();
+	const [announcements, setAnnouncements] = useState<Announcement[]>([]);
 
 	const [tab, setTab] = useState<TabId>("rooms");
 
@@ -215,6 +258,24 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 			})
 			.catch(() => {
 				// Keep the defaults; the create call itself is the real gate.
+			});
+	}, []);
+
+	// Admin-authored notices — fetched once. They change only when an admin
+	// edits them from the dashboard, never as a side effect of anything on
+	// this console, so there is nothing here worth polling for.
+	useEffect(() => {
+		void api
+			.listAnnouncements()
+			.then((fetched) => {
+				setAnnouncements(fetched);
+				// Once per page load, and only when there is something to alert
+				// about — an empty announcement list should stay quiet.
+				if (fetched.length > 0) playAnnouncementSiren();
+			})
+			.catch(() => {
+				// A failed fetch just leaves the card empty rather than blocking
+				// the rest of the console over a non-essential notice list.
 			});
 	}, []);
 
@@ -356,7 +417,6 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 	}, [logs, selectedBotId, enabledMids]);
 	const botNames = useMemo(() => new Map(bots.map((bot) => [bot.id, bot.name])), [bots]);
 	const latest = visibleLogs[0];
-	const race = useMemo(() => buildRaceCommentary(visibleLogs), [visibleLogs]);
 	const selectedBot = bots.find((bot) => bot.id === selectedBotId);
 	const pendingConfirm = selectedBotId !== undefined ? confirmByBot[selectedBotId] : undefined;
 	const canCreateBot = bots.length < botQuota;
@@ -584,24 +644,31 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 							</span>
 						</section>
 
-						<section className="uc-race" data-tone={race.tone} key={race.latest?.ts ?? "idle"} aria-live="polite">
-							<div className="uc-race-head">
-								<span className="uc-eyebrow">ผู้บรรยายสนาม</span>
-								<span className="uc-race-mode">กวนเต็มระบบ</span>
+						<section className="uc-announce" data-has-content={announcements.length > 0} aria-live="polite">
+							<div className="uc-announce-head">
+								<span className="uc-eyebrow">ประกาศ</span>
+								{announcements.length > 0 && (
+									<span className="uc-announce-badge">
+										<span className="uc-announce-badge-icon" aria-hidden="true">
+											🚨
+										</span>
+										ประกาศจากแอดมิน
+									</span>
+								)}
 							</div>
-							<strong className="uc-race-title">{race.headline}</strong>
-							<p className="uc-race-roast">{race.roast}</p>
-							{race.achievement && <span className="uc-race-achievement">{race.achievement}</span>}
-							<div className="uc-race-stats">
-								<span>{race.streakLabel}</span>
-								<strong>{race.total > 0 ? `${race.hitRate}%` : "—"}</strong>
-							</div>
-							<div className="uc-race-form" aria-label={`ผลงาน ${race.total} รอบล่าสุด`}>
-								{race.recent.map((tone, index) => (
-									<i key={`${race.latest?.ts}-${index}`} data-tone={tone} title={`รอบที่ ${index + 1}: ${tone}`} />
-								))}
-								{race.total === 0 && <span>รอบล่าสุดยังว่างอยู่</span>}
-							</div>
+							{announcements.length === 0 ? (
+								<p className="uc-announce-empty">ยังไม่มีประกาศจากแอดมิน</p>
+							) : (
+								<div className="uc-announce-list">
+									{announcements.map((item) => (
+										<article className="uc-announce-item" key={item.id}>
+											<strong className="uc-announce-title">{item.title}</strong>
+											<p className="uc-announce-body">{item.body}</p>
+											<span className="uc-announce-time">{announceTimeLabel(item.updatedAt)}</span>
+										</article>
+									))}
+								</div>
+							)}
 						</section>
 
 						<section className="uc-card">

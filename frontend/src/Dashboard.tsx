@@ -33,6 +33,8 @@ const RulesPage = lazy(async () => ({ default: (await import("./pages/RulesPage.
 const LiveFeedPage = lazy(async () => ({ default: (await import("./pages/LiveFeedPage.tsx")).LiveFeedPage }));
 const SettingsPage = lazy(async () => ({ default: (await import("./pages/SettingsPage.tsx")).SettingsPage }));
 const UsersPage = lazy(async () => ({ default: (await import("./pages/UsersPage.tsx")).UsersPage }));
+const AnnouncementsPage = lazy(async () => ({ default: (await import("./pages/AnnouncementsPage.tsx")).AnnouncementsPage }));
+const ServersPage = lazy(async () => ({ default: (await import("./pages/ServersPage.tsx")).ServersPage }));
 const LogsPage = lazy(async () => ({ default: (await import("./pages/LogsPage.tsx")).LogsPage }));
 
 const EMPTY_SNAPSHOT: LatencySnapshot = { p50: 0, p95: 0, p99: 0, okRate: 100, count: 0, windowSize: 500 };
@@ -50,6 +52,8 @@ const PAGE_META: Record<ViewKey, { title: string; subtitle: string }> = {
 	feed: { title: "บันทึกสด", subtitle: "ข้อความเข้า-ออกแบบเรียลไทม์" },
 	settings: { title: "ตั้งค่าระบบ", subtitle: "บัญชีผู้ดูแลและเซสชัน" },
 	users: { title: "จัดการผู้ใช้", subtitle: "สร้าง หยุด และลบบัญชีผู้ใช้งาน" },
+	announcements: { title: "ข่าวสาร", subtitle: "เพิ่ม แก้ไข และลบประกาศที่จะแสดงในหน้าของผู้ใช้ทุกคน" },
+	servers: { title: "เซิร์ฟเวอร์", subtitle: "CPU และ RAM ของทั้ง 3 เซิร์ฟเวอร์แบบสด และย้อนหลัง" },
 	logs: { title: "ประวัติ", subtitle: "เหตุการณ์บอท การกระทำผู้ใช้ และความเร็วย้อนหลัง" },
 };
 
@@ -726,6 +730,8 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 						)}
 
 						{activeView === "users" && role === "admin" && <UsersPage onNotify={pushNotification} />}
+						{activeView === "announcements" && role === "admin" && <AnnouncementsPage onNotify={pushNotification} />}
+						{activeView === "servers" && role === "admin" && <ServersPage health={health} onNotify={pushNotification} />}
 						{activeView === "logs" && role === "admin" && <LogsPage bots={bots} onNotify={pushNotification} />}
 						{activeView === "settings" && <SettingsPage username={username} role={role} onLogout={handleLogout} />}
 					</Suspense>

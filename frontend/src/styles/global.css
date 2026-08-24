@@ -467,6 +467,89 @@ textarea {
 	justify-content: flex-end;
 }
 
+/* --- Announcements admin page (add/edit/delete the notices shown on every
+   user's console) — same two-column shape as the users page, kept as its
+   own rules so editing one page's layout never touches the other's. --- */
+.announce-layout {
+	display: grid;
+	grid-template-columns: minmax(280px, 0.8fr) minmax(420px, 1.5fr);
+	gap: var(--space-md);
+	align-items: start;
+}
+
+.announce-create-card,
+.announce-list-card {
+	padding: var(--space-lg);
+}
+
+.announce-create-form,
+.announce-edit-form {
+	display: grid;
+	gap: var(--space-sm);
+}
+
+.announce-create-form {
+	margin-top: var(--space-lg);
+}
+
+.announce-create-form label,
+.announce-edit-form label {
+	display: grid;
+	gap: var(--space-xs);
+}
+
+.announce-create-form input,
+.announce-create-form textarea,
+.announce-edit-form input,
+.announce-edit-form textarea {
+	width: 100%;
+	background: var(--bg-inset);
+	border: 1px solid var(--border-strong);
+	border-radius: 10px;
+	padding: 0.75rem 0.9rem;
+	font-size: 1rem;
+	line-height: 1.5;
+	outline: none;
+	resize: vertical;
+}
+
+.announce-create-form input:focus,
+.announce-create-form textarea:focus,
+.announce-edit-form input:focus,
+.announce-edit-form textarea:focus {
+	border-color: var(--signal-warn-dim);
+	box-shadow: 0 0 0 3px rgba(255, 176, 32, 0.1);
+}
+
+.announce-list-heading {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: var(--space-md);
+}
+
+.announce-cards {
+	display: grid;
+	gap: var(--space-sm);
+}
+
+.announce-card {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-sm);
+	padding: var(--space-sm);
+	background: linear-gradient(135deg, var(--bg-inset), var(--bg-panel-raised));
+	border: 1px solid var(--border-hair);
+	border-radius: 14px;
+}
+
+.announce-card-actions {
+	display: flex;
+	gap: var(--space-xs);
+	flex-wrap: wrap;
+	justify-content: flex-end;
+}
+
 .chat-search-row {
 	gap: var(--space-sm);
 	margin-bottom: var(--space-sm);
@@ -597,7 +680,8 @@ textarea {
 }
 
 @media (max-width: 960px) {
-	.users-layout {
+	.users-layout,
+	.announce-layout {
 		grid-template-columns: 1fr;
 	}
 }
@@ -702,7 +786,9 @@ textarea {
 	}
 
 	.user-create-card,
-	.user-list-card {
+	.user-list-card,
+	.announce-create-card,
+	.announce-list-card {
 		padding: 1rem;
 	}
 
@@ -715,12 +801,14 @@ textarea {
 		min-width: calc(100% - 64px);
 	}
 
-	.user-actions {
+	.user-actions,
+	.announce-card-actions {
 		width: 100%;
 		justify-content: stretch;
 	}
 
-	.user-actions button {
+	.user-actions button,
+	.announce-card-actions button {
 		flex: 1;
 	}
 
@@ -1582,5 +1670,225 @@ textarea {
 	.collapsible-body,
 	.collapsible-caret {
 		transition: none;
+	}
+}
+
+/* --- Servers tab: CPU/RAM cards + trend charts for all 3 machines ---
+   Categorical identity colors are fixed and validated (dataviz skill,
+   first 3 slots of the default palette, all-pairs CVD-safe against this
+   app's dark surface) — never reassigned per filter/order. --- */
+.servers-layout {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-md);
+}
+
+.servers-cards {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: var(--space-md);
+}
+
+.server-card {
+	padding: var(--space-md);
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-sm);
+}
+
+.server-card-head {
+	display: flex;
+	align-items: center;
+	gap: var(--space-sm);
+}
+
+.server-card-dot {
+	width: 12px;
+	height: 12px;
+	border-radius: 999px;
+	flex-shrink: 0;
+}
+
+.server-card-heading {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-width: 0;
+}
+
+.server-card-meters {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-sm);
+}
+
+.server-card-meter-label {
+	display: flex;
+	justify-content: space-between;
+	font-size: var(--text-xs);
+	color: var(--text-secondary);
+	margin-bottom: 0.3rem;
+}
+
+.server-card-meter-track {
+	height: 8px;
+	border-radius: 999px;
+	background: var(--bg-inset);
+	overflow: hidden;
+}
+
+.server-card-meter-fill {
+	height: 100%;
+	border-radius: 999px;
+	transition: width var(--duration-normal) var(--ease-out-expo);
+}
+
+.server-chart-toolbar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	flex-wrap: wrap;
+	gap: var(--space-sm);
+}
+
+.server-range-group {
+	display: flex;
+	gap: 0.4rem;
+	flex-wrap: wrap;
+}
+
+.server-chart-card {
+	padding: var(--space-md);
+}
+
+.server-chart-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	flex-wrap: wrap;
+	gap: var(--space-sm);
+	margin-bottom: var(--space-sm);
+}
+
+.server-chart-title {
+	font-weight: 700;
+	font-size: var(--text-sm);
+}
+
+.server-chart-legend {
+	display: flex;
+	gap: var(--space-sm);
+	flex-wrap: wrap;
+}
+
+.server-chart-legend-item {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35rem;
+	font-size: var(--text-xs);
+	color: var(--text-secondary);
+}
+
+.server-chart-legend-item i {
+	width: 14px;
+	height: 2px;
+	border-radius: 2px;
+	flex-shrink: 0;
+}
+
+.server-chart-plot {
+	position: relative;
+}
+
+.server-chart-axis-label {
+	fill: var(--text-dim);
+	font-size: 9px;
+	font-family: var(--font-mono);
+}
+
+.server-chart-tooltip {
+	position: absolute;
+	top: 6px;
+	transform: translateX(-50%);
+	background: var(--bg-panel-raised);
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius-sm);
+	padding: 0.5rem 0.65rem;
+	font-size: var(--text-xs);
+	pointer-events: none;
+	white-space: nowrap;
+	z-index: 2;
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.server-chart-tooltip-time {
+	color: var(--text-dim);
+	font-family: var(--font-mono);
+	margin-bottom: 0.3rem;
+}
+
+.server-chart-tooltip-row {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	padding: 0.1rem 0;
+}
+
+.server-chart-tooltip-row i {
+	width: 10px;
+	height: 2px;
+	border-radius: 2px;
+	flex-shrink: 0;
+}
+
+.server-chart-tooltip-label {
+	color: var(--text-secondary);
+	flex: 1;
+}
+
+.server-chart-tooltip-row strong {
+	font-family: var(--font-mono);
+	color: var(--text-primary);
+}
+
+.server-chart-empty {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	margin: 0;
+}
+
+.server-table-card {
+	padding: var(--space-md);
+}
+
+.server-table-scroll {
+	overflow-x: auto;
+}
+
+.server-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: var(--text-xs);
+}
+
+.server-table th,
+.server-table td {
+	text-align: left;
+	padding: 0.4rem 0.6rem;
+	border-bottom: 1px solid var(--border-hair);
+	white-space: nowrap;
+}
+
+.server-table th {
+	color: var(--text-dim);
+	font-weight: 600;
+}
+
+@media (max-width: 760px) {
+	.servers-cards {
+		grid-template-columns: 1fr;
 	}
 }

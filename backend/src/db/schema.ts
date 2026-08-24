@@ -255,6 +255,34 @@ CREATE TABLE IF NOT EXISTS priority_answers (
 	bot_id INTEGER PRIMARY KEY,
 	wins INTEGER NOT NULL DEFAULT 0
 );
+
+-- Admin-authored notices shown on every signed-in user's console (see
+-- announcements/announcements.ts). Deliberately not bot- or owner-scoped —
+-- one shared list, same as app_meta settings, visible from every worker.
+CREATE TABLE IF NOT EXISTS announcements (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	title TEXT NOT NULL,
+	body TEXT NOT NULL,
+	created_by_user_id INTEGER,
+	created_at INTEGER NOT NULL,
+	updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_announcements_created_at ON announcements(created_at DESC);
+
+-- Periodic CPU/RAM snapshots for all three physical machines (server1 edge,
+-- server2 this process, server3 lane relay) — see monitoring/server-load-history.ts.
+-- Sampled far coarser than the live 5s in-process monitor (system-load.ts);
+-- this table exists only to draw a trend, not to drive alerting.
+CREATE TABLE IF NOT EXISTS server_load_samples (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	server_id TEXT NOT NULL,
+	ts INTEGER NOT NULL,
+	cpu_percent REAL NOT NULL,
+	memory_percent REAL NOT NULL,
+	capacity_percent REAL NOT NULL,
+	event_loop_lag_ms REAL
+);
+CREATE INDEX IF NOT EXISTS idx_server_load_samples_server_ts ON server_load_samples(server_id, ts);
 `;
 
 export type Surface = "talk" | "square";
@@ -391,4 +419,25 @@ export interface StartConfirmationRow {
 	bot_id: number;
 	status: "pending" | "accepted" | "declined";
 	created_at: number;
+}
+
+export interface AnnouncementRow {
+	id: number;
+	title: string;
+	body: string;
+	created_by_user_id: number | null;
+	created_at: number;
+	updated_at: number;
+}
+
+export type MonitoredServerId = "server1" | "server2" | "server3";
+
+export interface ServerLoadSampleRow {
+	id: number;
+	server_id: MonitoredServerId;
+	ts: number;
+	cpu_percent: number;
+	memory_percent: number;
+	capacity_percent: number;
+	event_loop_lag_ms: number | null;
 }

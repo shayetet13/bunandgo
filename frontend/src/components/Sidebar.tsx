@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { UserRole } from "../lib/types.ts";
 
-export type ViewKey = "overview" | "fleet" | "rules" | "feed" | "users" | "logs" | "settings";
+export type ViewKey = "overview" | "fleet" | "rules" | "feed" | "users" | "announcements" | "servers" | "logs" | "settings";
 
 interface NavItem {
 	key: ViewKey;
@@ -81,6 +81,30 @@ const NAV_ITEMS: NavItem[] = [
 				<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
 				<circle cx="9" cy="7" r="4" />
 				<path d="M19 8v6M22 11h-6" />
+			</Icon>
+		),
+	},
+	{
+		key: "announcements",
+		th: "ข่าวสาร",
+		en: "Announcements",
+		icon: (
+			<Icon>
+				<path d="M3 11v2a1 1 0 0 0 1 1h2l4 4V6L6 10H4a1 1 0 0 0-1 1Z" />
+				<path d="M15 8a4 4 0 0 1 0 8M18 5a8 8 0 0 1 0 14" />
+			</Icon>
+		),
+	},
+	{
+		key: "servers",
+		th: "เซิร์ฟเวอร์",
+		en: "Servers",
+		icon: (
+			<Icon>
+				<rect x="3" y="4" width="18" height="6" rx="1.5" />
+				<rect x="3" y="14" width="18" height="6" rx="1.5" />
+				<circle cx="7" cy="7" r="0.6" fill="currentColor" stroke="none" />
+				<circle cx="7" cy="17" r="0.6" fill="currentColor" stroke="none" />
 			</Icon>
 		),
 	},
@@ -199,7 +223,10 @@ export function Sidebar({ activeView, onNavigate, wsConnected, username, role, o
 				เมนู
 			</div>
 			<nav className="sidebar-nav" style={{ display: "flex", flexDirection: "column", gap: "0.2rem", flex: 1 }}>
-				{NAV_ITEMS.filter((item) => (item.key !== "users" && item.key !== "logs") || role === "admin").map((item) => {
+				{NAV_ITEMS.filter(
+					(item) =>
+						(item.key !== "users" && item.key !== "logs" && item.key !== "announcements" && item.key !== "servers") || role === "admin",
+				).map((item) => {
 					const active = activeView === item.key;
 					return (
 						<button

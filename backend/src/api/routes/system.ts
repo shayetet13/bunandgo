@@ -5,6 +5,7 @@ import { isMaintenanceModeEnabled, setMaintenanceMode } from "../../bot/maintena
 import { readWorkerTopology } from "../../bot/worker-topology.ts";
 import { db } from "../../db/sqlite.ts";
 import { applyHedgeConfig, hedgeConfig, hedgeShadowReport, parseHedgeConfig } from "../../dispatch/hedge.ts";
+import { listServerLoadSamples } from "../../monitoring/server-load-history.ts";
 
 const RESTART_UNIT = "linebot-worker.service";
 const RESTART_CONFIRMATION = "restart-linebot-worker";
@@ -103,6 +104,15 @@ export function createSystemRoute(options: SystemRouteOptions = {}): Hono {
 		const user = requestUser(c)!;
 		logUserActionImmediately(user, "system.hedge.config.updated", { previous, applied });
 		return c.json({ ok: true, config: applied });
+	});
+
+	// Servers tab trend graphs — recorded on a shared ~30s clock by
+	// startServerLoadHistoryRecorder() (monitoring/server-load-history.ts),
+	// not sampled live on request.
+	route.get("/load-history", (c) => {
+		const hoursParam = Number(c.req.query("hours") ?? 24);
+		const hours = Number.isFinite(hoursParam) && hoursParam > 0 ? Math.min(hoursParam, 24 * 30) : 24;
+		return c.json(listServerLoadSamples(hours));
 	});
 
 	// The bot itself never checks this — only the "user"-role console does

@@ -153,8 +153,10 @@ export interface LaneStat {
 	consecutiveFailures: number;
 }
 
+export type MonitoredServerId = "server1" | "server2" | "server3";
+
 export interface ServerStatus {
-	id: "server1" | "server2";
+	id: MonitoredServerId;
 	label: string;
 	role: string;
 	/** Whether the dashboard backend can reach this machine right now. */
@@ -163,6 +165,18 @@ export interface ServerStatus {
 	serviceHealthy: boolean;
 	load?: Pick<SystemLoadStatus, "cpuPercent" | "memoryPercent" | "capacityPercent" | "exceeded" | "sampledAt">;
 	detail?: string;
+}
+
+/** One CPU/RAM snapshot recorded on the shared ~30s history clock — see
+ * backend/src/monitoring/server-load-history.ts. Powers the Servers tab's
+ * trend charts; `/api/health`'s `servers[].load` is the live-now reading. */
+export interface ServerLoadSample {
+	serverId: MonitoredServerId;
+	ts: number;
+	cpuPercent: number;
+	memoryPercent: number;
+	capacityPercent: number;
+	eventLoopLagMs: number | null;
 }
 
 export interface SystemLoadStatus {
@@ -397,6 +411,19 @@ export interface WsEvent<T = unknown> {
  * same account logged in under a different display name than the one
  * locked at first login ("name").
  */
+/**
+ * An admin-authored notice shown on every signed-in user's console — the
+ * replacement for the old "ผู้บรรยายสนาม" race-commentary card.
+ */
+export interface Announcement {
+	id: number;
+	title: string;
+	body: string;
+	createdByUserId: number | null;
+	createdAt: number;
+	updatedAt: number;
+}
+
 export interface IdLockMismatchEvent {
 	botId: number;
 	botName: string;

@@ -76,18 +76,39 @@ const laneRaceViewSchema = z.object({
 	poll: laneScoreSchema,
 });
 
+const loadSchema = z.object({
+	cpuPercent: z.number(),
+	memoryPercent: z.number(),
+	capacityPercent: z.number(),
+	exceeded: z.boolean(),
+	sampledAt: z.number(),
+});
+
 const reportSchema = z.object({
 	workerId: z.string().min(1).max(64),
 	ts: z.number(),
 	lanes: z.array(laneStatSchema).max(64),
 	races: z.array(laneRaceViewSchema).max(64),
+	// Optional: older relay builds (or a relay run without this field) simply
+	// leave the Servers tab's server3 card/history blank rather than failing
+	// the whole report.
+	load: loadSchema.optional(),
 });
+
+export interface RemoteRelayLoad {
+	cpuPercent: number;
+	memoryPercent: number;
+	capacityPercent: number;
+	exceeded: boolean;
+	sampledAt: number;
+}
 
 interface StoredReport {
 	workerId: string;
 	receivedAt: number;
 	lanes: LaneStat[];
 	races: LaneRaceLaneView[];
+	load?: RemoteRelayLoad;
 }
 
 const reports = new Map<string, StoredReport>();
@@ -104,12 +125,12 @@ laneRelayEventsRoute.post("/", async (c) => {
 	const result = reportSchema.safeParse(body);
 	if (!result.success) return c.json({ error: formatZodError(result.error) }, 400);
 
-	const { workerId, ts, lanes, races } = result.data;
+	const { workerId, ts, lanes, races, load } = result.data;
 	if (!reports.has(workerId) && reports.size >= MAX_TRACKED_WORKERS) {
 		return c.json({ error: "too many distinct lane relay workers reporting" }, 429);
 	}
 	const receivedAt = Date.now();
-	reports.set(workerId, { workerId, receivedAt, lanes: lanes as LaneStat[], races: races as LaneRaceLaneView[] });
+	reports.set(workerId, { workerId, receivedAt, lanes: lanes as LaneStat[], races: races as LaneRaceLaneView[], load });
 
 	// Keep transport PING, SEND and POLL reports independent. PING can expose a
 	// ready cold relay, but it never becomes a SEND score. Role timestamps are
@@ -180,6 +201,21 @@ export function remoteLaneRaces(maxAgeMs = REPORT_STALE_MS): Array<LaneRaceLaneV
 		for (const race of report.races) out.push({ ...race, workerId: report.workerId });
 	}
 	return out;
+}
+
+/** Freshest lane relay's self-reported host load, or undefined when no relay
+ * has reported recently (or an older relay build never sent one). Picks the
+ * single most-recently-received report rather than merging across relays —
+ * unlike lanes/races, host load is not additive across physically distinct
+ * boxes, and production runs exactly one lane relay (server3). */
+export function latestRemoteServerLoad(maxAgeMs = REPORT_STALE_MS): RemoteRelayLoad | undefined {
+	const now = Date.now();
+	let freshest: StoredReport | undefined;
+	for (const report of reports.values()) {
+		if (!report.load || now - report.receivedAt > maxAgeMs) continue;
+		if (!freshest || report.receivedAt > freshest.receivedAt) freshest = report;
+	}
+	return freshest?.load;
 }
 
 /** Test-only reset so cases don't leak reports into each other. */

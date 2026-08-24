@@ -286,100 +286,156 @@
 	color: var(--uc-ink-2);
 }
 
-/* ── Full-troll race announcer — presentation only, never on the send path ─ */
+/* ── Admin announcements — an incident-tape alert card, never mistaken for
+   routine bot chatter. The quiet/no-content state stays plain; the moment
+   there is a real notice it earns the full hazard-stripe treatment. ─────── */
 
-.uc-race {
+.uc-announce {
 	position: relative;
 	overflow: hidden;
 	padding: 1rem;
 	border: 1px solid var(--uc-line);
 	border-radius: var(--uc-radius-lg);
 	background: var(--uc-surface);
-	animation: uc-race-arrive 360ms ease-out;
+	animation: uc-announce-arrive 360ms ease-out;
 }
 
-.uc-race-head,
-.uc-race-stats {
+.uc-announce[data-has-content="true"] {
+	padding: 1.55rem 1rem 1.4rem;
+	border: 2px solid rgba(255, 45, 60, 0.6);
+	background: radial-gradient(ellipse 320px 200px at 50% -25%, rgba(255, 45, 60, 0.24), transparent 72%), var(--uc-surface);
+	animation:
+		uc-announce-arrive 360ms ease-out,
+		uc-announce-glow 2.4s ease-in-out infinite;
+}
+
+/* Incident-tape strips — red/white diagonal, top and bottom edges. */
+.uc-announce[data-has-content="true"]::before,
+.uc-announce[data-has-content="true"]::after {
+	content: "";
+	position: absolute;
+	left: 0;
+	right: 0;
+	height: 10px;
+	background: repeating-linear-gradient(135deg, #fff 0 10px, #ff2d3c 10px 20px);
+}
+
+.uc-announce[data-has-content="true"]::before {
+	top: 0;
+}
+
+.uc-announce[data-has-content="true"]::after {
+	bottom: 0;
+}
+
+.uc-announce-head {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
 	gap: 0.75rem;
 }
 
-.uc-race-mode,
-.uc-race-achievement {
+.uc-announce-badge {
 	display: inline-flex;
-	width: fit-content;
-	padding: 0.25rem 0.55rem;
-	border: 1px solid rgba(57, 255, 136, 0.25);
-	border-radius: 999px;
-	background: rgba(57, 255, 136, 0.09);
-	color: var(--uc-accent);
-	font-size: 0.72rem;
-	font-weight: 750;
-}
-
-.uc-race-title {
-	display: block;
-	margin-top: 0.85rem;
-	font-size: 1.08rem;
-}
-
-.uc-race-roast {
-	margin: 0.45rem 0 0.8rem;
-	color: var(--uc-ink-2);
-	font-size: 0.9rem;
-	line-height: 1.55;
-}
-
-.uc-race-stats {
-	margin-top: 0.85rem;
-	padding-top: 0.75rem;
-	border-top: 1px solid var(--uc-line);
-	color: var(--uc-ink-2);
-	font-size: 0.82rem;
-}
-
-.uc-race-stats strong {
-	color: var(--uc-ink);
-	font: 750 1rem/1 var(--font-mono);
-}
-
-.uc-race-form {
-	display: flex;
 	align-items: center;
 	gap: 0.35rem;
-	min-height: 0.65rem;
-	margin-top: 0.7rem;
-	color: var(--uc-ink-3);
-	font-size: 0.75rem;
-}
-
-.uc-race-form i {
-	width: 0.58rem;
-	height: 0.58rem;
+	width: fit-content;
+	padding: 0.3rem 0.65rem;
 	border-radius: 999px;
-	background: var(--uc-ink-3);
+	background: #ff2d3c;
+	color: #fff;
+	font-size: 0.74rem;
+	font-weight: 800;
+	letter-spacing: 0.01em;
+	box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.3) inset;
 }
 
-.uc-race-form i[data-tone="blitz"],
-.uc-race-form i[data-tone="fast"] {
-	background: var(--uc-accent);
-	box-shadow: 0 0 7px rgba(57, 255, 136, 0.45);
+.uc-announce-badge-icon {
+	display: inline-block;
+	animation: uc-announce-blink 1s steps(1, end) infinite;
 }
 
-.uc-race-form i[data-tone="late"] {
-	background: var(--signal-warn);
+.uc-announce-empty {
+	margin: 0.85rem 0 0;
+	color: var(--uc-ink-3);
+	font-size: 0.88rem;
 }
 
-.uc-race-form i[data-tone="failed"] {
-	background: var(--signal-bad);
+.uc-announce-list {
+	display: flex;
+	flex-direction: column;
+	gap: 0.85rem;
+	margin-top: 0.9rem;
 }
 
-@keyframes uc-race-arrive {
+.uc-announce-item {
+	padding-top: 0.85rem;
+	border-top: 1px dashed rgba(255, 45, 60, 0.3);
+}
+
+.uc-announce-item:first-child {
+	padding-top: 0;
+	border-top: 0;
+}
+
+.uc-announce-title {
+	display: block;
+	font-size: 1.05rem;
+	font-weight: 800;
+	color: #fff;
+}
+
+.uc-announce-body {
+	margin: 0.4rem 0 0;
+	color: #f1f1f4;
+	font-size: 0.92rem;
+	line-height: 1.55;
+	white-space: pre-wrap;
+}
+
+.uc-announce-time {
+	display: block;
+	margin-top: 0.5rem;
+	color: #ffd23f;
+	font-size: 0.75rem;
+	font-weight: 700;
+}
+
+@keyframes uc-announce-arrive {
 	from {
 		opacity: 0;
 		transform: translateY(-5px) scale(0.99);
+	}
+}
+
+@keyframes uc-announce-glow {
+	0%,
+	100% {
+		box-shadow: 0 0 0 0 rgba(255, 45, 60, 0);
+	}
+	50% {
+		box-shadow: 0 0 24px 3px rgba(255, 45, 60, 0.5);
+	}
+}
+
+@keyframes uc-announce-blink {
+	0%,
+	49% {
+		opacity: 1;
+	}
+	50%,
+	100% {
+		opacity: 0.25;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.uc-announce[data-has-content="true"] {
+		animation: uc-announce-arrive 360ms ease-out;
+	}
+
+	.uc-announce-badge-icon {
+		animation: none;
 	}
 }
 
