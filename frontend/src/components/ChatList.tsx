@@ -12,6 +12,8 @@ interface ChatListProps {
 	onSelect: (mids: string[]) => void;
 	onToggleEnabled: (chat: ChatRow) => void;
 	onToggleAdminOnly: (chat: ChatRow) => void;
+	/** Re-syncs from the bot's live LINE session right now — mainly for an OA friend added while the bot was already running. */
+	onResync: (botId: number) => Promise<void> | void;
 	/**
 	 * Whether this bot's owner has other bots at all — gates the room-bots
 	 * panel below so a solo owner (the common case) never even renders a
@@ -31,11 +33,13 @@ export function ChatList({
 	onSelect,
 	onToggleEnabled,
 	onToggleAdminOnly,
+	onResync,
 	hasSiblings = false,
 }: ChatListProps) {
 	const [query, setQuery] = useState("");
 	const [surface, setSurface] = useState<"all" | "talk" | "square">("all");
 	const [adminsByMid, setAdminsByMid] = useState<Record<string, SquareMemberInfo[]>>({});
+	const [resyncing, setResyncing] = useState(false);
 
 	// OpenChat-only: fetch each visible OP's cached ADMIN/CO_ADMIN roles once,
 	// so the badge can show who the switch below would actually answer to.
@@ -66,15 +70,40 @@ export function ChatList({
 		const newSelection = selectedMids.includes(mid) ? selectedMids.filter((m) => m !== mid) : [...selectedMids, mid];
 		onSelect(newSelection);
 	};
+	const handleResyncClick = async () => {
+		setResyncing(true);
+		try {
+			await onResync(botId);
+		} finally {
+			setResyncing(false);
+		}
+	};
 
 	return (
 		<section className="panel" style={{ padding: "var(--space-md)" }}>
-			<div className="label" style={{ marginBottom: "var(--space-xs)" }}>
-				ห้องแชทที่เข้าร่วม · {chats.length}
+			<div
+				style={{
+					display: "flex",
+					alignItems: "center",
+					justifyContent: "space-between",
+					gap: "var(--space-sm)",
+					marginBottom: "var(--space-xs)",
+				}}
+			>
+				<div className="label">ห้องแชทที่เข้าร่วม · {chats.length}</div>
+				<button
+					onClick={handleResyncClick}
+					disabled={resyncing}
+					className="chip"
+					style={{ fontSize: "var(--text-xs)", cursor: resyncing ? "wait" : "pointer" }}
+				>
+					{resyncing ? "กำลังซิงค์…" : "⟳ ซิงค์รายชื่อแชท/OA ตอนนี้"}
+				</button>
 			</div>
 			<p className="hint" style={{ margin: "0 0 var(--space-sm)" }}>
 				สลับ "ตอบอัตโนมัติ" เพื่อกำหนดว่าบอทจะตอบข้อความจริงในห้องไหนได้บ้าง (ปิดอยู่ = ไม่ตอบเลย) —
-				คลิกที่การ์ดเพื่อเลือกห้องสำหรับกรอกข้อมูลในช่องทดสอบส่งข้อความด้านล่าง
+				คลิกที่การ์ดเพื่อเลือกห้องสำหรับกรอกข้อมูลในช่องทดสอบส่งข้อความด้านล่าง เพิ่งเพิ่มเพื่อน OA ใหม่แล้วยังไม่เห็น? กด "ซิงค์"
+				ด้านบนได้เลย ไม่ต้องรอบอท restart
 			</p>
 			<div className="chat-search-row">
 				<div className="chat-search-box">

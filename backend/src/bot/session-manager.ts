@@ -29,7 +29,12 @@ import { shouldDiscardStoredAuthToken } from "./auth-token-policy.ts";
 import { planStallRecovery } from "./square-stall-policy.ts";
 import { isSquareAccessDenied } from "./square-access-policy.ts";
 import { isGroupOrRoomTalkMessage, shouldProcessIncomingMessage } from "./incoming-message-policy.ts";
-import { clearOfficialAccountCache, isKnownOfficialAccount, resolveOfficialAccountStatus } from "./oa-contacts.ts";
+import {
+	clearOfficialAccountCache,
+	fetchOfficialAccountFriends,
+	isKnownOfficialAccount,
+	resolveOfficialAccountStatus,
+} from "./oa-contacts.ts";
 import { clearAutomaticReplyEchoes, isAutomaticReplyEcho, trackAutomaticReply } from "./automatic-reply-echo.ts";
 import { claimResend, clearTrackedReplies, MAX_RESENDS, trackSentReply, uniquifyReply, varyText } from "./reply-defense.ts";
 import { RESEND_WHEN_INVISIBLE, VERIFY_SENDS_ENABLED } from "./square-visibility.ts";
@@ -2663,13 +2668,24 @@ async function sendTimed(
 }
 
 async function refreshChatsCache(botId: number, client: Client): Promise<{ talk: string[]; square: string[] }> {
-	const [chats, squareChats] = await Promise.all([client.fetchJoinedChats(), client.fetchJoinedSquareChats()]);
+	const [chats, squareChats, oaFriends] = await Promise.all([
+		client.fetchJoinedChats(),
+		client.fetchJoinedSquareChats(),
+		// Registered the same way as joined Square rooms: visible and
+		// selectable in the dashboard the moment the bot is friends with an
+		// OA, not only after the first message either direction. Failure here
+		// (a transient RPC hiccup) must not block the rest of connect.
+		fetchOfficialAccountFriends(client, botId).catch(() => []),
+	]);
 	const now = Date.now();
 	for (const chat of chats) {
 		upsertChatStmt.run(botId, chat.mid, "talk", chat.name ?? null, now);
 	}
 	for (const sc of squareChats) {
 		upsertChatStmt.run(botId, sc.mid, "square", sc.name ?? null, now);
+	}
+	for (const oa of oaFriends) {
+		upsertChatStmt.run(botId, oa.mid, "talk", oa.displayName, now);
 	}
 	botEvents.emit("chats_updated", { botId });
 
@@ -2686,9 +2702,25 @@ async function refreshChatsCache(botId: number, client: Client): Promise<{ talk:
 		),
 	]);
 	return {
-		talk: chats.map((chat) => chat.mid),
+		// A Set dedupes an OA that already has message history and so would
+		// otherwise appear in both `chats` and `oaFriends`.
+		talk: [...new Set([...chats.map((chat) => chat.mid), ...oaFriends.map((oa) => oa.mid)])],
 		square: squareChats.map((chat) => chat.mid),
 	};
+}
+
+/**
+ * Re-syncs a running bot's chat list (Talk chats, OpenChat rooms, OA
+ * friends) on demand, without a reconnect — for the dashboard's "refresh"
+ * action, so a newly-added OA friend shows up in a minute instead of
+ * waiting for the next restart. Returns false if the bot has no live
+ * session to resync from (offline, mid-login, etc.).
+ */
+export async function resyncChatsNow(botId: number): Promise<boolean> {
+	const client = runtimes.get(botId)?.client;
+	if (!client) return false;
+	await refreshChatsCache(botId, client);
+	return true;
 }
 
 /**

@@ -145,7 +145,7 @@ export function ScheduledPostEditor({ chats, posts, onCreate, onUpdate, onToggle
 					}}
 					style={inputStyle}
 				>
-					<option value="talk">กลุ่มแชท (talk)</option>
+					<option value="talk">แชท 1:1 / กลุ่ม / OA (talk)</option>
 					<option value="square">OpenChat (square)</option>
 				</select>
 				<select
@@ -225,7 +225,7 @@ export function ScheduledPostEditor({ chats, posts, onCreate, onUpdate, onToggle
 								}}
 								style={inputStyle}
 							>
-								<option value="talk">กลุ่มแชท (talk)</option>
+								<option value="talk">แชท 1:1 / กลุ่ม / OA (talk)</option>
 								<option value="square">OpenChat (square)</option>
 							</select>
 							<select

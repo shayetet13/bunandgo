@@ -168,6 +168,14 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 		// response overwrite what's now on screen for the newly selected one.
 		if (botId === selectedBotIdRef.current) setChats(nextChats);
 	}
+	async function handleResyncChats(botId: number) {
+		try {
+			const { chats: nextChats } = await api.resyncChats(botId);
+			if (botId === selectedBotIdRef.current) setChats(nextChats);
+		} catch (err) {
+			pushNotification(err instanceof Error ? err.message : String(err));
+		}
+	}
 	async function handleToggleChatEnabled(chat: ChatRow) {
 		try {
 			await api.setChatEnabled(chat.bot_id, chat.mid, !chat.enabled);
@@ -713,6 +721,7 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 								onSelectMids={setSelectedMids}
 								onToggleChatEnabled={handleToggleChatEnabled}
 								onToggleChatAdminOnly={handleToggleChatAdminOnly}
+								onResyncChats={handleResyncChats}
 								scheduledPosts={scheduledPosts}
 								onCreateScheduledPost={handleCreateScheduledPost}
 								onUpdateScheduledPost={handleUpdateScheduledPost}

@@ -22,6 +22,7 @@ interface RulesPageProps {
 	onSelectMids: (mids: string[]) => void;
 	onToggleChatEnabled: (chat: ChatRow) => void;
 	onToggleChatAdminOnly: (chat: ChatRow) => void;
+	onResyncChats: (botId: number) => void;
 	scheduledPosts: ScheduledPost[];
 	onCreateScheduledPost: (input: Omit<ScheduledPost, "id" | "botId" | "sentAt">) => void;
 	onUpdateScheduledPost: (post: ScheduledPost) => void;
@@ -54,6 +55,7 @@ export function RulesPage({
 	onSelectMids,
 	onToggleChatEnabled,
 	onToggleChatAdminOnly,
+	onResyncChats,
 	scheduledPosts,
 	onCreateScheduledPost,
 	onUpdateScheduledPost,
@@ -158,6 +160,7 @@ export function RulesPage({
 								onSelect={onSelectMids}
 								onToggleEnabled={onToggleChatEnabled}
 								onToggleAdminOnly={onToggleChatAdminOnly}
+								onResync={onResyncChats}
 								hasSiblings={hasSiblings}
 							/>
 							<TestSendPanel botId={selectedBot.id} selectedChats={chats.filter((c) => selectedMids.includes(c.mid))} />

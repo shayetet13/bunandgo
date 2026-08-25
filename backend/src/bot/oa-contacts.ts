@@ -53,3 +53,42 @@ export async function resolveOfficialAccountStatus(client: Client, botId: number
 export function clearOfficialAccountCache(botId: number): void {
 	oaStatusByBot.delete(botId);
 }
+
+export interface OfficialAccountFriend {
+	mid: string;
+	displayName: string;
+}
+
+/**
+ * Every LINE Official Account already in the bot's friend list, independent
+ * of any message history — an OA the account has added but never exchanged
+ * a message with (either direction) is still returned here.
+ *
+ * Unlike `resolveOfficialAccountStatus`, this needs no per-mid RPC:
+ * `getContactsV3` (behind `client.fetchUsers()`) already reports `userType`
+ * ("USER" vs "BOT") for every friend in one bulk call, so the whole friend
+ * list is classified in a single round trip. Seeds the same cache
+ * `resolveOfficialAccountStatus` writes, so a reply to a bulk-discovered OA
+ * never has to wait through a cold first-message lookup.
+ *
+ * Only confirmed OAs are cached (`true`); ordinary friends are left absent
+ * rather than written as `false`, so this cache stays bounded by "OAs the
+ * bot actually has," not by total friend-list size.
+ */
+export async function fetchOfficialAccountFriends(client: Client, botId: number): Promise<OfficialAccountFriend[]> {
+	const users = await client.fetchUsers();
+	const found: OfficialAccountFriend[] = [];
+	for (const user of users) {
+		const userType = (user.raw as { userType?: unknown }).userType;
+		if (userType !== "BOT" && userType !== 2) continue;
+		let byBot = oaStatusByBot.get(botId);
+		if (!byBot) {
+			byBot = new Map();
+			oaStatusByBot.set(botId, byBot);
+		}
+		byBot.set(user.mid, true);
+		const displayName = (user.raw as { targetProfileDetail?: { profileName?: string } }).targetProfileDetail?.profileName;
+		found.push({ mid: user.mid, displayName: displayName || user.mid });
+	}
+	return found;
+}

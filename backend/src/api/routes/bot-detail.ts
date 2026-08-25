@@ -8,6 +8,7 @@ import {
 	disarmScheduledPostTimer,
 	getCurrentQr,
 	prewarmReplyText,
+	resyncChatsNow,
 	stopBot,
 	syncFastSquarePollers,
 	syncScheduledPostTimer,
@@ -233,6 +234,17 @@ botDetailRoute.post("/force-relogin", requireAdmin, async (c) => {
 });
 
 botDetailRoute.get("/chats", (c) => c.json(chatsStmt.all(botIdOf(c))));
+
+// Re-syncs the chat list from a running bot's live LINE session right now,
+// instead of waiting for the next reconnect — mainly for a newly-added OA
+// friend, which otherwise doesn't appear until the bot restarts.
+botDetailRoute.post("/chats/resync", async (c) => {
+	const botId = botIdOf(c);
+	const resynced = await resyncChatsNow(botId);
+	if (!resynced) return c.json({ error: "bot ต้องออนไลน์ก่อนถึง sync รายการแชทได้" }, 409);
+	logUserAction(requestUser(c)!, "chat.resync", { botId });
+	return c.json({ ok: true, chats: chatsStmt.all(botId) });
+});
 
 const chatEnabledBodySchema = z.object({ enabled: z.boolean() });
 

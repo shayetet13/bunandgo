@@ -128,6 +128,10 @@ export const api = {
 	declineStartConfirmation: (token: string) => request<{ ok: boolean }>(`/api/confirm/${token}/decline`, { method: "POST" }),
 
 	listChats: (botId: number) => request<ChatRow[]>(`/api/bots/${botId}/chats`),
+	// Re-syncs from the bot's live LINE session right now (joined chats, OpenChat
+	// rooms, OA friends) instead of waiting for the next reconnect. 409s if the
+	// bot isn't currently online.
+	resyncChats: (botId: number) => request<{ ok: boolean; chats: ChatRow[] }>(`/api/bots/${botId}/chats/resync`, { method: "POST" }),
 	setChatEnabled: (botId: number, mid: string, enabled: boolean) =>
 		request<{ ok: boolean }>(`/api/bots/${botId}/chats/${mid}`, {
 			method: "PATCH",
