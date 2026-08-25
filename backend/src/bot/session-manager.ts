@@ -95,6 +95,7 @@ if (!DISPATCH_TOKEN) {
 const upsertChatStmt = db.prepare<null, [number, string, Surface, string | null, number]>(
 	"INSERT INTO chats (bot_id, mid, surface, name, joined_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(bot_id, mid) DO UPDATE SET name = excluded.name",
 );
+const chatExistsStmt = db.prepare<{ found: number }, [number, string]>("SELECT 1 AS found FROM chats WHERE bot_id = ? AND mid = ? LIMIT 1");
 const persistedE2eeTargetsStmt = db.prepare<{ key: string }, [number]>(
 	"SELECT key FROM kv WHERE bot_id = ? AND key LIKE 'compactE2EETarget:%' AND value_json = 'true' ORDER BY rowid DESC",
 );
@@ -2104,6 +2105,43 @@ async function fillOfficialAccountStatus(botId: number, mid: string): Promise<vo
 	await resolveOfficialAccountStatus(client, botId, mid);
 }
 
+/**
+ * Registers a Talk chat (1-1 or group) in the `chats` table the moment its
+ * first message arrives, instead of waiting for the next full reconnect's
+ * `refreshChatsCache`. Without this, a chat that starts after the bot is
+ * already running — a user who just started messaging an OA mid-session,
+ * say — never appears in the dashboard's chat list at all: there is nothing
+ * to enable, no matter how correct the reply policy is.
+ *
+ * A local prepared-statement write, not a network call, so it's cheap enough
+ * to run inline rather than deferred — unlike the OA/self-mid lookups above,
+ * which do need to stay off the hot path. New rows start disabled, same as
+ * every existing chat (see chat-access.ts): being seen is not being allowed
+ * to reply.
+ */
+function registerNewTalkChatIfUnknown(botId: number, message: TalkMessage): void {
+	const mid = message.to.id;
+	if (chatExistsStmt.get(botId, mid)) return;
+	upsertChatStmt.run(botId, mid, "talk", null, Date.now());
+	botEvents.emit("chats_updated", { botId });
+	queueMicrotask(() => void fillTalkChatName(botId, mid));
+}
+
+/** Best-effort display name for a chat registered by registerNewTalkChatIfUnknown. */
+async function fillTalkChatName(botId: number, mid: string): Promise<void> {
+	const client = runtimes.get(botId)?.client;
+	if (!client) return;
+	try {
+		const contact = await client.base.talk.getContact({ mid });
+		if (!contact?.displayName) return;
+		upsertChatStmt.run(botId, mid, "talk", contact.displayName, Date.now());
+		botEvents.emit("chats_updated", { botId });
+	} catch {
+		// Leave the name blank — the dashboard falls back to the mid, and the
+		// next full reconnect's refreshChatsCache will pick the name up too.
+	}
+}
+
 interface IncomingRunOptions {
 	/** Negative/shadow id used only by the startup RAM warmup. */
 	prewarmGuardBotId?: number;
@@ -2115,6 +2153,8 @@ async function handleIncoming(
 	message: TalkMessage | SquareMessage,
 	options?: IncomingRunOptions,
 ): Promise<void> {
+	// Synthetic — must never leak the prewarm probe's fake mid into the real chats table.
+	if (surface === "talk" && options?.prewarmGuardBotId === undefined) registerNewTalkChatIfUnknown(botId, message as TalkMessage);
 	if (!shouldProcessIncomingMessage(botId, surface, message, isOfficialAccountCounterparty(botId, surface, message))) return;
 	const prewarmGuardBotId = options?.prewarmGuardBotId;
 	const messageId = messageIdOf(surface, message);
