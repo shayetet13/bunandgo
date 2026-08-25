@@ -68,6 +68,10 @@ GIT_INDEX_FILE="$TEMP_INDEX" git add -u
 for new_file in \
 	frontend/src/lib/rule-input.ts \
 	frontend/src/lib/rule-input.test.ts \
+	frontend/src/lib/chat-category.ts \
+	frontend/src/lib/chat-category.test.ts \
+	frontend/src/lib/scheduled-post-order.ts \
+	frontend/src/lib/scheduled-post-order.test.ts \
 	frontend/src/components/MaintenancePage.tsx \
 	frontend/src/pages/AnnouncementsPage.tsx
 do

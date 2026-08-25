@@ -104,7 +104,11 @@ for new_file in \
 	backend/src/api/routes/announcements.ts \
 	deploy/server2/worker-topology.example.json \
 	frontend/src/lib/rule-input.ts \
-	frontend/src/lib/rule-input.test.ts
+	frontend/src/lib/rule-input.test.ts \
+	frontend/src/lib/chat-category.ts \
+	frontend/src/lib/chat-category.test.ts \
+	frontend/src/lib/scheduled-post-order.ts \
+	frontend/src/lib/scheduled-post-order.test.ts
 do
 	[ ! -f "$new_file" ] || GIT_INDEX_FILE="$TEMP_INDEX" git add -- "$new_file"
 done
