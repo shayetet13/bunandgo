@@ -172,6 +172,10 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 		try {
 			const { chats: nextChats } = await api.resyncChats(botId);
 			if (botId === selectedBotIdRef.current) setChats(nextChats);
+			// The list often comes back unchanged (nothing new since last sync) —
+			// without this, a successful click that changes nothing is
+			// indistinguishable from a broken button.
+			pushNotification(`ซิงค์แล้ว — พบทั้งหมด ${nextChats.length} ห้องแชท/เพื่อน`);
 		} catch (err) {
 			pushNotification(err instanceof Error ? err.message : String(err));
 		}

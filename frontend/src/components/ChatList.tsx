@@ -94,8 +94,8 @@ export function ChatList({
 				<button
 					onClick={handleResyncClick}
 					disabled={resyncing}
-					className="chip"
-					style={{ fontSize: "var(--text-xs)", cursor: resyncing ? "wait" : "pointer" }}
+					className="ghost-button"
+					style={{ fontSize: "var(--text-xs)", padding: "0.4rem 0.75rem", minHeight: "auto", opacity: resyncing ? 0.6 : 1 }}
 				>
 					{resyncing ? "กำลังซิงค์…" : "⟳ ซิงค์รายชื่อแชท/OA ตอนนี้"}
 				</button>
