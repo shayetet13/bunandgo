@@ -122,30 +122,42 @@ interface ClassifyResult {
  * right field is confirmed from a live bot_events row and wired into
  * fetchOfficialAccountFriends's real classification below.
  */
-async function logRawContactShapeForDiagnosis(client: Client, botId: number, mids: readonly string[]): Promise<void> {
+async function logRawContactShapeForDiagnosis(
+	client: Client,
+	botId: number,
+	users: ReadonlyArray<{ mid: string; raw: unknown }>,
+): Promise<void> {
 	const stringify = (value: unknown) => JSON.stringify(value, (_key, v) => (typeof v === "bigint" ? v.toString() : v));
+	const nameOf = (u: { raw: unknown }) => (u.raw as { targetProfileDetail?: { profileName?: string } }).targetProfileDetail?.profileName;
+
+	// Full roster of display names, so a known-OA name can be visually
+	// spotted without needing per-friend RPCs first.
+	const roster = users.map((u, i) => `${i}:${nameOf(u) ?? "?"}`).join(", ");
+	logBotEvent(botId, "oa_contact_shape_debug", `roster (${users.length}): ${roster}`.slice(0, 3900));
+
+	// Anything matching "stacka" gets its full raw Contact dumped.
+	const matches = users.filter((u) => (nameOf(u) ?? "").toLowerCase().includes("stacka"));
 	const samples: string[] = [];
-	for (const mid of mids.slice(0, 6)) {
+	for (const u of matches.slice(0, 5)) {
 		try {
-			const contact = await client.base.talk.getContact({ mid });
-			const json = stringify(contact);
-			samples.push(json.length > 280 ? json.slice(0, 280) + "…" : json);
+			const contact = await client.base.talk.getContact({ mid: u.mid });
+			samples.push(stringify(contact));
 		} catch (err) {
-			samples.push(`getContact(${mid}) failed: ${err instanceof Error ? err.message : String(err)}`);
+			samples.push(`getContact(${u.mid}) failed: ${err instanceof Error ? err.message : String(err)}`);
 		}
 	}
-	logBotEvent(botId, "oa_contact_shape_debug", samples.join(" ||| "));
+	if (samples.length > 0) {
+		logBotEvent(botId, "oa_contact_shape_debug", `matched "stacka": ${samples.join(" ||| ")}`.slice(0, 3900));
+	} else {
+		logBotEvent(botId, "oa_contact_shape_debug", `no friend name matched "stacka" among ${users.length} friends`);
+	}
 }
 
 export async function fetchOfficialAccountFriends(client: Client, botId: number): Promise<OfficialAccountFriend[]> {
 	const allUsers = await client.fetchUsers();
 	const users = allUsers.slice(0, MAX_OA_SYNC_FRIENDS);
 	if (users.length > 0) {
-		void logRawContactShapeForDiagnosis(
-			client,
-			botId,
-			users.map((u) => u.mid),
-		).catch(() => {});
+		void logRawContactShapeForDiagnosis(client, botId, users).catch(() => {});
 	}
 	const results = await mapWithConcurrency(users, OA_SYNC_CONCURRENCY, async (user): Promise<ClassifyResult> => {
 		try {
