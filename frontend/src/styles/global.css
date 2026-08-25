@@ -578,7 +578,6 @@ textarea {
 	background: var(--bg-inset);
 	border: 1px solid var(--border-hair);
 	border-radius: 12px;
-	flex-wrap: wrap;
 }
 
 .chat-filter-tabs button {
@@ -594,22 +593,6 @@ textarea {
 	background: var(--signal-go);
 	color: #04170c;
 	font-weight: 800;
-}
-
-.chat-filter-count {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	min-width: 1.35rem;
-	margin-left: 0.25rem;
-	padding: 0 0.28rem;
-	border-radius: 999px;
-	background: rgba(136, 145, 163, 0.16);
-	font: 700 0.72rem/1.5 var(--font-mono);
-}
-
-.chat-filter-tabs button.active .chat-filter-count {
-	background: rgba(4, 23, 12, 0.16);
 }
 
 /*
@@ -834,14 +817,9 @@ textarea {
 		flex-basis: 100%;
 	}
 
-	.chat-filter-tabs {
-		display: grid;
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-	}
-
 	.chat-filter-tabs button {
+		flex: 1;
 		min-height: 44px;
-		padding-inline: 0.45rem;
 	}
 
 	.chat-card-grid {

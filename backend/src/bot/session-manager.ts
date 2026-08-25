@@ -104,13 +104,7 @@ if (!DISPATCH_TOKEN) {
 const upsertChatStmt = db.prepare<null, [number, string, Surface, string | null, number]>(
 	"INSERT INTO chats (bot_id, mid, surface, name, joined_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(bot_id, mid) DO UPDATE SET name = excluded.name, surface = excluded.surface",
 );
-const chatSurfaceStmt = db.prepare<{ surface: Surface }, [number, string]>(
-	"SELECT surface FROM chats WHERE bot_id = ? AND mid = ? LIMIT 1",
-);
-const updateChatSurfaceStmt = db.prepare<null, [Surface, number, string]>("UPDATE chats SET surface = ? WHERE bot_id = ? AND mid = ?");
-const storedPeerChatsStmt = db.prepare<{ mid: string; surface: Surface }, [number]>(
-	"SELECT mid, surface FROM chats WHERE bot_id = ? AND substr(mid, 1, 1) = 'u'",
-);
+const chatExistsStmt = db.prepare<{ found: number }, [number, string]>("SELECT 1 AS found FROM chats WHERE bot_id = ? AND mid = ? LIMIT 1");
 // Name-only — see fillTalkChatName's doc comment for why this must not touch surface.
 const updateChatNameStmt = db.prepare<null, [string, number, string]>("UPDATE chats SET name = ? WHERE bot_id = ? AND mid = ?");
 const persistedE2eeTargetsStmt = db.prepare<{ key: string }, [number]>(
@@ -2143,18 +2137,7 @@ async function fillOfficialAccountStatus(botId: number, mid: string): Promise<vo
  */
 function registerNewTalkChatIfUnknown(botId: number, surface: Surface, message: TalkMessage): void {
 	const mid = message.to.id;
-	const existing = chatSurfaceStmt.get(botId, mid);
-	if (existing) {
-		// The first ever message from a peer intentionally reaches the hot path
-		// before its OA lookup finishes. Once a later message has the cached
-		// answer, upgrade the persisted row immediately instead of leaving the
-		// dashboard badge as `talk` until the next reconnect/manual sync.
-		if (existing.surface === "talk" && surface === "oa") {
-			updateChatSurfaceStmt.run("oa", botId, mid);
-			botEvents.emit("chats_updated", { botId });
-		}
-		return;
-	}
+	if (chatExistsStmt.get(botId, mid)) return;
 	upsertChatStmt.run(botId, mid, surface, null, Date.now());
 	botEvents.emit("chats_updated", { botId });
 	queueMicrotask(() => void fillTalkChatName(botId, mid));
@@ -2712,43 +2695,15 @@ async function refreshChatsCache(botId: number, client: Client): Promise<{ talk:
 		// (a transient RPC hiccup) must not block the rest of connect.
 		fetchOfficialAccountFriends(client, botId).catch(() => []),
 	]);
-	// `fetchJoinedChats` contains both classic groups and 1:1 PEER chats. OA
-	// peers use that same Talk transport, so resolve every peer before writing
-	// the rows; otherwise the first pass labels an OA as generic `talk` and the
-	// dashboard can only guess from its MID.
-	const storedPeerChats = storedPeerChatsStmt.all(botId);
-	const peerMids = new Set([
-		...chats
-			.filter((chat) => chat.raw.type === "PEER" || chat.raw.type === 2 || chat.mid.toLowerCase().startsWith("u"))
-			.map((chat) => chat.mid),
-		...storedPeerChats.map((chat) => chat.mid),
-	]);
-	await Promise.all(
-		[...peerMids].map(async (mid) => {
-			// Re-check even when this process has a cached `false`: a manual sync
-			// is also the recovery path for an OA that LINE could not classify on
-			// an earlier transient request.
-			await resolveOfficialAccountStatus(client, botId, mid);
-		}),
-	);
 	const now = Date.now();
 	for (const chat of chats) {
-		upsertChatStmt.run(botId, chat.mid, isKnownOfficialAccount(botId, chat.mid) ? "oa" : "talk", chat.name ?? null, now);
+		upsertChatStmt.run(botId, chat.mid, "talk", chat.name ?? null, now);
 	}
 	for (const sc of squareChats) {
 		upsertChatStmt.run(botId, sc.mid, "square", sc.name ?? null, now);
 	}
 	for (const oa of oaFriends) {
 		upsertChatStmt.run(botId, oa.mid, "oa", oa.displayName, now);
-	}
-	// 1:1 peers are not guaranteed to appear in getAllChatMids, especially
-	// after their conversation ages out. Reclassify the persisted rows too,
-	// without changing their saved names or enabled switches.
-	for (const chat of storedPeerChats) {
-		const known = isKnownOfficialAccount(botId, chat.mid);
-		if (known === undefined) continue;
-		const nextSurface: Surface = known ? "oa" : "talk";
-		if (chat.surface !== nextSurface) updateChatSurfaceStmt.run(nextSurface, botId, chat.mid);
 	}
 	botEvents.emit("chats_updated", { botId });
 

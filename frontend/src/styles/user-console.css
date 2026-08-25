@@ -844,56 +844,6 @@
 	outline: none;
 }
 
-/* Room-type tabs stay separate from the main Rooms/Keywords/Schedule tabs:
-   these filter the current list and use a two-column touch layout on phones. */
-.uc-room-tabs {
-	display: grid;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
-	gap: 0.4rem;
-	padding: 0.35rem;
-	border: 1px solid var(--uc-line);
-	border-radius: 12px;
-	background: var(--uc-inset);
-}
-
-.uc-room-tab {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	gap: 0.35rem;
-	min-width: 0;
-	min-height: 44px;
-	padding: 0.45rem 0.55rem;
-	border: 0;
-	border-radius: 9px;
-	background: transparent;
-	color: var(--uc-ink-2);
-	font-family: inherit;
-	font-size: 0.88rem;
-	font-weight: 700;
-	cursor: pointer;
-}
-
-.uc-room-tab[aria-selected="true"] {
-	background: var(--uc-accent);
-	color: #04170c;
-}
-
-.uc-room-tab-count {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	min-width: 1.35rem;
-	padding: 0 0.25rem;
-	border-radius: 999px;
-	background: rgba(136, 145, 163, 0.16);
-	font: 700 0.74rem/1.5 var(--font-mono);
-}
-
-.uc-room-tab[aria-selected="true"] .uc-room-tab-count {
-	background: rgba(4, 23, 12, 0.16);
-}
-
 /* ── Rows (rooms / keywords / scheduled posts) ──────────────────────────── */
 
 .uc-rows {
@@ -914,43 +864,6 @@
 	border-radius: var(--uc-radius);
 	background: var(--uc-inset);
 	transition: opacity var(--duration-fast) ease;
-}
-
-/* Chat rows have four independent visual columns. In particular, the
-   OpenChat admin control must not sit underneath the room title: doing so
-   raises the title above the shared centre line used by the badge and the
-   auto-reply switch. */
-.uc-chat-row {
-	display: grid;
-	grid-template-columns: max-content minmax(0, 1fr) max-content;
-	align-items: center;
-	min-height: 48px;
-}
-
-.uc-chat-row--openchat {
-	grid-template-columns: max-content minmax(0, 1.4fr) minmax(190px, 0.9fr) max-content;
-}
-
-.uc-chat-row .uc-row-main {
-	justify-content: center;
-	min-height: 24px;
-}
-
-.uc-chat-row .uc-row-title,
-.uc-chat-row .uc-tag,
-.uc-chat-row .uc-row-actions {
-	align-self: center;
-}
-
-.uc-chat-row-admin {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	min-width: 0;
-}
-
-.uc-chat-row-admin .admin-only-control {
-	justify-content: center;
 }
 
 .uc-row--off {
@@ -1192,10 +1105,6 @@
 		padding: 0 0.95rem;
 	}
 
-	.uc-room-tabs {
-		grid-template-columns: repeat(5, minmax(0, 1fr));
-	}
-
 	/* Enough width for two fields side by side without either going cramped. */
 	.uc-form--split {
 		display: grid;
@@ -1211,17 +1120,6 @@
 
 	.uc-form--split > .uc-form-success {
 		grid-column: 1 / -1;
-	}
-}
-
-@media (max-width: 639px) {
-	.uc-chat-row--openchat {
-		grid-template-columns: max-content minmax(0, 1fr) max-content;
-	}
-
-	.uc-chat-row-admin {
-		grid-column: 1 / -1;
-		padding-top: 0.2rem;
 	}
 }
 

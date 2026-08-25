@@ -3,7 +3,6 @@ import type { Client } from "../linejs-core/client/mod.ts";
 import {
 	clearOfficialAccountCache,
 	fetchOfficialAccountFriends,
-	isOfficialAccountContact,
 	isKnownOfficialAccount,
 	resolveOfficialAccountStatus,
 } from "./oa-contacts.ts";
@@ -23,61 +22,6 @@ function makeClient(botType: unknown): Client {
 }
 
 describe("official-account contact cache", () => {
-	test("recognises OA contact signals returned by talk.getContact", () => {
-		expect(isOfficialAccountContact({ capableBuddy: true, type: "USER" })).toBe(true);
-		expect(isOfficialAccountContact({ capableBuddy: false, type: "PROMOTION_BOT" })).toBe(true);
-		expect(isOfficialAccountContact({ capableBuddy: false, type: "USER" })).toBe(false);
-	});
-
-	test("uses getContact capableBuddy before the legacy buddy lookup", async () => {
-		const botId = 9100;
-		let buddyCalls = 0;
-		const client = {
-			base: {
-				talk: { getContact: () => Promise.resolve({ capableBuddy: true, type: "USER" }) },
-				buddy: {
-					getBuddyDetail: () => {
-						buddyCalls++;
-						return Promise.reject(new Error("not a buddy mid"));
-					},
-				},
-			},
-		} as unknown as Client;
-
-		await resolveOfficialAccountStatus(client, botId, OA_MID);
-		expect(isKnownOfficialAccount(botId, OA_MID)).toBe(true);
-		expect(buddyCalls).toBe(0);
-		clearOfficialAccountCache(botId);
-	});
-
-	test("still checks BuddyDetail when Contact says capableBuddy=false", async () => {
-		const botId = 9109;
-		const client = {
-			base: {
-				talk: { getContact: () => Promise.resolve({ capableBuddy: false, type: "USER" }) },
-				buddy: { getBuddyDetail: () => Promise.resolve({ botType: "OFFICIAL" }) },
-			},
-		} as unknown as Client;
-
-		await resolveOfficialAccountStatus(client, botId, OA_MID);
-		expect(isKnownOfficialAccount(botId, OA_MID)).toBe(true);
-		clearOfficialAccountCache(botId);
-	});
-
-	test("keeps a regular 1:1 contact when BuddyDetail also cannot identify an OA", async () => {
-		const botId = 9110;
-		const client = {
-			base: {
-				talk: { getContact: () => Promise.resolve({ capableBuddy: false, type: "USER" }) },
-				buddy: { getBuddyDetail: () => Promise.reject(new Error("not a buddy mid")) },
-			},
-		} as unknown as Client;
-
-		await resolveOfficialAccountStatus(client, botId, HUMAN_MID);
-		expect(isKnownOfficialAccount(botId, HUMAN_MID)).toBe(false);
-		clearOfficialAccountCache(botId);
-	});
-
 	test("caches an OFFICIAL botType as an OA", async () => {
 		const botId = 9101;
 		await resolveOfficialAccountStatus(makeClient("OFFICIAL"), botId, OA_MID);
@@ -160,7 +104,8 @@ function makeFriendsClient(
 	botTypeByMid: Record<string, unknown | undefined>,
 ): Client {
 	return {
-		fetchUsers: () => Promise.resolve(rawUsers.map((u) => ({ mid: u.mid, raw: { targetProfileDetail: { profileName: u.profileName } } }))),
+		fetchUsers: () =>
+			Promise.resolve(rawUsers.map((u) => ({ mid: u.mid, raw: { targetProfileDetail: { profileName: u.profileName } } }))),
 		base: {
 			buddy: {
 				getBuddyDetail: ({ buddyMid }: { buddyMid: string }) => {

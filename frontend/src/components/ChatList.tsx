@@ -4,7 +4,6 @@ import { api } from "../lib/api.ts";
 import { ToggleSwitch } from "./ToggleSwitch.tsx";
 import { AdminOnlyControl } from "./AdminOnlyControl.tsx";
 import { RoomBotsPanel } from "./RoomBotsPanel.tsx";
-import { CHAT_CATEGORY_FILTERS, chatCategory, chatCategoryLabel, type ChatCategoryFilter } from "../lib/chat-category.ts";
 
 interface ChatListProps {
 	botId: number;
@@ -38,7 +37,7 @@ export function ChatList({
 	hasSiblings = false,
 }: ChatListProps) {
 	const [query, setQuery] = useState("");
-	const [category, setCategory] = useState<ChatCategoryFilter>("all");
+	const [surface, setSurface] = useState<"all" | "talk" | "oa" | "square">("all");
 	const [adminsByMid, setAdminsByMid] = useState<Record<string, SquareMemberInfo[]>>({});
 	const [resyncing, setResyncing] = useState(false);
 
@@ -64,12 +63,9 @@ export function ChatList({
 	const normalizedQuery = query.trim().toLowerCase();
 	const visibleChats = chats.filter(
 		(chat) =>
-			(category === "all" || chatCategory(chat) === category) &&
+			(surface === "all" || chat.surface === surface) &&
 			(!normalizedQuery || (chat.name ?? "").toLowerCase().includes(normalizedQuery) || chat.mid.toLowerCase().includes(normalizedQuery)),
 	);
-	const categoryCounts = Object.fromEntries(
-		CHAT_CATEGORY_FILTERS.map(({ id }) => [id, id === "all" ? chats.length : chats.filter((chat) => chatCategory(chat) === id).length]),
-	) as Record<ChatCategoryFilter, number>;
 	const handleToggle = (mid: string) => {
 		const newSelection = selectedMids.includes(mid) ? selectedMids.filter((m) => m !== mid) : [...selectedMids, mid];
 		onSelect(newSelection);
@@ -112,18 +108,12 @@ export function ChatList({
 			<div className="chat-search-row">
 				<div className="chat-search-box">
 					<span aria-hidden="true">⌕</span>
-					<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ค้นหา 1:1, LINE OA, OP Talk หรือกลุ่ม..." />
+					<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ค้นหาชื่อกลุ่มหรือ OP..." />
 				</div>
-				<div className="chat-filter-tabs" role="tablist" aria-label="ประเภทห้องแชท">
-					{CHAT_CATEGORY_FILTERS.map((item) => (
-						<button
-							key={item.id}
-							role="tab"
-							aria-selected={category === item.id}
-							className={category === item.id ? "active" : ""}
-							onClick={() => setCategory(item.id)}
-						>
-							{item.label} <span className="chat-filter-count">{categoryCounts[item.id]}</span>
+				<div className="chat-filter-tabs">
+					{(["all", "talk", "oa", "square"] as const).map((value) => (
+						<button key={value} className={surface === value ? "active" : ""} onClick={() => setSurface(value)}>
+							{value === "all" ? "ทั้งหมด" : value === "talk" ? "กลุ่ม" : value === "oa" ? "OA" : "OP"}
 						</button>
 					))}
 				</div>
@@ -180,7 +170,7 @@ export function ChatList({
 						>
 							{/* TOP: Chip */}
 							<span className="chip chip--idle" style={{ fontSize: "var(--text-xs)", padding: "0.3rem 0.6rem" }}>
-								{chatCategoryLabel(chatCategory(chat))}
+								{chat.surface}
 							</span>
 
 							{/* MIDDLE: Name */}
