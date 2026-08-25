@@ -13,6 +13,7 @@ export { continueRequest, InternalError };
 
 import {
 	AuthService,
+	BuddyService,
 	CallService,
 	ChannelService,
 	LiffService,
@@ -126,6 +127,7 @@ export class BaseClient extends TypedEventEmitter<ClientEvents> {
 	readonly push: ConnManager;
 
 	readonly auth: AuthService;
+	readonly buddy: BuddyService;
 	readonly call: CallService;
 	readonly channel: ChannelService;
 	readonly liff: LiffService;
@@ -204,6 +206,7 @@ export class BaseClient extends TypedEventEmitter<ClientEvents> {
 		this.push = new ConnManager(this);
 
 		this.auth = new AuthService(this);
+		this.buddy = new BuddyService(this);
 		this.call = new CallService(this);
 		this.channel = new ChannelService(this);
 		this.liff = new LiffService(this);

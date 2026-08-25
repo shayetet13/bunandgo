@@ -3,13 +3,26 @@ import type { Surface } from "../db/schema.ts";
 import { isChatAdminAllowed, isChatAdminOnly, isChatEnabled } from "./chat-access.ts";
 import { isSquareAdmin } from "./square-roles.ts";
 
-export function shouldProcessIncomingMessage(botId: number, surface: Surface, message: TalkMessage | SquareMessage): boolean {
+/** True for a classic Talk group or multi-person room — false for a 1-1 chat. */
+export function isGroupOrRoomTalkMessage(message: TalkMessage): boolean {
+	const toType = message.to.type;
+	return toType === "GROUP" || toType === "ROOM" || toType === 2 || toType === 1;
+}
+
+export function shouldProcessIncomingMessage(
+	botId: number,
+	surface: Surface,
+	message: TalkMessage | SquareMessage,
+	isKnownOfficialAccountCounterparty = false,
+): boolean {
 	if (surface !== "square") {
 		// Individual 1-1 chats never auto-reply, regardless of chat settings —
-		// only groups/rooms (and, below, OpenChats) are eligible at all.
-		const toType = (message as TalkMessage).to.type;
-		const isGroupOrRoom = toType === "GROUP" || toType === "ROOM" || toType === 2 || toType === 1;
-		if (!isGroupOrRoom) return false;
+		// only groups/rooms, OpenChats (below), and a confirmed LINE Official
+		// Account counterparty are eligible. An OA is a service, not a person
+		// the bot would be creeping on by replying unprompted, and the caller
+		// only ever passes `true` once `oa-contacts.ts` has actually confirmed
+		// the mid's botType — an unresolved/unknown 1-1 mid still gets `false`.
+		if (!isGroupOrRoomTalkMessage(message as TalkMessage) && !isKnownOfficialAccountCounterparty) return false;
 	}
 
 	// Beyond that, a chat must be explicitly enabled — joining a group/OpenChat

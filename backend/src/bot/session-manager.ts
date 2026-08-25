@@ -28,7 +28,8 @@ import { SessionAttemptGate } from "./session-attempt.ts";
 import { shouldDiscardStoredAuthToken } from "./auth-token-policy.ts";
 import { planStallRecovery } from "./square-stall-policy.ts";
 import { isSquareAccessDenied } from "./square-access-policy.ts";
-import { shouldProcessIncomingMessage } from "./incoming-message-policy.ts";
+import { isGroupOrRoomTalkMessage, shouldProcessIncomingMessage } from "./incoming-message-policy.ts";
+import { clearOfficialAccountCache, isKnownOfficialAccount, resolveOfficialAccountStatus } from "./oa-contacts.ts";
 import { clearAutomaticReplyEchoes, isAutomaticReplyEcho, trackAutomaticReply } from "./automatic-reply-echo.ts";
 import { claimResend, clearTrackedReplies, MAX_RESENDS, trackSentReply, uniquifyReply, varyText } from "./reply-defense.ts";
 import { RESEND_WHEN_INVISIBLE, VERIFY_SENDS_ENABLED } from "./square-visibility.ts";
@@ -1442,6 +1443,7 @@ export function deleteBotSession(botId: number): void {
 	clearBotAnomalies(botId);
 	clearSquareRoles(botId);
 	clearSquareSelfMidsForBot(botId);
+	clearOfficialAccountCache(botId);
 	// Enqueued after every older storage write, so the writer worker cannot
 	// resurrect session rows after the synchronous bot deletion below.
 	void new SqliteStorage(botId).clear();
@@ -2076,6 +2078,32 @@ function messageIdOf(surface: Surface, message: TalkMessage | SquareMessage): st
 	return surface === "talk" ? String((message as TalkMessage).raw.id) : String((message as SquareMessage).raw.message.id);
 }
 
+/**
+ * Whether a 1-1 Talk message's counterparty is already confirmed as a LINE
+ * Official Account. Cache-only, safe for the reply hot path.
+ *
+ * For a fresh mid this cache has never seen, kicks off the lookup in the
+ * background and answers `false` for the current message — same shape as
+ * `isOwnMessage`'s `fillSquareSelfMid` call below. Starting an async lookup
+ * executes synchronously until its first await; queuing it behind the
+ * current reply dispatch means a brand-new 1-1 contact's first-ever lookup
+ * can never charge its cost to this message's reply latency.
+ */
+function isOfficialAccountCounterparty(botId: number, surface: Surface, message: TalkMessage | SquareMessage): boolean {
+	if (surface !== "talk" || isGroupOrRoomTalkMessage(message as TalkMessage)) return false;
+	const mid = message.to.id;
+	const known = isKnownOfficialAccount(botId, mid);
+	if (known !== undefined) return known;
+	queueMicrotask(() => void fillOfficialAccountStatus(botId, mid));
+	return false;
+}
+
+async function fillOfficialAccountStatus(botId: number, mid: string): Promise<void> {
+	const client = runtimes.get(botId)?.client;
+	if (!client) return;
+	await resolveOfficialAccountStatus(client, botId, mid);
+}
+
 interface IncomingRunOptions {
 	/** Negative/shadow id used only by the startup RAM warmup. */
 	prewarmGuardBotId?: number;
@@ -2087,7 +2115,7 @@ async function handleIncoming(
 	message: TalkMessage | SquareMessage,
 	options?: IncomingRunOptions,
 ): Promise<void> {
-	if (!shouldProcessIncomingMessage(botId, surface, message)) return;
+	if (!shouldProcessIncomingMessage(botId, surface, message, isOfficialAccountCounterparty(botId, surface, message))) return;
 	const prewarmGuardBotId = options?.prewarmGuardBotId;
 	const messageId = messageIdOf(surface, message);
 
