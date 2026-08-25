@@ -857,6 +857,32 @@ async function openLane(lane: Lane): Promise<void> {
 	});
 }
 
+/**
+ * TEMPORARY: verifies the per-IP distribution added by "distribute H2 lanes
+ * across fast LINE IPs" is actually spreading lanes across the pinned IP
+ * set live, not clustering on one or two — the thing that broke silently
+ * (SNI dropped, every lane failing) before this same feature's TLS fix.
+ * Remove once confirmed stable over a real run.
+ */
+let distributionLogTick = 0;
+function logLaneDistribution(): void {
+	for (const [origin, lanes] of pools) {
+		const byAddress = new Map<string, number>();
+		let usableCount = 0;
+		for (const lane of lanes) {
+			if (!isUsable(lane)) continue;
+			usableCount++;
+			const key = lane.remoteAddress ?? "(unknown)";
+			byAddress.set(key, (byAddress.get(key) ?? 0) + 1);
+		}
+		const summary = [...byAddress.entries()]
+			.sort((a, b) => b[1] - a[1])
+			.map(([ip, count]) => `${ip}=${count}`)
+			.join(", ");
+		console.log(`[lanes] ${origin} distribution: ${usableCount}/${lanes.length} usable — ${summary || "(none usable)"}`);
+	}
+}
+
 function startPingTimer(): void {
 	if (pingTimer) return;
 	pingTimer = setInterval(() => {
@@ -871,6 +897,11 @@ function startPingTimer(): void {
 			}
 			recycleAgedLane(lanes, now);
 		}
+		// Every ~10th tick (2.5min at the current 15s interval) rather than
+		// every tick, so this stays a diagnostic and not log spam over a long
+		// unattended run.
+		distributionLogTick = (distributionLogTick + 1) % 10;
+		if (distributionLogTick === 0) logLaneDistribution();
 	}, PING_INTERVAL_MS);
 	pingTimer.unref?.();
 }
@@ -921,6 +952,9 @@ export async function ensureLanes(origin: string): Promise<void> {
 		const reason = results.find((result) => result.status === "rejected");
 		throw reason?.status === "rejected" ? reason.reason : new Error(`no usable lane for ${key}`);
 	}
+	// Immediate snapshot on first connect, not just the periodic one — see
+	// logLaneDistribution's doc comment.
+	logLaneDistribution();
 }
 
 /**
