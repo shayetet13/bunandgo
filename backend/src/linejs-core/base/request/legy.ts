@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import { constants, createCipheriv, createDecipheriv, publicEncrypt, randomBytes } from "node:crypto";
 import { resolveLineAccessToken } from "./auth_token.ts";
+import { InternalError } from "../core/utils/error.ts";
 
 export interface LegyEncryptedFetchOptions {
 	endpoint?: string;
@@ -142,24 +143,61 @@ export function encodeLegyHeaders(headers: Record<string, string>): Buffer {
 	return Buffer.concat([u16be(body.length), body]);
 }
 
+/**
+ * Header entries declared in a decrypted Legy response are network input,
+ * not trusted local state — a truncated/corrupted body (a lane closing
+ * mid-response, a transient hiccup) must not be read past its real length.
+ * Before this validated every length against what remains, a corrupted
+ * response fell straight into `Buffer.readUInt16BE`'s native bounds check
+ * instead, surfacing as a cryptic `RangeError: The value of "offset" is out
+ * of range... Received 49150` with no indication it came from Legy header
+ * parsing at all (this is what `LegyPusherError — {"at":"keepalive noop"}`
+ * turned out to be).
+ */
+const MAX_LEGY_HEADER_COUNT = 4096;
+
 export function decodeLegyHeaders(data: Buffer): {
 	headers: Record<string, string>;
 	data: Buffer;
 } {
 	let offset = 0;
-	const readU16 = () => {
+	const need = (bytes: number, what: string): void => {
+		if (offset + bytes > data.length) {
+			throw new InternalError(
+				"LegyProtocolError",
+				`decodeLegyHeaders: truncated/corrupted response reading ${what} ` +
+					`(need ${bytes} byte(s) at offset ${offset}, only ${data.length - offset} of ${data.length} available)`,
+			);
+		}
+	};
+	const readU16 = (what: string): number => {
+		need(2, what);
 		const value = data.readUInt16BE(offset);
 		offset += 2;
 		return value;
 	};
-	const dataLength = readU16() + 2;
-	const count = readU16();
+	const dataLength = readU16("body length") + 2;
+	if (dataLength > data.length) {
+		throw new InternalError(
+			"LegyProtocolError",
+			`decodeLegyHeaders: declared body length ${dataLength} exceeds response size ${data.length}`,
+		);
+	}
+	const count = readU16("header count");
+	if (count > MAX_LEGY_HEADER_COUNT) {
+		throw new InternalError(
+			"LegyProtocolError",
+			`decodeLegyHeaders: implausible header count ${count} (max ${MAX_LEGY_HEADER_COUNT}) -- response is likely corrupted`,
+		);
+	}
 	const headers: Record<string, string> = {};
 	for (let i = 0; i < count; i++) {
-		const keyLength = readU16();
+		const keyLength = readU16(`header[${i}] key length`);
+		need(keyLength, `header[${i}] key`);
 		const key = data.subarray(offset, offset + keyLength).toString("ascii");
 		offset += keyLength;
-		const valueLength = readU16();
+		const valueLength = readU16(`header[${i}] value length`);
+		need(valueLength, `header[${i}] value`);
 		const value = data.subarray(offset, offset + valueLength).toString("utf-8");
 		offset += valueLength;
 		headers[key] = value;
