@@ -106,23 +106,43 @@ async function mapWithConcurrency<T, R>(items: readonly T[], limit: number, fn: 
  * rather than written as `false`, so this cache stays bounded by "OAs the
  * bot actually has," not by total friend-list size.
  */
+interface ClassifyResult {
+	isOfficial: boolean;
+	failed: boolean;
+	botType?: unknown;
+	errorMessage?: string;
+}
+
 export async function fetchOfficialAccountFriends(client: Client, botId: number): Promise<OfficialAccountFriend[]> {
 	const allUsers = await client.fetchUsers();
 	const users = allUsers.slice(0, MAX_OA_SYNC_FRIENDS);
-	const isOfficial = await mapWithConcurrency(users, OA_SYNC_CONCURRENCY, async (user) => {
+	const results = await mapWithConcurrency(users, OA_SYNC_CONCURRENCY, async (user): Promise<ClassifyResult> => {
 		try {
 			const detail = await client.base.buddy.getBuddyDetail({ buddyMid: user.mid });
-			return OFFICIAL_BOT_TYPES.has(detail.botType);
-		} catch {
+			return { isOfficial: OFFICIAL_BOT_TYPES.has(detail.botType), failed: false, botType: detail.botType };
+		} catch (err) {
 			// Most friends aren't buddies at all — getBuddyDetail rejecting for
-			// them is the expected, common case, not a failure worth surfacing.
-			return false;
+			// them is the expected, common case, not a failure worth surfacing
+			// on its own. Still recorded (see the diagnostic log below) so a
+			// sync that fails for *every* friend is distinguishable from one
+			// that correctly finds zero OAs among friends who really aren't any.
+			return { isOfficial: false, failed: true, errorMessage: err instanceof Error ? err.message : String(err) };
 		}
 	});
 
 	const found: OfficialAccountFriend[] = [];
+	let failedCount = 0;
+	const botTypeSamples: string[] = [];
+	const errorSamples: string[] = [];
 	users.forEach((user, i) => {
-		if (!isOfficial[i]) return;
+		const result = results[i]!;
+		if (result.failed) {
+			failedCount++;
+			if (errorSamples.length < 3) errorSamples.push(result.errorMessage ?? "(no message)");
+		} else if (botTypeSamples.length < 5) {
+			botTypeSamples.push(`${typeof result.botType}:${String(result.botType)}`);
+		}
+		if (!result.isOfficial) return;
 		let byBot = oaStatusByBot.get(botId);
 		if (!byBot) {
 			byBot = new Map();
@@ -135,12 +155,16 @@ export async function fetchOfficialAccountFriends(client: Client, botId: number)
 
 	// Visible in the dashboard's log tab (bot_events) so a friend list that
 	// doesn't surface any OA can be told apart from "genuinely has none" vs.
-	// a sync that's broken again for some other reason.
+	// "getBuddyDetail rejected for everyone" vs. "botType decoded as
+	// something this code doesn't recognize" — three different bugs that
+	// would otherwise all look identical from the outside.
 	logBotEvent(
 		botId,
 		"oa_friends_synced",
-		`เพื่อนทั้งหมด ${allUsers.length} คน · ตรวจแล้ว ${users.length} คน · เป็น OA ${found.length} คน` +
-			(allUsers.length > users.length ? ` · ข้าม ${allUsers.length - users.length} คน (เกินขีดจำกัด ${MAX_OA_SYNC_FRIENDS})` : ""),
+		`เพื่อนทั้งหมด ${allUsers.length} คน · ตรวจแล้ว ${users.length} คน (getBuddyDetail สำเร็จ ${users.length - failedCount}, ล้มเหลว ${failedCount}) · เป็น OA ${found.length} คน` +
+			(allUsers.length > users.length ? ` · ข้าม ${allUsers.length - users.length} คน (เกินขีดจำกัด ${MAX_OA_SYNC_FRIENDS})` : "") +
+			(found.length === 0 && botTypeSamples.length > 0 ? ` · ตัวอย่าง botType ที่เจอ: ${botTypeSamples.join(", ")}` : "") +
+			(errorSamples.length > 0 ? ` · ตัวอย่าง error: ${errorSamples.join(" | ")}` : ""),
 	);
 	return found;
 }
