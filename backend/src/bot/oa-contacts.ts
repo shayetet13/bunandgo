@@ -113,9 +113,40 @@ interface ClassifyResult {
 	errorMessage?: string;
 }
 
+/**
+ * TEMPORARY diagnostic: dumps the full raw `Contact` shape for a couple of
+ * real friends via `talk.getContact`, since neither `getContactsV3`'s
+ * `userType` (always undefined live) nor `buddy.getBuddyDetail` (rejects
+ * INVALID_MID/"not a buddy mid" for every ordinary friend, OA or not) turned
+ * out to carry OA status the way their names suggested. Remove once the
+ * right field is confirmed from a live bot_events row and wired into
+ * fetchOfficialAccountFriends's real classification below.
+ */
+async function logRawContactShapeForDiagnosis(client: Client, botId: number, mids: readonly string[]): Promise<void> {
+	const stringify = (value: unknown) => JSON.stringify(value, (_key, v) => (typeof v === "bigint" ? v.toString() : v));
+	const samples: string[] = [];
+	for (const mid of mids.slice(0, 6)) {
+		try {
+			const contact = await client.base.talk.getContact({ mid });
+			const json = stringify(contact);
+			samples.push(json.length > 280 ? json.slice(0, 280) + "…" : json);
+		} catch (err) {
+			samples.push(`getContact(${mid}) failed: ${err instanceof Error ? err.message : String(err)}`);
+		}
+	}
+	logBotEvent(botId, "oa_contact_shape_debug", samples.join(" ||| "));
+}
+
 export async function fetchOfficialAccountFriends(client: Client, botId: number): Promise<OfficialAccountFriend[]> {
 	const allUsers = await client.fetchUsers();
 	const users = allUsers.slice(0, MAX_OA_SYNC_FRIENDS);
+	if (users.length > 0) {
+		void logRawContactShapeForDiagnosis(
+			client,
+			botId,
+			users.map((u) => u.mid),
+		).catch(() => {});
+	}
 	const results = await mapWithConcurrency(users, OA_SYNC_CONCURRENCY, async (user): Promise<ClassifyResult> => {
 		try {
 			const detail = await client.base.buddy.getBuddyDetail({ buddyMid: user.mid });
