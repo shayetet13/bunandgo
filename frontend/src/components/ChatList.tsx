@@ -84,7 +84,7 @@ export function ChatList({
 				<div className="chat-filter-tabs">
 					{(["all", "talk", "square"] as const).map((value) => (
 						<button key={value} className={surface === value ? "active" : ""} onClick={() => setSurface(value)}>
-							{value === "all" ? "ทั้งหมด" : value === "talk" ? "กลุ่ม" : "OP"}
+							{value === "all" ? "ทั้งหมด" : value === "talk" ? "แชท/กลุ่ม/OA" : "OP"}
 						</button>
 					))}
 				</div>
