@@ -1,4 +1,6 @@
 import { connect as connectHttp2, constants, type ClientHttp2Session, type ClientHttp2Stream, type OutgoingHttpHeaders } from "node:http2";
+import { lookup as lookupDns } from "node:dns/promises";
+import type { LookupFunction } from "node:net";
 import { gunzipSync, inflateSync, brotliDecompressSync } from "node:zlib";
 import { attachRawDispatchBody } from "./raw-response.ts";
 import { laneRaceScore, recordLaneRace, shouldScorePollLane, type LaneRaceScore } from "./lane-race.ts";
@@ -110,6 +112,13 @@ const LANE_RECYCLE_MIN_GAP_MS = recycleInterval(process.env.LINE_H2_LANE_RECYCLE
 const CONNECT_TIMEOUT_MS = 10_000;
 /** Backoff ceiling for a host that is refusing connections outright. */
 const RECONNECT_MAX_DELAY_MS = 8_000;
+/** Re-read /etc/hosts often enough to pick up the six-hourly fast-IP refresh. */
+function addressCacheInterval(raw: string | undefined): number {
+	const value = Number(raw ?? 60_000);
+	return Number.isFinite(value) && value >= 1_000 ? value : 60_000;
+}
+
+const ADDRESS_CACHE_MS = addressCacheInterval(process.env.LINE_H2_ADDRESS_CACHE_MS);
 
 type LaneState = "connecting" | "ready" | "draining" | "dead";
 export type LaneRole = "send" | "poll" | "warm" | undefined;
@@ -148,6 +157,11 @@ interface Lane {
 	consecutiveFailures: number;
 	/** Wall-clock time this physical HTTP/2 session connected. */
 	openedAt: number;
+	/** Actual address selected for this physical session. */
+	remoteAddress?: string;
+	remoteFamily?: 4 | 6;
+	/** Reconnects rotate this lane through the complete fast-address pool. */
+	addressRotation: number;
 	reconnectTimer?: ReturnType<typeof setTimeout>;
 	/**
 	 * Set by `stopLanes`. A reconnect already in flight when the pool is torn
@@ -175,6 +189,19 @@ export interface LaneStat {
 	routingPreferred: boolean;
 	consecutiveFailures: number;
 	openedAt: number;
+	remoteAddress?: string;
+	remoteFamily?: 4 | 6;
+}
+
+export interface LaneRouteAddress {
+	address: string;
+	family: 4 | 6;
+}
+
+interface AddressCacheEntry {
+	addresses: LaneRouteAddress[];
+	expiresAt: number;
+	pending?: Promise<LaneRouteAddress[]>;
 }
 
 const pools = new Map<string, Lane[]>();
@@ -194,7 +221,62 @@ const sessionTickets = new Map<string, Buffer>();
 const preferredSendLaneIds = new Map<string, number>();
 /** Last rolling lane replacement per origin; keeps replacements staggered. */
 const lastLaneRecycleAt = new Map<string, number>();
+const addressCache = new Map<string, AddressCacheEntry>();
 let pingTimer: ReturnType<typeof setInterval> | undefined;
+
+/** Deterministic spread at startup; one-step rotation whenever a lane reconnects. */
+export function selectLaneRouteAddress(addresses: readonly LaneRouteAddress[], laneId: number, rotation: number = 0): LaneRouteAddress {
+	if (addresses.length === 0) throw new Error("no resolved lane addresses");
+	return addresses[(laneId + rotation) % addresses.length]!;
+}
+
+function originHostname(origin: string): string {
+	const hostname = new URL(origin).hostname;
+	return hostname.startsWith("[") && hostname.endsWith("]") ? hostname.slice(1, -1) : hostname;
+}
+
+async function resolveLaneAddresses(origin: string): Promise<LaneRouteAddress[]> {
+	const hostname = originHostname(origin);
+	const now = Date.now();
+	const cached = addressCache.get(hostname);
+	if (cached?.pending) return cached.pending;
+	if (cached && cached.addresses.length > 0 && cached.expiresAt > now) return cached.addresses;
+
+	const previous = cached?.addresses ?? [];
+	const pending = lookupDns(hostname, { all: true, verbatim: true })
+		.then((results) => {
+			const seen = new Set<string>();
+			const addresses: LaneRouteAddress[] = [];
+			for (const result of results) {
+				if ((result.family !== 4 && result.family !== 6) || seen.has(result.address)) continue;
+				seen.add(result.address);
+				addresses.push({ address: result.address, family: result.family });
+			}
+			if (addresses.length === 0) throw new Error(`no addresses resolved for ${hostname}`);
+			addressCache.set(hostname, { addresses, expiresAt: Date.now() + ADDRESS_CACHE_MS });
+			return addresses;
+		})
+		.catch((error) => {
+			if (previous.length > 0) {
+				addressCache.set(hostname, { addresses: previous, expiresAt: Date.now() + ADDRESS_CACHE_MS });
+				return previous;
+			}
+			addressCache.delete(hostname);
+			throw error;
+		});
+	addressCache.set(hostname, { addresses: previous, expiresAt: cached?.expiresAt ?? 0, pending });
+	return pending;
+}
+
+function lookupOnly(address: LaneRouteAddress): LookupFunction {
+	return (_hostname, options, callback) => {
+		if (options.all) {
+			callback(null, [address]);
+			return;
+		}
+		callback(null, address.address, address.family);
+	};
+}
 
 function isUsable(lane: Lane): boolean {
 	const session = lane.session;
@@ -627,7 +709,7 @@ function scheduleReconnect(lane: Lane): void {
 	lane.reconnectTimer.unref?.();
 }
 
-function openLane(lane: Lane): Promise<void> {
+async function openLane(lane: Lane): Promise<void> {
 	if (lane.disposed) return Promise.reject(new Error("lane pool stopped"));
 	if (lane.state === "connecting" || isUsable(lane)) return Promise.resolve();
 	lane.state = "connecting";
@@ -644,10 +726,30 @@ function openLane(lane: Lane): Promise<void> {
 	lane.lastPollOkAt = 0;
 	lane.sendSlowUntil = 0;
 	lane.openedAt = 0;
+	lane.remoteAddress = undefined;
+	lane.remoteFamily = undefined;
+
+	let addresses: LaneRouteAddress[];
+	try {
+		addresses = await resolveLaneAddresses(lane.origin);
+	} catch (error) {
+		lane.consecutiveFailures++;
+		lane.state = "dead";
+		scheduleReconnect(lane);
+		throw error;
+	}
+	if (lane.disposed) throw new Error("lane pool stopped");
+	const selectedAddress = selectLaneRouteAddress(addresses, lane.id, lane.addressRotation);
+	lane.addressRotation = (lane.addressRotation + 1) % addresses.length;
 
 	return new Promise<void>((resolve, reject) => {
 		let settled = false;
-		const session = connectHttp2(lane.origin, { session: sessionTickets.get(lane.origin) });
+		const session = connectHttp2(lane.origin, {
+			session: sessionTickets.get(lane.origin),
+			// Keep :authority/SNI on legy.line-apps.com while assigning each
+			// physical lane a specific fast IP. A request is still sent once.
+			lookup: lookupOnly(selectedAddress),
+		});
 		session.on("remoteSettings", (settings) => {
 			const capacity = settings.maxConcurrentStreams;
 			lane.streamCapacity = Number.isFinite(capacity) && capacity > 0 ? capacity : undefined;
@@ -686,6 +788,8 @@ function openLane(lane: Lane): Promise<void> {
 			lane.openedAt = Date.now();
 			// Tiny Thrift frames should never wait behind Nagle's algorithm.
 			const socket = session.socket;
+			lane.remoteAddress = socket.remoteAddress ?? selectedAddress.address;
+			lane.remoteFamily = socket.remoteFamily === "IPv4" ? 4 : socket.remoteFamily === "IPv6" ? 6 : selectedAddress.family;
 			if ("setNoDelay" in socket && typeof socket.setNoDelay === "function") socket.setNoDelay(true);
 			// Cache each fresh ticket so the *next* connect to this origin can
 			// resume instead of paying a full handshake again.
@@ -793,6 +897,9 @@ export async function ensureLanes(origin: string): Promise<void> {
 			sendSlowUntil: 0,
 			consecutiveFailures: 0,
 			openedAt: 0,
+			remoteAddress: undefined,
+			remoteFamily: undefined,
+			addressRotation: 0,
 			disposed: false,
 		}));
 		pools.set(key, lanes);
@@ -1131,6 +1238,8 @@ export function laneStats(): LaneStat[] {
 				routingPreferred: isUsable(lane) && lane.id === fastest?.id,
 				consecutiveFailures: lane.consecutiveFailures,
 				openedAt: lane.openedAt,
+				remoteAddress: lane.remoteAddress,
+				remoteFamily: lane.remoteFamily,
 			});
 		}
 	}
@@ -1148,6 +1257,8 @@ export interface LaneRaceLaneView {
 	applicationSampleAt: number;
 	sendSlowUntil: number;
 	routingPreferred: boolean;
+	remoteAddress?: string;
+	remoteFamily?: 4 | 6;
 	send: LaneRaceScore;
 	poll: LaneRaceScore;
 }
@@ -1171,6 +1282,8 @@ export function laneRaceView(): LaneRaceLaneView[] {
 		applicationSampleAt: lane.applicationSampleAt,
 		sendSlowUntil: lane.sendSlowUntil,
 		routingPreferred: lane.routingPreferred,
+		remoteAddress: lane.remoteAddress,
+		remoteFamily: lane.remoteFamily,
 		send: laneRaceScore(lane.origin, lane.id, "send"),
 		poll: laneRaceScore(lane.origin, lane.id, "poll"),
 	}));
@@ -1195,4 +1308,5 @@ export function stopLanes(): void {
 	originPrimeRuns.clear();
 	preferredSendLaneIds.clear();
 	lastLaneRecycleAt.clear();
+	addressCache.clear();
 }

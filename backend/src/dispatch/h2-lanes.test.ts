@@ -15,6 +15,7 @@ import {
 	primeLanes,
 	selectAgedLaneForRecycle,
 	selectFastestSendLaneCandidate,
+	selectLaneRouteAddress,
 	selectPollingLaneCandidate,
 	shouldPreferFastestSendLane,
 	shouldPreferLane,
@@ -371,6 +372,22 @@ describe("owned HTTP/2 lanes", () => {
 });
 
 describe("RTT-aware lane ranking", () => {
+	test("spreads lanes across every resolved fast IP and rotates on reconnect", () => {
+		const addresses = [
+			{ address: "147.92.146.129", family: 4 as const },
+			{ address: "147.92.146.138", family: 4 as const },
+			{ address: "2400:dcc0:a3a1:1000::1", family: 6 as const },
+			{ address: "2400:dcc0:a3a1:1000::2", family: 6 as const },
+		];
+
+		expect(new Set(Array.from({ length: 8 }, (_, laneId) => selectLaneRouteAddress(addresses, laneId).address))).toEqual(
+			new Set(addresses.map(({ address }) => address)),
+		);
+		expect(selectLaneRouteAddress(addresses, 0, 0)).toEqual(addresses[0]);
+		expect(selectLaneRouteAddress(addresses, 0, 1)).toEqual(addresses[1]);
+		expect(selectLaneRouteAddress(addresses, 3, 1)).toEqual(addresses[0]);
+	});
+
 	test("chooses Server 3 only when its real result is faster", () => {
 		const local = { sendRttMs: 24, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 };
 		expect(shouldPreferRemoteLane({ sendRttMs: 19, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 }, local)).toBe(true);
