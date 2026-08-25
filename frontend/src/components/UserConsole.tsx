@@ -13,6 +13,8 @@ import type {
 	ScheduledPost,
 } from "../lib/types.ts";
 import { useLiveSocket } from "../lib/useWebSocket.ts";
+import { playAlertSiren } from "../lib/siren.ts";
+import { playIdLockMismatchAlert } from "../lib/id-lock-alert-audio.ts";
 import { reconcileFetchedBots } from "../lib/bot-status-sync.ts";
 import { previewReplyText } from "../lib/text-preview.ts";
 import { bangkokInputToEpochMs, formatBangkokDateTime } from "../lib/bangkok-time.ts";
@@ -88,44 +90,6 @@ function statusLabel(status: BotStatus): string {
 
 function errorText(err: unknown): string {
 	return err instanceof Error ? err.message : String(err);
-}
-
-/**
- * A short synthesized siren "wail" — no audio asset to host or license, just
- * an oscillator sweep. Fires once per page load, only when there is an
- * actual admin announcement to draw attention to. Browsers that block audio
- * without a preceding user gesture (or that lack AudioContext) simply get no
- * sound; this is decoration, never load-bearing, so failures are swallowed.
- */
-function playAnnouncementSiren(): void {
-	try {
-		const AudioContextCtor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-		if (!AudioContextCtor) return;
-		const ctx = new AudioContextCtor();
-		void ctx.resume?.().catch(() => {});
-		const oscillator = ctx.createOscillator();
-		const gain = ctx.createGain();
-		oscillator.type = "sine";
-		oscillator.connect(gain);
-		gain.connect(ctx.destination);
-		const now = ctx.currentTime;
-		const peak = 0.16;
-		gain.gain.setValueAtTime(0.0001, now);
-		gain.gain.linearRampToValueAtTime(peak, now + 0.06);
-		// Two rise/fall wails, like a siren winding up and down twice.
-		oscillator.frequency.setValueAtTime(620, now);
-		oscillator.frequency.linearRampToValueAtTime(980, now + 0.5);
-		oscillator.frequency.linearRampToValueAtTime(620, now + 1);
-		oscillator.frequency.linearRampToValueAtTime(980, now + 1.5);
-		oscillator.frequency.linearRampToValueAtTime(620, now + 2);
-		gain.gain.setValueAtTime(peak, now + 1.85);
-		gain.gain.linearRampToValueAtTime(0.0001, now + 2.1);
-		oscillator.start(now);
-		oscillator.stop(now + 2.15);
-		oscillator.onended = () => void ctx.close().catch(() => {});
-	} catch {
-		// Best-effort only.
-	}
 }
 
 export function UserConsole({ username, onLogout }: UserConsoleProps) {
@@ -271,7 +235,7 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 				setAnnouncements(fetched);
 				// Once per page load, and only when there is something to alert
 				// about — an empty announcement list should stay quiet.
-				if (fetched.length > 0) playAnnouncementSiren();
+				if (fetched.length > 0) playAlertSiren();
 			})
 			.catch(() => {
 				// A failed fetch just leaves the card empty rather than blocking
@@ -370,6 +334,7 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 			const event = data as IdLockMismatchEvent;
 			clearConfirm(event.botId);
 			setIdLockAlert(event);
+			playIdLockMismatchAlert(event);
 		},
 		chats_updated: (data) => {
 			const { botId } = data as { botId: number };

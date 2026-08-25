@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./lib/api.ts";
 import { useLiveSocket } from "./lib/useWebSocket.ts";
+import { playIdLockMismatchAlert } from "./lib/id-lock-alert-audio.ts";
 import { reconcileFetchedBots } from "./lib/bot-status-sync.ts";
 import { groupBotsByOwner } from "./lib/group-bots.ts";
 import { applyVisibleBotOrder } from "./lib/bot-order.ts";
@@ -302,6 +303,7 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 			const event = data as IdLockMismatchEvent;
 			clearConfirm(event.botId);
 			setIdLockAlert(event);
+			playIdLockMismatchAlert(event);
 		},
 		ready: (data) => {
 			const { botId } = data as { botId: number };
