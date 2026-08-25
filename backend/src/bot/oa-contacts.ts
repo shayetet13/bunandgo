@@ -1,5 +1,6 @@
 import type { Client } from "../linejs-core/client/mod.ts";
 import type { BotType } from "../linejs-core/types/line_types.ts";
+import { logBotEvent } from "./bot-events.ts";
 
 /**
  * Whether a 1:1 Talk counterparty is a LINE Official Account, cached per bot
@@ -75,12 +76,29 @@ export interface OfficialAccountFriend {
  * rather than written as `false`, so this cache stays bounded by "OAs the
  * bot actually has," not by total friend-list size.
  */
+/**
+ * True when a `GetContactV3Response.userType` value means "bot/Official
+ * Account" rather than "regular user". Checked loosely on purpose: the
+ * generated type says this decodes to the string "BOT" or the number `2`,
+ * but a thrift i64/enum field can also come back as a `bigint`, and if a
+ * fallback response shape (V2/getUser — see fetchUsers()) ever omits the
+ * field entirely it must not be silently treated as "definitely not an OA".
+ */
+function isBotUserType(userType: unknown): boolean {
+	if (userType === "BOT" || userType === 2) return true;
+	if (typeof userType === "bigint") return userType === 2n;
+	if (typeof userType === "string") return userType.trim().toUpperCase() === "BOT";
+	return false;
+}
+
 export async function fetchOfficialAccountFriends(client: Client, botId: number): Promise<OfficialAccountFriend[]> {
 	const users = await client.fetchUsers();
 	const found: OfficialAccountFriend[] = [];
+	const sampleUserTypes: string[] = [];
 	for (const user of users) {
 		const userType = (user.raw as { userType?: unknown }).userType;
-		if (userType !== "BOT" && userType !== 2) continue;
+		if (sampleUserTypes.length < 5) sampleUserTypes.push(`${typeof userType}:${String(userType)}`);
+		if (!isBotUserType(userType)) continue;
 		let byBot = oaStatusByBot.get(botId);
 		if (!byBot) {
 			byBot = new Map();
@@ -90,5 +108,14 @@ export async function fetchOfficialAccountFriends(client: Client, botId: number)
 		const displayName = (user.raw as { targetProfileDetail?: { profileName?: string } }).targetProfileDetail?.profileName;
 		found.push({ mid: user.mid, displayName: displayName || user.mid });
 	}
+	// Visible in the dashboard's log tab (bot_events) so a friend list that
+	// doesn't surface any OA can be told apart from "genuinely has none" vs.
+	// "userType didn't decode the way this code expects" without SSH access.
+	logBotEvent(
+		botId,
+		"oa_friends_synced",
+		`เพื่อนทั้งหมด ${users.length} คน · เป็น OA ${found.length} คน` +
+			(found.length === 0 && users.length > 0 ? ` · ตัวอย่าง userType ที่เจอ: ${sampleUserTypes.join(", ") || "(ไม่มี field นี้)"}` : ""),
+	);
 	return found;
 }
