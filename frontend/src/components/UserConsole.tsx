@@ -32,6 +32,8 @@ import { StartConfirmPanel } from "./StartConfirmPanel.tsx";
 import { ToggleSwitch } from "./ToggleSwitch.tsx";
 import { AdminOnlyControl } from "./AdminOnlyControl.tsx";
 import { IdLockAlertModal } from "./IdLockAlertModal.tsx";
+import { CHAT_CATEGORY_FILTERS, chatCategory, chatLabel, type ChatCategoryFilter } from "../lib/chat-category.ts";
+import { newestScheduledPostsFirst } from "../lib/scheduled-post-order.ts";
 
 interface ConfirmState {
 	token: string;
@@ -79,7 +81,7 @@ function announceTimeLabel(timestamp: number): string {
 }
 
 function surfaceLabel(surface: LatencySample["surface"]): string {
-	return surface === "square" ? "OP" : surface === "oa" ? "OA" : "กลุ่ม";
+	return surface === "square" ? "OP Talk" : surface === "oa" ? "LINE OA" : "LINE Talk";
 }
 
 function statusLabel(status: BotStatus): string {
@@ -112,6 +114,7 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 
 	const [chats, setChats] = useState<ChatRow[]>([]);
 	const [groupQuery, setGroupQuery] = useState("");
+	const [roomCategory, setRoomCategory] = useState<ChatCategoryFilter>("all");
 
 	const [rules, setRules] = useState<Rule[]>([]);
 	const [showRuleForm, setShowRuleForm] = useState(false);
@@ -204,7 +207,7 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 
 	async function refreshScheduledPosts(botId: number) {
 		const nextPosts = await api.listScheduledPosts(botId).catch(() => []);
-		if (botId === selectedBotIdRef.current) setScheduledPosts(nextPosts);
+		if (botId === selectedBotIdRef.current) setScheduledPosts(newestScheduledPostsFirst(nextPosts));
 	}
 
 	useEffect(() => {
@@ -389,10 +392,14 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 	const normalizedGroupQuery = groupQuery.trim().toLowerCase();
 	const visibleChats = chats.filter(
 		(chat) =>
-			!normalizedGroupQuery ||
-			(chat.name ?? "").toLowerCase().includes(normalizedGroupQuery) ||
-			chat.mid.toLowerCase().includes(normalizedGroupQuery),
+			(roomCategory === "all" || chatCategory(chat) === roomCategory) &&
+			(!normalizedGroupQuery ||
+				(chat.name ?? "").toLowerCase().includes(normalizedGroupQuery) ||
+				chat.mid.toLowerCase().includes(normalizedGroupQuery)),
 	);
+	const roomCategoryCounts = Object.fromEntries(
+		CHAT_CATEGORY_FILTERS.map(({ id }) => [id, id === "all" ? chats.length : chats.filter((chat) => chatCategory(chat) === id).length]),
+	) as Record<ChatCategoryFilter, number>;
 
 	async function logout() {
 		await api.logout().catch(() => {});
@@ -793,36 +800,58 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 												</span>
 											</div>
 											<div className="uc-card-body">
-												<p className="uc-note">บอทจะตอบเฉพาะห้องที่เปิดสวิตช์ไว้เท่านั้น — แชทส่วนตัวจะไม่มีการตอบกลับเสมอ</p>
+												<p className="uc-note">
+													บอทจะตอบเฉพาะห้องที่เปิดสวิตช์ไว้ — แชท 1:1 บุคคลทั่วไปจะไม่ตอบกลับ ส่วน LINE OA, OP Talk และกลุ่ม LINE
+													จะแยกประเภทให้ชัดเจนด้านล่าง
+												</p>
 												<div className="uc-search">
 													<span aria-hidden="true">⌕</span>
 													<input
 														value={groupQuery}
 														onChange={(e) => setGroupQuery(e.target.value)}
-														placeholder="ค้นหาชื่อกลุ่มหรือ OP…"
+														placeholder="ค้นหา 1:1, LINE OA, OP Talk หรือกลุ่ม…"
 														aria-label="ค้นหาห้องแชท"
 													/>
+												</div>
+												<div className="uc-room-tabs" role="tablist" aria-label="ประเภทห้องแชท">
+													{CHAT_CATEGORY_FILTERS.map((item) => (
+														<button
+															key={item.id}
+															className="uc-room-tab"
+															role="tab"
+															aria-selected={roomCategory === item.id}
+															onClick={() => setRoomCategory(item.id)}
+														>
+															<span>{item.label}</span>
+															<span className="uc-room-tab-count">{roomCategoryCounts[item.id]}</span>
+														</button>
+													))}
 												</div>
 												<div className="uc-rows">
 													{visibleChats.length === 0 && (
 														<p className="uc-empty">{chats.length === 0 ? "ยังไม่มีข้อมูลห้องแชท" : "ไม่พบห้องที่ค้นหา"}</p>
 													)}
 													{visibleChats.map((chat) => (
-														<div className="uc-row" key={chat.mid}>
-															<span className="uc-tag">{surfaceLabel(chat.surface)}</span>
+														<div
+															className={chat.surface === "square" ? "uc-row uc-chat-row uc-chat-row--openchat" : "uc-row uc-chat-row"}
+															key={chat.mid}
+														>
+															<span className="uc-tag">{chatLabel(chat)}</span>
 															<div className="uc-row-main">
 																<span className="uc-row-title">{chat.name ?? chat.mid}</span>
-																{/* OpenChat only — a classic LINE group has no admin
-																    role for this to narrow to. */}
-																{chat.surface === "square" && selectedBotId !== undefined && (
+															</div>
+															{/* Keep the OpenChat-only control in its own grid column. Putting it
+													    under the name makes the title sit above the row's visual centre. */}
+															{chat.surface === "square" && selectedBotId !== undefined && (
+																<div className="uc-chat-row-admin">
 																	<AdminOnlyControl
 																		botId={selectedBotId}
 																		chat={chat}
 																		onToggleAdminOnly={(target) => void toggleGroupAdminOnly(target)}
 																		onError={setErrorMessage}
 																	/>
-																)}
-															</div>
+																</div>
+															)}
 															<div className="uc-row-actions">
 																<ToggleSwitch isSelected={!!chat.enabled} onToggle={() => void toggleGroupEnabled(chat)} />
 															</div>
@@ -987,7 +1016,7 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 																</option>
 																{chats.map((chat) => (
 																	<option key={chat.mid} value={chat.mid}>
-																		{surfaceLabel(chat.surface)} · {chat.name ?? chat.mid}
+																		{chatLabel(chat)} · {chat.name ?? chat.mid}
 																	</option>
 																))}
 															</select>
@@ -1066,7 +1095,7 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 																	</div>
 																	<div className="uc-row-main">
 																		<span className="uc-row-sub">
-																			{surfaceLabel(post.surface)} · {chat?.name ?? post.targetMid}
+																			{chat ? chatLabel(chat) : surfaceLabel(post.surface)} · {chat?.name ?? post.targetMid}
 																		</span>
 																		<span className="uc-row-title">{previewReplyText(post.text)}</span>
 																	</div>
