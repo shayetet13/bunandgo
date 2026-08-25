@@ -1,6 +1,7 @@
 import { connect as connectHttp2, constants, type ClientHttp2Session, type ClientHttp2Stream, type OutgoingHttpHeaders } from "node:http2";
 import { lookup as lookupDns } from "node:dns/promises";
-import type { LookupFunction } from "node:net";
+import { connect as connectTcp } from "node:net";
+import { connect as connectTls, type ConnectionOptions as TlsConnectionOptions } from "node:tls";
 import { gunzipSync, inflateSync, brotliDecompressSync } from "node:zlib";
 import { attachRawDispatchBody } from "./raw-response.ts";
 import { laneRaceScore, recordLaneRace, shouldScorePollLane, type LaneRaceScore } from "./lane-race.ts";
@@ -266,16 +267,6 @@ async function resolveLaneAddresses(origin: string): Promise<LaneRouteAddress[]>
 		});
 	addressCache.set(hostname, { addresses: previous, expiresAt: cached?.expiresAt ?? 0, pending });
 	return pending;
-}
-
-function lookupOnly(address: LaneRouteAddress): LookupFunction {
-	return (_hostname, options, callback) => {
-		if (options.all) {
-			callback(null, [address]);
-			return;
-		}
-		callback(null, address.address, address.family);
-	};
 }
 
 function isUsable(lane: Lane): boolean {
@@ -744,11 +735,31 @@ async function openLane(lane: Lane): Promise<void> {
 
 	return new Promise<void>((resolve, reject) => {
 		let settled = false;
+		const tlsSession = sessionTickets.get(lane.origin);
 		const session = connectHttp2(lane.origin, {
-			session: sessionTickets.get(lane.origin),
-			// Keep :authority/SNI on legy.line-apps.com while assigning each
-			// physical lane a specific fast IP. A request is still sent once.
-			lookup: lookupOnly(selectedAddress),
+			session: tlsSession,
+			// Bun drops TLS SNI when its HTTP/2 connector receives a custom DNS
+			// callback, which makes LINE serve its default *.line.naver.jp cert.
+			// Build the socket explicitly so the route uses the selected IP while
+			// :authority, certificate verification and SNI keep the real hostname.
+			createConnection: (authority, _options) => {
+				const port = Number(authority.port || (authority.protocol === "https:" ? 443 : 80));
+				if (authority.protocol === "https:") {
+					const tlsOptions: TlsConnectionOptions = {
+						host: selectedAddress.address,
+						port,
+						// No `family` here: `host` is already a resolved IP literal, not
+						// a hostname, so there is no DNS lookup left for `family` to hint
+						// -- and node:tls's ConnectionOptions type doesn't declare it
+						// (unlike node:net's, used below for the plain-TCP branch).
+						servername: originHostname(lane.origin),
+						ALPNProtocols: ["h2"],
+					};
+					if (tlsSession) tlsOptions.session = tlsSession;
+					return connectTls(tlsOptions);
+				}
+				return connectTcp({ host: selectedAddress.address, port, family: selectedAddress.family });
+			},
 		});
 		session.on("remoteSettings", (settings) => {
 			const capacity = settings.maxConcurrentStreams;
