@@ -111,7 +111,8 @@ export function RuleEditor({ rules, onCreate, onToggle, onUpdate, onDelete }: Ru
 			>
 				<select value={surface} onChange={(e) => setSurface(e.target.value as Rule["surface"])} style={inputStyle}>
 					<option value="all">ทุกประเภท (all)</option>
-					<option value="talk">แชท 1:1 / กลุ่ม / OA (talk)</option>
+					<option value="talk">กลุ่มแชท (talk)</option>
+					<option value="oa">LINE OA</option>
 					<option value="square">OpenChat (square)</option>
 				</select>
 				<select
@@ -200,7 +201,8 @@ export function RuleEditor({ rules, onCreate, onToggle, onUpdate, onDelete }: Ru
 								style={inputStyle}
 							>
 								<option value="all">ทุกประเภท (all)</option>
-								<option value="talk">แชท 1:1 / กลุ่ม / OA (talk)</option>
+								<option value="talk">กลุ่มแชท (talk)</option>
+								<option value="oa">LINE OA</option>
 								<option value="square">OpenChat (square)</option>
 							</select>
 							<select

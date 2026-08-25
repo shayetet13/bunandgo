@@ -79,7 +79,7 @@ function announceTimeLabel(timestamp: number): string {
 }
 
 function surfaceLabel(surface: LatencySample["surface"]): string {
-	return surface === "square" ? "OP" : "กลุ่ม";
+	return surface === "square" ? "OP" : surface === "oa" ? "OA" : "กลุ่ม";
 }
 
 function statusLabel(status: BotStatus): string {
@@ -809,7 +809,7 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 													)}
 													{visibleChats.map((chat) => (
 														<div className="uc-row" key={chat.mid}>
-															<span className="uc-tag">{chat.surface === "square" ? "OP" : "กลุ่ม"}</span>
+															<span className="uc-tag">{surfaceLabel(chat.surface)}</span>
 															<div className="uc-row-main">
 																<span className="uc-row-title">{chat.name ?? chat.mid}</span>
 																{/* OpenChat only — a classic LINE group has no admin
@@ -987,7 +987,7 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 																</option>
 																{chats.map((chat) => (
 																	<option key={chat.mid} value={chat.mid}>
-																		{chat.surface === "square" ? "OP" : "กลุ่ม"} · {chat.name ?? chat.mid}
+																		{surfaceLabel(chat.surface)} · {chat.name ?? chat.mid}
 																	</option>
 																))}
 															</select>
@@ -1066,7 +1066,7 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 																	</div>
 																	<div className="uc-row-main">
 																		<span className="uc-row-sub">
-																			{post.surface === "square" ? "OP" : "กลุ่ม"} · {chat?.name ?? post.targetMid}
+																			{surfaceLabel(post.surface)} · {chat?.name ?? post.targetMid}
 																		</span>
 																		<span className="uc-row-title">{previewReplyText(post.text)}</span>
 																	</div>

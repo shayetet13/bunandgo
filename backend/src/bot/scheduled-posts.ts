@@ -45,6 +45,9 @@ const PAST_GRACE_MS = 2_000;
 
 const TARGET_MID_PATTERN: Record<Surface, RegExp> = {
 	talk: /^[urc][0-9a-f]{32}$/i,
+	// Same pattern as "talk" — an OA counterparty is still addressed by its
+	// user mid, same as any other 1-1 chat.
+	oa: /^[urc][0-9a-f]{32}$/i,
 	square: /^m[0-9a-f]{32}$/i,
 };
 
@@ -64,8 +67,8 @@ export interface ScheduledPostInput {
 }
 
 function assertScheduledPostInput(input: ScheduledPostInput): void {
-	if (!input || !["talk", "square"].includes(input.surface)) {
-		throw new ScheduledPostValidationError("surface must be talk or square");
+	if (!input || !["talk", "square", "oa"].includes(input.surface)) {
+		throw new ScheduledPostValidationError("surface must be talk, square, or oa");
 	}
 	if (typeof input.targetMid !== "string" || !TARGET_MID_PATTERN[input.surface].test(input.targetMid)) {
 		throw new ScheduledPostValidationError("targetMid is invalid for surface");

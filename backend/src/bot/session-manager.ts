@@ -97,10 +97,16 @@ if (!DISPATCH_TOKEN) {
 	throw new Error("DISPATCH_TOKEN env var is required (shared secret with backend/sender)");
 }
 
+// `surface` updates on conflict too, not just `name`: refreshChatsCache's OA
+// pass runs after its joined-chats pass, so a mid that shows up in both
+// (message history *and* a confirmed OA friend) must end up "oa", the more
+// specific classification, not stuck at whichever pass happened to run first.
 const upsertChatStmt = db.prepare<null, [number, string, Surface, string | null, number]>(
-	"INSERT INTO chats (bot_id, mid, surface, name, joined_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(bot_id, mid) DO UPDATE SET name = excluded.name",
+	"INSERT INTO chats (bot_id, mid, surface, name, joined_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(bot_id, mid) DO UPDATE SET name = excluded.name, surface = excluded.surface",
 );
 const chatExistsStmt = db.prepare<{ found: number }, [number, string]>("SELECT 1 AS found FROM chats WHERE bot_id = ? AND mid = ? LIMIT 1");
+// Name-only — see fillTalkChatName's doc comment for why this must not touch surface.
+const updateChatNameStmt = db.prepare<null, [string, number, string]>("UPDATE chats SET name = ? WHERE bot_id = ? AND mid = ?");
 const persistedE2eeTargetsStmt = db.prepare<{ key: string }, [number]>(
 	"SELECT key FROM kv WHERE bot_id = ? AND key LIKE 'compactE2EETarget:%' AND value_json = 'true' ORDER BY rowid DESC",
 );
@@ -1732,7 +1738,8 @@ function wireListeners(botId: number, client: Client, rt: BotRuntime): void {
 	rt.listenAbort = abort;
 	const onMessage = (message: TalkMessage) => {
 		if (rt.stopRequested || runtimes.get(botId)?.client !== client) return;
-		void handleIncoming(botId, "talk", message).catch((err) => emitError(botId, err));
+		const surface = resolveTalkSurface(botId, message);
+		void handleIncoming(botId, surface, message).catch((err) => emitError(botId, err));
 	};
 	const onSquareMessage = (message: SquareMessage) => {
 		if (rt.stopRequested || runtimes.get(botId)?.client !== client) return;
@@ -2048,7 +2055,7 @@ function clearSquareSelfMidsForBot(botId: number): void {
  * to match a rule answers itself, forever.
  */
 function isOwnMessage(botId: number, surface: Surface, message: TalkMessage | SquareMessage, chatMid: string): boolean {
-	if (surface === "talk") return (message as TalkMessage).isMyMessage;
+	if (surface !== "square") return (message as TalkMessage).isMyMessage;
 
 	const selfMid = squareSelfMids.get(squareSelfMidKey(botId, chatMid));
 	if (selfMid !== undefined) return selfMid === message.from.id;
@@ -2081,7 +2088,7 @@ async function fillSquareSelfMid(botId: number, squareChatMid: string): Promise<
 }
 
 function messageIdOf(surface: Surface, message: TalkMessage | SquareMessage): string {
-	return surface === "talk" ? String((message as TalkMessage).raw.id) : String((message as SquareMessage).raw.message.id);
+	return surface === "square" ? String((message as SquareMessage).raw.message.id) : String((message as TalkMessage).raw.id);
 }
 
 /**
@@ -2089,19 +2096,20 @@ function messageIdOf(surface: Surface, message: TalkMessage | SquareMessage): st
  * Official Account. Cache-only, safe for the reply hot path.
  *
  * For a fresh mid this cache has never seen, kicks off the lookup in the
- * background and answers `false` for the current message — same shape as
+ * background and reports "talk" for the current message — same shape as
  * `isOwnMessage`'s `fillSquareSelfMid` call below. Starting an async lookup
  * executes synchronously until its first await; queuing it behind the
  * current reply dispatch means a brand-new 1-1 contact's first-ever lookup
- * can never charge its cost to this message's reply latency.
+ * can never charge its cost to this message's reply latency. The next
+ * message from the same mid gets the cached answer as an O(1) read.
  */
-function isOfficialAccountCounterparty(botId: number, surface: Surface, message: TalkMessage | SquareMessage): boolean {
-	if (surface !== "talk" || isGroupOrRoomTalkMessage(message as TalkMessage)) return false;
+function resolveTalkSurface(botId: number, message: TalkMessage): Surface {
+	if (isGroupOrRoomTalkMessage(message)) return "talk";
 	const mid = message.to.id;
 	const known = isKnownOfficialAccount(botId, mid);
-	if (known !== undefined) return known;
+	if (known !== undefined) return known ? "oa" : "talk";
 	queueMicrotask(() => void fillOfficialAccountStatus(botId, mid));
-	return false;
+	return "talk";
 }
 
 async function fillOfficialAccountStatus(botId: number, mid: string): Promise<void> {
@@ -2111,35 +2119,43 @@ async function fillOfficialAccountStatus(botId: number, mid: string): Promise<vo
 }
 
 /**
- * Registers a Talk chat (1-1 or group) in the `chats` table the moment its
- * first message arrives, instead of waiting for the next full reconnect's
- * `refreshChatsCache`. Without this, a chat that starts after the bot is
- * already running — a user who just started messaging an OA mid-session,
- * say — never appears in the dashboard's chat list at all: there is nothing
- * to enable, no matter how correct the reply policy is.
+ * Registers a Talk/OA chat (1-1, group, or confirmed OA) in the `chats`
+ * table the moment its first message arrives, instead of waiting for the
+ * next full reconnect's `refreshChatsCache`. Without this, a chat that
+ * starts after the bot is already running — a user who just started
+ * messaging an OA mid-session, say — never appears in the dashboard's chat
+ * list at all: there is nothing to enable, no matter how correct the reply
+ * policy is.
  *
  * A local prepared-statement write, not a network call, so it's cheap enough
  * to run inline rather than deferred — unlike the OA/self-mid lookups above,
  * which do need to stay off the hot path. New rows start disabled, same as
  * every existing chat (see chat-access.ts): being seen is not being allowed
- * to reply.
+ * to reply. `surface` is whatever `resolveTalkSurface` already decided —
+ * passed in rather than re-derived, so this never disagrees with the policy
+ * check that ran right after it.
  */
-function registerNewTalkChatIfUnknown(botId: number, message: TalkMessage): void {
+function registerNewTalkChatIfUnknown(botId: number, surface: Surface, message: TalkMessage): void {
 	const mid = message.to.id;
 	if (chatExistsStmt.get(botId, mid)) return;
-	upsertChatStmt.run(botId, mid, "talk", null, Date.now());
+	upsertChatStmt.run(botId, mid, surface, null, Date.now());
 	botEvents.emit("chats_updated", { botId });
 	queueMicrotask(() => void fillTalkChatName(botId, mid));
 }
 
-/** Best-effort display name for a chat registered by registerNewTalkChatIfUnknown. */
+/**
+ * Best-effort display name for a chat registered by registerNewTalkChatIfUnknown.
+ * Name-only — never touches `surface`, so a chat later reclassified from
+ * "talk" to "oa" (or vice versa) by `refreshChatsCache` can't be raced back
+ * to a stale value by a lookup that started before the reclassification.
+ */
 async function fillTalkChatName(botId: number, mid: string): Promise<void> {
 	const client = runtimes.get(botId)?.client;
 	if (!client) return;
 	try {
 		const contact = await client.base.talk.getContact({ mid });
 		if (!contact?.displayName) return;
-		upsertChatStmt.run(botId, mid, "talk", contact.displayName, Date.now());
+		updateChatNameStmt.run(contact.displayName, botId, mid);
 		botEvents.emit("chats_updated", { botId });
 	} catch {
 		// Leave the name blank — the dashboard falls back to the mid, and the
@@ -2159,8 +2175,10 @@ async function handleIncoming(
 	options?: IncomingRunOptions,
 ): Promise<void> {
 	// Synthetic — must never leak the prewarm probe's fake mid into the real chats table.
-	if (surface === "talk" && options?.prewarmGuardBotId === undefined) registerNewTalkChatIfUnknown(botId, message as TalkMessage);
-	if (!shouldProcessIncomingMessage(botId, surface, message, isOfficialAccountCounterparty(botId, surface, message))) return;
+	if (surface !== "square" && options?.prewarmGuardBotId === undefined) {
+		registerNewTalkChatIfUnknown(botId, surface, message as TalkMessage);
+	}
+	if (!shouldProcessIncomingMessage(botId, surface, message)) return;
 	const prewarmGuardBotId = options?.prewarmGuardBotId;
 	const messageId = messageIdOf(surface, message);
 
@@ -2368,12 +2386,12 @@ export async function testSend(botId: number, surface: Surface, targetMid: strin
 		text,
 		"test",
 		() =>
-			surface === "talk"
-				? // Match the production auto-reply path. The previous full-Thrift
-					// test went through LEGY and added ~120ms of local preparation that
-					// an actual compact `/CA5` reply never pays.
-					client.base.talk.sendCompactMessage({ to: targetMid, text, fastAck: true })
-				: client.base.square.sendMessage({ squareChatMid: targetMid, text, fastAck: false }),
+			surface === "square"
+				? client.base.square.sendMessage({ squareChatMid: targetMid, text, fastAck: false })
+				: // Match the production auto-reply path (talk and oa both send this
+					// way). The previous full-Thrift test went through LEGY and added
+					// ~120ms of local preparation an actual compact `/CA5` reply never pays.
+					client.base.talk.sendCompactMessage({ to: targetMid, text, fastAck: true }),
 		undefined,
 		undefined,
 		true,
@@ -2464,9 +2482,9 @@ async function fireScheduledPost(armed: ScheduledPost): Promise<void> {
 	// either goes out right now or is dropped, never queued behind a cooldown
 	// — waiting would defeat the entire point of an exact-time post.
 	const sent = await sendTimed(post.botId, post.surface, post.targetMid, post.text, "test", () =>
-		post.surface === "talk"
-			? client.base.talk.sendCompactMessage({ to: post.targetMid, text: post.text, fastAck: true })
-			: client.base.square.sendMessage({ squareChatMid: post.targetMid, text: post.text, fastAck: false }),
+		post.surface === "square"
+			? client.base.square.sendMessage({ squareChatMid: post.targetMid, text: post.text, fastAck: false })
+			: client.base.talk.sendCompactMessage({ to: post.targetMid, text: post.text, fastAck: true }),
 	);
 	if (sent) {
 		markScheduledPostSent(post.id, Date.now());
@@ -2685,7 +2703,7 @@ async function refreshChatsCache(botId: number, client: Client): Promise<{ talk:
 		upsertChatStmt.run(botId, sc.mid, "square", sc.name ?? null, now);
 	}
 	for (const oa of oaFriends) {
-		upsertChatStmt.run(botId, oa.mid, "talk", oa.displayName, now);
+		upsertChatStmt.run(botId, oa.mid, "oa", oa.displayName, now);
 	}
 	botEvents.emit("chats_updated", { botId });
 

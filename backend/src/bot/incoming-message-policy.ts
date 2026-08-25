@@ -9,20 +9,18 @@ export function isGroupOrRoomTalkMessage(message: TalkMessage): boolean {
 	return toType === "GROUP" || toType === "ROOM" || toType === 2 || toType === 1;
 }
 
-export function shouldProcessIncomingMessage(
-	botId: number,
-	surface: Surface,
-	message: TalkMessage | SquareMessage,
-	isKnownOfficialAccountCounterparty = false,
-): boolean {
-	if (surface !== "square") {
+export function shouldProcessIncomingMessage(botId: number, surface: Surface, message: TalkMessage | SquareMessage): boolean {
+	if (surface === "talk") {
 		// Individual 1-1 chats never auto-reply, regardless of chat settings —
-		// only groups/rooms, OpenChats (below), and a confirmed LINE Official
-		// Account counterparty are eligible. An OA is a service, not a person
-		// the bot would be creeping on by replying unprompted, and the caller
-		// only ever passes `true` once `oa-contacts.ts` has actually confirmed
-		// the mid's botType — an unresolved/unknown 1-1 mid still gets `false`.
-		if (!isGroupOrRoomTalkMessage(message as TalkMessage) && !isKnownOfficialAccountCounterparty) return false;
+		// only groups/rooms are eligible on this surface. A confirmed LINE
+		// Official Account counterparty arrives as surface "oa" instead (see
+		// session-manager.ts's resolveTalkSurface, which only reports "oa"
+		// once oa-contacts.ts has actually confirmed the mid's botType — an
+		// unresolved/unknown 1-1 mid still reports "talk" here), so this
+		// check never runs for it at all. An OA is a service, not a person
+		// the bot would be creeping on by replying unprompted; a plain human
+		// 1-1 is.
+		if (!isGroupOrRoomTalkMessage(message as TalkMessage)) return false;
 	}
 
 	// Beyond that, a chat must be explicitly enabled — joining a group/OpenChat

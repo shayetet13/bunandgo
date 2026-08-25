@@ -87,8 +87,8 @@ export class RuleValidationError extends Error {
 }
 
 function assertRuleInput(input: RuleInput): void {
-	if (!input || !["talk", "square", "all"].includes(input.surface)) {
-		throw new RuleValidationError("ประเภทห้องไม่ถูกต้อง — กรุณาเลือก กลุ่มแชท, OpenChat หรือทุกประเภท");
+	if (!input || !["talk", "square", "oa", "all"].includes(input.surface)) {
+		throw new RuleValidationError("ประเภทห้องไม่ถูกต้อง — กรุณาเลือก กลุ่มแชท, OpenChat, OA หรือทุกประเภท");
 	}
 	if (!["equals", "startsWith", "regex", "containsAny"].includes(input.matchType)) {
 		throw new RuleValidationError("ประเภทเงื่อนไขไม่ถูกต้อง");

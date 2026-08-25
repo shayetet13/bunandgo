@@ -28,19 +28,19 @@ describe("shouldProcessIncomingMessage", () => {
 		expect(shouldProcessIncomingMessage(bot.id, "talk", talkMessage(0, "u0000000000000000000000000000000"))).toBe(false);
 	});
 
-	test("accepts a one-to-one Talk message from a confirmed LINE Official Account once the chat is enabled", () => {
+	test("accepts a one-to-one message from a confirmed LINE Official Account (surface oa) once the chat is enabled", () => {
 		const bot = createBot("policy test 1-1 OA");
-		insertChatStmt.run(bot.id, "u0000000000000000000000000000000", "talk", Date.now());
+		insertChatStmt.run(bot.id, "u0000000000000000000000000000000", "oa", Date.now());
 		setChatEnabled(bot.id, "u0000000000000000000000000000000", true);
 
-		expect(shouldProcessIncomingMessage(bot.id, "talk", talkMessage("USER", "u0000000000000000000000000000000"), true)).toBe(true);
+		expect(shouldProcessIncomingMessage(bot.id, "oa", talkMessage("USER", "u0000000000000000000000000000000"))).toBe(true);
 	});
 
 	test("still refuses a one-to-one OA chat that hasn't been enabled", () => {
 		const bot = createBot("policy test 1-1 OA disabled");
-		insertChatStmt.run(bot.id, "u0000000000000000000000000000000", "talk", Date.now());
+		insertChatStmt.run(bot.id, "u0000000000000000000000000000000", "oa", Date.now());
 
-		expect(shouldProcessIncomingMessage(bot.id, "talk", talkMessage("USER", "u0000000000000000000000000000000"), true)).toBe(false);
+		expect(shouldProcessIncomingMessage(bot.id, "oa", talkMessage("USER", "u0000000000000000000000000000000"))).toBe(false);
 	});
 
 	test("rejects Talk group/room and OpenChat messages when the chat isn't enabled", () => {

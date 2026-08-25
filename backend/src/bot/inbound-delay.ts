@@ -35,9 +35,9 @@ function toEpochMs(value: unknown): number | undefined {
 /** LINE's own stamp for a message, on the clock every participant shares. */
 export function lineCreatedTimeOf(surface: Surface, message: TalkMessage | SquareMessage): number | undefined {
 	const raw =
-		surface === "talk"
-			? toEpochMs((message as TalkMessage).raw.createdTime)
-			: toEpochMs((message as SquareMessage).raw.message.createdTime);
+		surface === "square"
+			? toEpochMs((message as SquareMessage).raw.message.createdTime)
+			: toEpochMs((message as TalkMessage).raw.createdTime);
 	return raw !== undefined && raw > 0 ? raw : undefined;
 }
 

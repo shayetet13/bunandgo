@@ -37,7 +37,7 @@ export function ChatList({
 	hasSiblings = false,
 }: ChatListProps) {
 	const [query, setQuery] = useState("");
-	const [surface, setSurface] = useState<"all" | "talk" | "square">("all");
+	const [surface, setSurface] = useState<"all" | "talk" | "oa" | "square">("all");
 	const [adminsByMid, setAdminsByMid] = useState<Record<string, SquareMemberInfo[]>>({});
 	const [resyncing, setResyncing] = useState(false);
 
@@ -111,9 +111,9 @@ export function ChatList({
 					<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ค้นหาชื่อกลุ่มหรือ OP..." />
 				</div>
 				<div className="chat-filter-tabs">
-					{(["all", "talk", "square"] as const).map((value) => (
+					{(["all", "talk", "oa", "square"] as const).map((value) => (
 						<button key={value} className={surface === value ? "active" : ""} onClick={() => setSurface(value)}>
-							{value === "all" ? "ทั้งหมด" : value === "talk" ? "แชท/กลุ่ม/OA" : "OP"}
+							{value === "all" ? "ทั้งหมด" : value === "talk" ? "กลุ่ม" : value === "oa" ? "OA" : "OP"}
 						</button>
 					))}
 				</div>

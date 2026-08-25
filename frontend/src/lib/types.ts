@@ -1,4 +1,4 @@
-export type Surface = "talk" | "square";
+export type Surface = "talk" | "square" | "oa";
 export type RuleSurface = Surface | "all";
 export type BotStatus = "offline" | "connecting" | "online";
 /**

@@ -386,7 +386,7 @@ botDetailRoute.get("/rules", (c) => c.json(listRules(botIdOf(c))));
 // `RuleValidationError`, kept as the single source of truth for those.
 // This just rejects malformed bodies before they reach that layer.
 const ruleBodySchema = z.object({
-	surface: z.enum(["talk", "square", "all"]),
+	surface: z.enum(["talk", "square", "oa", "all"]),
 	matchType: z.enum(["equals", "startsWith", "regex", "containsAny"]),
 	matchValue: z.string(),
 	replyText: z.string(),
@@ -445,7 +445,7 @@ botDetailRoute.get("/scheduled-posts", (c) => c.json(listScheduledPosts(botIdOf(
 // source of truth for those. runAt is epoch ms, already resolved from
 // Bangkok wall time by the caller — this route does no timezone math.
 const scheduledPostBodySchema = z.object({
-	surface: z.enum(["talk", "square"] as const satisfies readonly Surface[]),
+	surface: z.enum(["talk", "square", "oa"] as const satisfies readonly Surface[]),
 	targetMid: z.string(),
 	text: z.string(),
 	runAt: z.number().int(),
@@ -497,7 +497,7 @@ botDetailRoute.delete("/scheduled-posts/:id", (c) => {
 });
 
 const testSendBodySchema = z.object({
-	surface: z.enum(["talk", "square"] as const satisfies readonly Surface[]),
+	surface: z.enum(["talk", "square", "oa"] as const satisfies readonly Surface[]),
 	targetMid: z.string().min(1),
 	text: z.string().min(1),
 });
@@ -507,7 +507,7 @@ botDetailRoute.post("/test-send", async (c) => {
 	const result = testSendBodySchema.safeParse(await c.req.json().catch(() => undefined));
 	if (!result.success) return c.json({ ok: false, error: "surface, targetMid, and text are required" }, 400);
 	const { surface, targetMid, text } = result.data;
-	const validTarget = surface === "talk" ? /^[urc][0-9a-f]{32}$/i.test(targetMid) : /^m[0-9a-f]{32}$/i.test(targetMid);
+	const validTarget = surface === "square" ? /^m[0-9a-f]{32}$/i.test(targetMid) : /^[urc][0-9a-f]{32}$/i.test(targetMid);
 	if (!validTarget) return c.json({ ok: false, error: "targetMid is invalid for surface" }, 400);
 	try {
 		await testSend(botId, surface, targetMid, text);

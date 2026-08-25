@@ -285,7 +285,7 @@ CREATE TABLE IF NOT EXISTS server_load_samples (
 CREATE INDEX IF NOT EXISTS idx_server_load_samples_server_ts ON server_load_samples(server_id, ts);
 `;
 
-export type Surface = "talk" | "square";
+export type Surface = "talk" | "square" | "oa";
 export type RuleSurface = Surface | "all";
 export type BotStatus = "offline" | "connecting" | "online";
 export type UserRole = "admin" | "user";
