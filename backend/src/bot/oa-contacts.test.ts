@@ -99,25 +99,35 @@ describe("official-account contact cache", () => {
 	});
 });
 
-function makeFriendsClient(rawUsers: Array<{ mid: string; userType: unknown; profileName?: string }>): Client {
+function makeFriendsClient(
+	rawUsers: Array<{ mid: string; profileName?: string }>,
+	botTypeByMid: Record<string, unknown | undefined>,
+): Client {
 	return {
 		fetchUsers: () =>
-			Promise.resolve(
-				rawUsers.map((u) => ({
-					mid: u.mid,
-					raw: { targetUserMid: u.mid, userType: u.userType, targetProfileDetail: { profileName: u.profileName } },
-				})),
-			),
+			Promise.resolve(rawUsers.map((u) => ({ mid: u.mid, raw: { targetProfileDetail: { profileName: u.profileName } } }))),
+		base: {
+			buddy: {
+				getBuddyDetail: ({ buddyMid }: { buddyMid: string }) => {
+					const botType = botTypeByMid[buddyMid];
+					if (botType === undefined) return Promise.reject(new Error("not a buddy"));
+					return Promise.resolve({ botType });
+				},
+			},
+		},
 	} as unknown as Client;
 }
 
 describe("fetchOfficialAccountFriends", () => {
-	test("finds OA friends by the string userType and skips regular users", async () => {
+	test("classifies each friend via getBuddyDetail's botType, skipping plain users", async () => {
 		const botId = 9201;
-		const client = makeFriendsClient([
-			{ mid: mid("u", "01"), userType: "USER", profileName: "Somchai" },
-			{ mid: mid("u", "02"), userType: "BOT", profileName: "ร้านค้า OA" },
-		]);
+		const client = makeFriendsClient(
+			[
+				{ mid: mid("u", "01"), profileName: "Somchai" },
+				{ mid: mid("u", "02"), profileName: "ร้านค้า OA" },
+			],
+			{ [mid("u", "01")]: "RESERVED", [mid("u", "02")]: "OFFICIAL" },
+		);
 
 		const found = await fetchOfficialAccountFriends(client, botId);
 
@@ -127,21 +137,19 @@ describe("fetchOfficialAccountFriends", () => {
 		clearOfficialAccountCache(botId);
 	});
 
-	test("also accepts the numeric (2) and bigint (2n) userType shapes a thrift decoder can produce", async () => {
-		const botIdNumeric = 9202;
-		const numericClient = makeFriendsClient([{ mid: mid("u", "03"), userType: 2 }]);
-		expect((await fetchOfficialAccountFriends(numericClient, botIdNumeric)).map((f) => f.mid)).toEqual([mid("u", "03")]);
-		clearOfficialAccountCache(botIdNumeric);
+	test("a friend that isn't a buddy at all (getBuddyDetail rejects) is treated as not an OA, not an error", async () => {
+		const botId = 9202;
+		const client = makeFriendsClient([{ mid: mid("u", "03"), profileName: "Somchai" }], {});
 
-		const botIdBigint = 9203;
-		const bigintClient = makeFriendsClient([{ mid: mid("u", "04"), userType: 2n }]);
-		expect((await fetchOfficialAccountFriends(bigintClient, botIdBigint)).map((f) => f.mid)).toEqual([mid("u", "04")]);
-		clearOfficialAccountCache(botIdBigint);
+		const found = await fetchOfficialAccountFriends(client, botId);
+
+		expect(found).toEqual([]);
+		expect(isKnownOfficialAccount(botId, mid("u", "03"))).toBeUndefined();
 	});
 
 	test("falls back to the mid as displayName when no profile name is present", async () => {
 		const botId = 9204;
-		const client = makeFriendsClient([{ mid: mid("u", "05"), userType: "BOT", profileName: "" }]);
+		const client = makeFriendsClient([{ mid: mid("u", "05"), profileName: "" }], { [mid("u", "05")]: "OFFICIAL" });
 
 		const found = await fetchOfficialAccountFriends(client, botId);
 
@@ -151,6 +159,34 @@ describe("fetchOfficialAccountFriends", () => {
 
 	test("an empty friend list finds nothing and does not throw", async () => {
 		const botId = 9205;
-		expect(await fetchOfficialAccountFriends(makeFriendsClient([]), botId)).toEqual([]);
+		expect(await fetchOfficialAccountFriends(makeFriendsClient([], {}), botId)).toEqual([]);
+	});
+
+	test("classifies many friends with bounded concurrency, not one request at a time or all at once", async () => {
+		const botId = 9206;
+		const friends = Array.from({ length: 25 }, (_, i) => ({ mid: mid("u", String(i).padStart(2, "0")), profileName: `Friend ${i}` }));
+		let inFlight = 0;
+		let maxInFlight = 0;
+		const client = {
+			fetchUsers: () => Promise.resolve(friends.map((u) => ({ mid: u.mid, raw: { targetProfileDetail: { profileName: u.profileName } } }))),
+			base: {
+				buddy: {
+					getBuddyDetail: async ({ buddyMid }: { buddyMid: string }) => {
+						inFlight++;
+						maxInFlight = Math.max(maxInFlight, inFlight);
+						await new Promise((resolve) => setTimeout(resolve, 1));
+						inFlight--;
+						return { botType: buddyMid === friends[0]!.mid ? "OFFICIAL" : "RESERVED" };
+					},
+				},
+			},
+		} as unknown as Client;
+
+		const found = await fetchOfficialAccountFriends(client, botId);
+
+		expect(found.map((f) => f.mid)).toEqual([friends[0]!.mid]);
+		expect(maxInFlight).toBeGreaterThan(1);
+		expect(maxInFlight).toBeLessThanOrEqual(8);
+		clearOfficialAccountCache(botId);
 	});
 });

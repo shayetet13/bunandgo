@@ -61,44 +61,68 @@ export interface OfficialAccountFriend {
 }
 
 /**
+ * Caps how many friends a single sync round classifies via getBuddyDetail —
+ * a defensive ceiling, not a real-world expectation (the largest friend
+ * list seen live so far is under 100). Protects against a pathological
+ * account with thousands of friends turning a connect-time sync into
+ * thousands of RPCs; anything beyond the cap is simply not classified this
+ * round rather than the sync stalling connect indefinitely.
+ */
+const MAX_OA_SYNC_FRIENDS = 300;
+
+/** Bounded concurrency for the getBuddyDetail fan-out below — connect-time only, never the reply hot path. */
+const OA_SYNC_CONCURRENCY = 8;
+
+async function mapWithConcurrency<T, R>(items: readonly T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+	const results = new Array<R>(items.length);
+	let next = 0;
+	async function worker(): Promise<void> {
+		for (;;) {
+			const i = next++;
+			if (i >= items.length) return;
+			results[i] = await fn(items[i]!);
+		}
+	}
+	await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+	return results;
+}
+
+/**
  * Every LINE Official Account already in the bot's friend list, independent
  * of any message history — an OA the account has added but never exchanged
  * a message with (either direction) is still returned here.
  *
- * Unlike `resolveOfficialAccountStatus`, this needs no per-mid RPC:
- * `getContactsV3` (behind `client.fetchUsers()`) already reports `userType`
- * ("USER" vs "BOT") for every friend in one bulk call, so the whole friend
- * list is classified in a single round trip. Seeds the same cache
- * `resolveOfficialAccountStatus` writes, so a reply to a bulk-discovered OA
- * never has to wait through a cold first-message lookup.
+ * `getContactsV3`'s `userType` field (the bulk, no-extra-RPC signal this
+ * originally tried to use) turned out to decode as `undefined` in every
+ * live response observed — confirmed via bot_events across 8 real bots
+ * (0 of ~140 total friends had it populated at all, OA or not). Falls back
+ * to the same per-mid `getBuddyDetail`/`botType` check
+ * `resolveOfficialAccountStatus` already uses for the reactive path, fanned
+ * out with bounded concurrency since this runs once per connect, not once
+ * per reply. Seeds the same cache, so a reply to a bulk-discovered OA never
+ * has to wait through a cold first-message lookup.
  *
  * Only confirmed OAs are cached (`true`); ordinary friends are left absent
  * rather than written as `false`, so this cache stays bounded by "OAs the
  * bot actually has," not by total friend-list size.
  */
-/**
- * True when a `GetContactV3Response.userType` value means "bot/Official
- * Account" rather than "regular user". Checked loosely on purpose: the
- * generated type says this decodes to the string "BOT" or the number `2`,
- * but a thrift i64/enum field can also come back as a `bigint`, and if a
- * fallback response shape (V2/getUser — see fetchUsers()) ever omits the
- * field entirely it must not be silently treated as "definitely not an OA".
- */
-function isBotUserType(userType: unknown): boolean {
-	if (userType === "BOT" || userType === 2) return true;
-	if (typeof userType === "bigint") return userType === 2n;
-	if (typeof userType === "string") return userType.trim().toUpperCase() === "BOT";
-	return false;
-}
-
 export async function fetchOfficialAccountFriends(client: Client, botId: number): Promise<OfficialAccountFriend[]> {
-	const users = await client.fetchUsers();
+	const allUsers = await client.fetchUsers();
+	const users = allUsers.slice(0, MAX_OA_SYNC_FRIENDS);
+	const isOfficial = await mapWithConcurrency(users, OA_SYNC_CONCURRENCY, async (user) => {
+		try {
+			const detail = await client.base.buddy.getBuddyDetail({ buddyMid: user.mid });
+			return OFFICIAL_BOT_TYPES.has(detail.botType);
+		} catch {
+			// Most friends aren't buddies at all — getBuddyDetail rejecting for
+			// them is the expected, common case, not a failure worth surfacing.
+			return false;
+		}
+	});
+
 	const found: OfficialAccountFriend[] = [];
-	const sampleUserTypes: string[] = [];
-	for (const user of users) {
-		const userType = (user.raw as { userType?: unknown }).userType;
-		if (sampleUserTypes.length < 5) sampleUserTypes.push(`${typeof userType}:${String(userType)}`);
-		if (!isBotUserType(userType)) continue;
+	users.forEach((user, i) => {
+		if (!isOfficial[i]) return;
 		let byBot = oaStatusByBot.get(botId);
 		if (!byBot) {
 			byBot = new Map();
@@ -107,15 +131,16 @@ export async function fetchOfficialAccountFriends(client: Client, botId: number)
 		byBot.set(user.mid, true);
 		const displayName = (user.raw as { targetProfileDetail?: { profileName?: string } }).targetProfileDetail?.profileName;
 		found.push({ mid: user.mid, displayName: displayName || user.mid });
-	}
+	});
+
 	// Visible in the dashboard's log tab (bot_events) so a friend list that
 	// doesn't surface any OA can be told apart from "genuinely has none" vs.
-	// "userType didn't decode the way this code expects" without SSH access.
+	// a sync that's broken again for some other reason.
 	logBotEvent(
 		botId,
 		"oa_friends_synced",
-		`เพื่อนทั้งหมด ${users.length} คน · เป็น OA ${found.length} คน` +
-			(found.length === 0 && users.length > 0 ? ` · ตัวอย่าง userType ที่เจอ: ${sampleUserTypes.join(", ") || "(ไม่มี field นี้)"}` : ""),
+		`เพื่อนทั้งหมด ${allUsers.length} คน · ตรวจแล้ว ${users.length} คน · เป็น OA ${found.length} คน` +
+			(allUsers.length > users.length ? ` · ข้าม ${allUsers.length - users.length} คน (เกินขีดจำกัด ${MAX_OA_SYNC_FRIENDS})` : ""),
 	);
 	return found;
 }
