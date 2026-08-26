@@ -124,6 +124,22 @@ overall_median="$(printf '%s\n' "${samples_all[@]}" | sort -n | awk '{a[NR]=$1} 
 	echo "no IP answered at all -- aborting without touching $HOSTS_FILE" >&2
 	exit 1
 }
+
+# The SLOW_MULTIPLIER check below only catches outliers *within* this run's
+# pool -- it cannot notice the whole pool shifting somewhere worse (e.g. a
+# third-party passive-DNS source has separately shown this hostname can
+# resolve to a Singapore cluster from some vantage points; every IP in that
+# case would look uniformly "fast" relative to each other while all being
+# ~30-50ms+ farther away than the Japan pool this host actually needs).
+# ABSOLUTE_CEILING_MS guards against that: a Japan-hosted process should
+# never legitimately see a median this high, regardless of how uniform the
+# pool looks internally.
+ABSOLUTE_CEILING_MS="${LEGY_PIN_ABSOLUTE_CEILING_MS:-25}"
+if awk -v m="$overall_median" -v c="$ABSOLUTE_CEILING_MS" 'BEGIN{exit !(m>c)}'; then
+	echo "overall median=${overall_median}ms exceeds absolute ceiling ${ABSOLUTE_CEILING_MS}ms -- pool may have shifted to a farther region (e.g. Singapore) rather than just containing a slow outlier; aborting without touching $HOSTS_FILE" >&2
+	exit 1
+fi
+
 threshold="$(awk -v m="$overall_median" -v x="$SLOW_MULTIPLIER" 'BEGIN{printf "%.2f", m*x}')"
 echo "overall median=${overall_median}ms, slow threshold=${threshold}ms (${SLOW_MULTIPLIER}x)"
 
