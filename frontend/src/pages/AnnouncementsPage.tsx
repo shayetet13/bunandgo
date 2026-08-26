@@ -26,11 +26,13 @@ export function AnnouncementsPage({ onNotify }: AnnouncementsPageProps) {
 	const [announcements, setAnnouncements] = useState<Announcement[]>([]);
 	const [title, setTitle] = useState("");
 	const [body, setBody] = useState("");
+	const [isModalAlert, setIsModalAlert] = useState(false);
 	const [busy, setBusy] = useState(false);
 
 	const [editingId, setEditingId] = useState<number>();
 	const [editTitle, setEditTitle] = useState("");
 	const [editBody, setEditBody] = useState("");
+	const [editIsModalAlert, setEditIsModalAlert] = useState(false);
 	const [editBusy, setEditBusy] = useState(false);
 
 	const [confirmDeleteId, setConfirmDeleteId] = useState<number>();
@@ -51,9 +53,10 @@ export function AnnouncementsPage({ onNotify }: AnnouncementsPageProps) {
 		event.preventDefault();
 		setBusy(true);
 		try {
-			await api.createAnnouncement({ title: title.trim(), body: body.trim() });
+			await api.createAnnouncement({ title: title.trim(), body: body.trim(), isModalAlert });
 			setTitle("");
 			setBody("");
+			setIsModalAlert(false);
 			await refresh();
 		} catch (error) {
 			onNotify(error instanceof Error ? error.message : String(error));
@@ -66,6 +69,7 @@ export function AnnouncementsPage({ onNotify }: AnnouncementsPageProps) {
 		setEditingId(item.id);
 		setEditTitle(item.title);
 		setEditBody(item.body);
+		setEditIsModalAlert(item.isModalAlert);
 	}
 
 	function cancelEdit() {
@@ -76,7 +80,7 @@ export function AnnouncementsPage({ onNotify }: AnnouncementsPageProps) {
 		event.preventDefault();
 		setEditBusy(true);
 		try {
-			await api.updateAnnouncement(id, { title: editTitle.trim(), body: editBody.trim() });
+			await api.updateAnnouncement(id, { title: editTitle.trim(), body: editBody.trim(), isModalAlert: editIsModalAlert });
 			setEditingId(undefined);
 			await refresh();
 		} catch (error) {
@@ -117,6 +121,12 @@ export function AnnouncementsPage({ onNotify }: AnnouncementsPageProps) {
 						<span className="label">เนื้อหา</span>
 						<textarea value={body} onChange={(event) => setBody(event.target.value)} placeholder="รายละเอียดประกาศ" rows={4} required />
 					</label>
+					<label className="announce-modal-checkbox">
+						<input type="checkbox" checked={isModalAlert} onChange={(event) => setIsModalAlert(event.target.checked)} />
+						<span>
+							แสดงเป็น <strong>modal แจ้งเตือนสำคัญ</strong> — เด้งขึ้นกลางจอทันทีที่เข้าระบบ (ใช้กับข่าวสำคัญที่ต้องรู้เท่านั้น)
+						</span>
+					</label>
 					<button className="primary-button" type="submit" disabled={busy}>
 						{busy ? "กำลังเพิ่ม…" : "+ เพิ่มประกาศ"}
 					</button>
@@ -148,6 +158,16 @@ export function AnnouncementsPage({ onNotify }: AnnouncementsPageProps) {
 									<span className="label">เนื้อหา</span>
 									<textarea value={editBody} onChange={(event) => setEditBody(event.target.value)} rows={4} required />
 								</label>
+								<label className="announce-modal-checkbox">
+									<input
+										type="checkbox"
+										checked={editIsModalAlert}
+										onChange={(event) => setEditIsModalAlert(event.target.checked)}
+									/>
+									<span>
+										แสดงเป็น <strong>modal แจ้งเตือนสำคัญ</strong>
+									</span>
+								</label>
 								<div className="announce-card-actions">
 									<button className="primary-button" type="submit" disabled={editBusy}>
 										{editBusy ? "กำลังบันทึก…" : "บันทึก"}
@@ -160,7 +180,10 @@ export function AnnouncementsPage({ onNotify }: AnnouncementsPageProps) {
 						) : (
 							<article className="announce-card" key={item.id}>
 								<div className="announce-card-main">
-									<strong>{item.title}</strong>
+									<div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+										<strong>{item.title}</strong>
+										{item.isModalAlert && <span className="chip chip--warn">modal แจ้งเตือนสำคัญ</span>}
+									</div>
 									<p className="hint" style={{ margin: "0.3rem 0 0", whiteSpace: "pre-wrap" }}>
 										{item.body}
 									</p>

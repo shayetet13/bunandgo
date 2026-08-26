@@ -480,6 +480,14 @@ const migrations: Migration[] = [
 			db.exec("CREATE INDEX IF NOT EXISTS idx_server_load_samples_server_ts ON server_load_samples(server_id, ts)");
 		},
 	},
+	{
+		id: "034_announcements_modal_alert",
+		up: (db) => {
+			if (!hasColumn(db, "announcements", "is_modal_alert")) {
+				db.exec("ALTER TABLE announcements ADD COLUMN is_modal_alert INTEGER NOT NULL DEFAULT 0");
+			}
+		},
+	},
 ];
 
 /**

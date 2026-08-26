@@ -32,6 +32,8 @@ import { StartConfirmPanel } from "./StartConfirmPanel.tsx";
 import { ToggleSwitch } from "./ToggleSwitch.tsx";
 import { AdminOnlyControl } from "./AdminOnlyControl.tsx";
 import { IdLockAlertModal } from "./IdLockAlertModal.tsx";
+import { AnnouncementAlertModal } from "./AnnouncementAlertModal.tsx";
+import { dismissAnnouncementModalAlert, undismissedModalAlerts } from "../lib/announcement-alert-dismissal.ts";
 import { CHAT_CATEGORY_FILTERS, chatCategory, chatLabel, type ChatCategoryFilter } from "../lib/chat-category.ts";
 import { newestScheduledPostsFirst } from "../lib/scheduled-post-order.ts";
 
@@ -104,6 +106,7 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 	const [errorMessage, setErrorMessage] = useState<string>();
 	const [idLockAlert, setIdLockAlert] = useState<IdLockMismatchEvent>();
 	const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+	const [modalAlertsClosed, setModalAlertsClosed] = useState(false);
 
 	const [tab, setTab] = useState<TabId>("rooms");
 
@@ -245,6 +248,15 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 				// the rest of the console over a non-essential notice list.
 			});
 	}, []);
+
+	const modalAlerts = useMemo(
+		() => (modalAlertsClosed ? [] : undismissedModalAlerts(announcements)),
+		[announcements, modalAlertsClosed],
+	);
+	function handleDismissModalAlerts() {
+		for (const item of modalAlerts) dismissAnnouncementModalAlert(item.id);
+		setModalAlertsClosed(true);
+	}
 
 	useEffect(() => {
 		setGroupQuery("");
@@ -1152,6 +1164,7 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 				</section>
 			</div>
 			{idLockAlert && <IdLockAlertModal event={idLockAlert} onDismiss={() => setIdLockAlert(undefined)} />}
+			{modalAlerts.length > 0 && <AnnouncementAlertModal announcements={modalAlerts} onDismiss={handleDismissModalAlerts} />}
 		</div>
 	);
 }

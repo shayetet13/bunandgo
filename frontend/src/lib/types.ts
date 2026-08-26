@@ -422,6 +422,7 @@ export interface Announcement {
 	createdByUserId: number | null;
 	createdAt: number;
 	updatedAt: number;
+	isModalAlert: boolean;
 }
 
 export interface IdLockMismatchEvent {

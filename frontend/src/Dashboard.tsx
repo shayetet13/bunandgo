@@ -6,6 +6,7 @@ import { reconcileFetchedBots } from "./lib/bot-status-sync.ts";
 import { groupBotsByOwner } from "./lib/group-bots.ts";
 import { applyVisibleBotOrder } from "./lib/bot-order.ts";
 import type {
+	Announcement,
 	Bot,
 	BotStatus,
 	ChatRow,
@@ -25,6 +26,8 @@ import { Sidebar, type ViewKey } from "./components/Sidebar.tsx";
 import { Topbar, type Notification } from "./components/Topbar.tsx";
 import { HelpModal } from "./components/HelpModal.tsx";
 import { IdLockAlertModal } from "./components/IdLockAlertModal.tsx";
+import { AnnouncementAlertModal } from "./components/AnnouncementAlertModal.tsx";
+import { dismissAnnouncementModalAlert, undismissedModalAlerts } from "./lib/announcement-alert-dismissal.ts";
 import type { ConfirmState, QrState } from "./components/BotsPanel.tsx";
 import type { FeedItem } from "./lib/types.ts";
 import { OverviewPage } from "./pages/OverviewPage.tsx";
@@ -90,6 +93,8 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 	const [health, setHealth] = useState<HealthStatus>();
 	const [laneRace, setLaneRace] = useState<LaneRaceSnapshot>(EMPTY_LANE_RACE);
 	const [idLockAlert, setIdLockAlert] = useState<IdLockMismatchEvent>();
+	const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+	const [modalAlertsClosed, setModalAlertsClosed] = useState(false);
 
 	// Rolling logs (timestamps only) for throughput / auto-reply-rate —
 	// trimmed to RATE_WINDOW_MS so old activity ages out of the stats.
@@ -237,6 +242,21 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 	useEffect(() => {
 		void refreshBots();
 	}, [refreshBots]);
+
+	// Only checked for the modal-alert carousel below (see AnnouncementsPage's
+	// isModalAlert checkbox) — the ordinary inline announcement card stays a
+	// UserConsole-only ("user" role) feature, unchanged here.
+	useEffect(() => {
+		void api.listAnnouncements().then(setAnnouncements).catch(() => {});
+	}, []);
+	const modalAlerts = useMemo(
+		() => (modalAlertsClosed ? [] : undismissedModalAlerts(announcements)),
+		[announcements, modalAlertsClosed],
+	);
+	function handleDismissModalAlerts() {
+		for (const item of modalAlerts) dismissAnnouncementModalAlert(item.id);
+		setModalAlertsClosed(true);
+	}
 
 	useEffect(() => {
 		if (selectedBotId === undefined) return;
@@ -755,6 +775,7 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 
 			{showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
 			{idLockAlert && <IdLockAlertModal event={idLockAlert} onDismiss={() => setIdLockAlert(undefined)} />}
+			{modalAlerts.length > 0 && <AnnouncementAlertModal announcements={modalAlerts} onDismiss={handleDismissModalAlerts} />}
 		</div>
 	);
 }

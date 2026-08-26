@@ -521,6 +521,23 @@ textarea {
 	box-shadow: 0 0 0 3px rgba(255, 176, 32, 0.1);
 }
 
+.announce-create-form .announce-modal-checkbox,
+.announce-edit-form .announce-modal-checkbox {
+	display: flex;
+	flex-direction: row;
+	align-items: flex-start;
+	gap: var(--space-xs);
+	font-size: var(--text-sm);
+	color: var(--text-secondary);
+	cursor: pointer;
+}
+
+.announce-modal-checkbox input[type="checkbox"] {
+	width: auto;
+	margin-top: 0.2em;
+	accent-color: var(--signal-warn);
+}
+
 .announce-list-heading {
 	display: flex;
 	align-items: center;
@@ -1308,6 +1325,122 @@ textarea {
 	background: var(--signal-bad);
 	color: #1a0507;
 	cursor: pointer;
+}
+
+/* Important-announcement modal — same "impossible to miss" shape as the
+   id-lock alert above, but amber (--signal-warn) instead of red: this is
+   news to read, not a security rejection. */
+.announcement-modal-backdrop {
+	position: fixed;
+	inset: 0;
+	background: rgba(20, 14, 2, 0.82);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	z-index: 200;
+	padding: var(--space-lg);
+}
+
+.announcement-modal {
+	width: 100%;
+	max-width: 520px;
+	padding: var(--space-lg) var(--space-lg) var(--space-md);
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--space-sm);
+	text-align: center;
+	border: 2px solid var(--signal-warn);
+	box-shadow:
+		0 0 0 6px rgba(255, 176, 32, 0.12),
+		0 24px 60px rgba(0, 0, 0, 0.5);
+}
+
+.announcement-modal-icon {
+	width: 56px;
+	height: 56px;
+	border-radius: 50%;
+	background: rgba(255, 176, 32, 0.14);
+	color: var(--signal-warn);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 1.9rem;
+	font-weight: 800;
+}
+
+.announcement-modal-title {
+	margin: 0;
+	font-size: 1.4rem;
+	font-weight: 800;
+	color: var(--signal-warn);
+}
+
+.announcement-modal-body {
+	margin: 0;
+	font-size: var(--text-sm);
+	line-height: 1.7;
+	color: var(--text-secondary);
+	white-space: pre-wrap;
+}
+
+.announcement-modal-actions {
+	margin-top: var(--space-sm);
+	width: 100%;
+}
+
+.announcement-modal-actions button {
+	width: 100%;
+	padding: 0.7rem;
+	font-size: var(--text-sm);
+	font-weight: 700;
+	border-radius: var(--radius-sm);
+	border: 1px solid var(--signal-warn);
+	background: var(--signal-warn);
+	color: #1a1204;
+	cursor: pointer;
+}
+
+.announcement-modal-pager {
+	display: flex;
+	align-items: center;
+	gap: var(--space-sm);
+}
+
+.announcement-modal-arrow {
+	width: 32px;
+	height: 32px;
+	border-radius: 50%;
+	border: 1px solid var(--border-strong);
+	background: transparent;
+	color: var(--text-secondary);
+	font-size: 1.2rem;
+	line-height: 1;
+	cursor: pointer;
+}
+
+.announcement-modal-arrow:disabled {
+	opacity: 0.3;
+	cursor: default;
+}
+
+.announcement-modal-dots {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.announcement-modal-dot {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--border-strong);
+}
+
+.announcement-modal-dot[data-active="true"] {
+	background: var(--signal-warn);
+	width: 16px;
+	border-radius: 3px;
 }
 
 /* ── Maintenance splash ────────────────────────────────────────────────

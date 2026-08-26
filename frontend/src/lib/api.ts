@@ -234,9 +234,9 @@ export const api = {
 
 	// Admin-authored notices shown on every user's console. Newest first.
 	listAnnouncements: () => request<Announcement[]>("/api/announcements"),
-	createAnnouncement: (input: { title: string; body: string }) =>
+	createAnnouncement: (input: { title: string; body: string; isModalAlert: boolean }) =>
 		request<Announcement>("/api/announcements", { method: "POST", body: JSON.stringify(input) }),
-	updateAnnouncement: (id: number, input: { title: string; body: string }) =>
+	updateAnnouncement: (id: number, input: { title: string; body: string; isModalAlert: boolean }) =>
 		request<Announcement>(`/api/announcements/${id}`, { method: "PUT", body: JSON.stringify(input) }),
 	deleteAnnouncement: (id: number) => request<{ ok: boolean }>(`/api/announcements/${id}`, { method: "DELETE" }),
 };
