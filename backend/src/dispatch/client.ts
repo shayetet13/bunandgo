@@ -167,11 +167,22 @@ async function fetchLineDirect(info: RequestInfo | URL, init?: RequestInit, prew
  * `ClientInit.fetch` when constructing the vendored BaseClient — this is
  * the library's own supported extension point, not a monkey-patch.
  */
+/** Shared with the prewarm-ack `/SQ1` check below for the same "which RPC family is this" purpose. */
+function isCompactTalkPath(pathOrUrl: string): boolean {
+	return pathOrUrl.includes("/CA5") || pathOrUrl.includes("/ECA5");
+}
+
 export function createDispatchFetch(config: DispatchConfig, botRouteKey?: string | number): FetchLike {
 	const routeKey = botRouteKey === undefined ? undefined : String(botRouteKey);
-	const routeHeaders = (source?: HeadersInit): Headers => {
+	// Compact Talk/OA sends land ~10ms faster than Square sends over the same
+	// lanes (different LINE-side RPC, identical physical path) — profiling
+	// both under one key lets Square's far more frequent samples dominate the
+	// 7-sample window (see SEND_SAMPLE_WINDOW in send-prediction.ts) and bias
+	// the fastest-lane prediction for Talk/OA toward Square's slower baseline.
+	// The ":t" suffix keeps them on separate per-lane RTT windows.
+	const routeHeaders = (source: HeadersInit | undefined, pathOrUrl: string): Headers => {
 		const headers = new Headers(source);
-		if (routeKey) headers.set(H2_LANE_ROUTE_KEY_HEADER, routeKey);
+		if (routeKey) headers.set(H2_LANE_ROUTE_KEY_HEADER, isCompactTalkPath(pathOrUrl) ? `${routeKey}:t` : routeKey);
 		return headers;
 	};
 	const dispatchFetch: FetchLike = async (request: Request): Promise<Response> => {
@@ -180,7 +191,7 @@ export function createDispatchFetch(config: DispatchConfig, botRouteKey?: string
 		}
 		const transport = process.env.LINE_TRANSPORT ?? "hybrid";
 		const pathname = new URL(request.url).pathname;
-		const compactTalk = pathname === "/CA5" || pathname === "/ECA5";
+		const compactTalk = isCompactTalkPath(pathname);
 		// Login/control stays on the proven Go pool. Only compact Talk bypasses
 		// loopback by default. (A "fast-ACK Square sends bypass too" path was
 		// half-wired here via markDirectLineRequest/isDirectLineRequest, but
@@ -192,7 +203,7 @@ export function createDispatchFetch(config: DispatchConfig, botRouteKey?: string
 			const body = request.body ? new Uint8Array(await request.arrayBuffer()) : undefined;
 			return fetchLineDirect(request.url, {
 				method: request.method,
-				headers: routeHeaders(request.headers),
+				headers: routeHeaders(request.headers, pathname),
 				body,
 				signal: request.signal,
 			});
@@ -225,7 +236,7 @@ export function createDispatchFetch(config: DispatchConfig, botRouteKey?: string
 	return attachHotLineFetch(
 		dispatchFetch,
 		(info, init) => {
-			const routedInit = { ...init, headers: routeHeaders(init?.headers) };
+			const routedInit = { ...init, headers: routeHeaders(init?.headers, String(info)) };
 			// Explicit operational rollback retains the Go relay semantics.
 			if (process.env.LINE_TRANSPORT === "go") {
 				return Promise.resolve(dispatchFetch(new Request(info, routedInit)));
