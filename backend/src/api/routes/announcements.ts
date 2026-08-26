@@ -18,7 +18,12 @@ export const announcementsRoute = new Hono();
 // dashboard's own announcements page lists to manage.
 announcementsRoute.get("/", (c) => c.json(listAnnouncements()));
 
-const announcementBodySchema = z.object({ title: z.string(), body: z.string(), isModalAlert: z.boolean().default(false) });
+const announcementBodySchema = z.object({
+	title: z.string(),
+	body: z.string(),
+	isModalAlert: z.boolean().default(false),
+	isPinned: z.boolean().default(false),
+});
 
 announcementsRoute.post("/", requireAdmin, async (c) => {
 	const result = announcementBodySchema.safeParse(await c.req.json().catch(() => undefined));

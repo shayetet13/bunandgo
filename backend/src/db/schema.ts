@@ -266,7 +266,8 @@ CREATE TABLE IF NOT EXISTS announcements (
 	created_by_user_id INTEGER,
 	created_at INTEGER NOT NULL,
 	updated_at INTEGER NOT NULL,
-	is_modal_alert INTEGER NOT NULL DEFAULT 0
+	is_modal_alert INTEGER NOT NULL DEFAULT 0,
+	is_pinned INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_announcements_created_at ON announcements(created_at DESC);
 
@@ -430,6 +431,7 @@ export interface AnnouncementRow {
 	created_at: number;
 	updated_at: number;
 	is_modal_alert: number;
+	is_pinned: number;
 }
 
 export type MonitoredServerId = "server1" | "server2" | "server3";

@@ -645,8 +645,15 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 							) : (
 								<div className="uc-announce-list">
 									{announcements.map((item) => (
-										<article className="uc-announce-item" key={item.id}>
-											<strong className="uc-announce-title">{item.title}</strong>
+										<article className="uc-announce-item" key={item.id} data-pinned={item.isPinned}>
+											<strong className="uc-announce-title">
+												{item.isPinned && (
+													<span aria-label="ปักหมุดอยู่" title="ปักหมุดอยู่">
+														📌{" "}
+													</span>
+												)}
+												{item.title}
+											</strong>
 											<p className="uc-announce-body">{item.body}</p>
 											<span className="uc-announce-time">{announceTimeLabel(item.updatedAt)}</span>
 										</article>

@@ -32,6 +32,7 @@ function announcement(id: number, isModalAlert: boolean): Announcement {
 		createdAt: id,
 		updatedAt: id,
 		isModalAlert,
+		isPinned: false,
 	};
 }
 

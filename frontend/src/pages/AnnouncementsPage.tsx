@@ -27,13 +27,17 @@ export function AnnouncementsPage({ onNotify }: AnnouncementsPageProps) {
 	const [title, setTitle] = useState("");
 	const [body, setBody] = useState("");
 	const [isModalAlert, setIsModalAlert] = useState(false);
+	const [isPinned, setIsPinned] = useState(false);
 	const [busy, setBusy] = useState(false);
 
 	const [editingId, setEditingId] = useState<number>();
 	const [editTitle, setEditTitle] = useState("");
 	const [editBody, setEditBody] = useState("");
 	const [editIsModalAlert, setEditIsModalAlert] = useState(false);
+	const [editIsPinned, setEditIsPinned] = useState(false);
 	const [editBusy, setEditBusy] = useState(false);
+
+	const [pinBusyId, setPinBusyId] = useState<number>();
 
 	const [confirmDeleteId, setConfirmDeleteId] = useState<number>();
 
@@ -53,10 +57,11 @@ export function AnnouncementsPage({ onNotify }: AnnouncementsPageProps) {
 		event.preventDefault();
 		setBusy(true);
 		try {
-			await api.createAnnouncement({ title: title.trim(), body: body.trim(), isModalAlert });
+			await api.createAnnouncement({ title: title.trim(), body: body.trim(), isModalAlert, isPinned });
 			setTitle("");
 			setBody("");
 			setIsModalAlert(false);
+			setIsPinned(false);
 			await refresh();
 		} catch (error) {
 			onNotify(error instanceof Error ? error.message : String(error));
@@ -70,6 +75,7 @@ export function AnnouncementsPage({ onNotify }: AnnouncementsPageProps) {
 		setEditTitle(item.title);
 		setEditBody(item.body);
 		setEditIsModalAlert(item.isModalAlert);
+		setEditIsPinned(item.isPinned);
 	}
 
 	function cancelEdit() {
@@ -80,13 +86,35 @@ export function AnnouncementsPage({ onNotify }: AnnouncementsPageProps) {
 		event.preventDefault();
 		setEditBusy(true);
 		try {
-			await api.updateAnnouncement(id, { title: editTitle.trim(), body: editBody.trim(), isModalAlert: editIsModalAlert });
+			await api.updateAnnouncement(id, {
+				title: editTitle.trim(),
+				body: editBody.trim(),
+				isModalAlert: editIsModalAlert,
+				isPinned: editIsPinned,
+			});
 			setEditingId(undefined);
 			await refresh();
 		} catch (error) {
 			onNotify(error instanceof Error ? error.message : String(error));
 		} finally {
 			setEditBusy(false);
+		}
+	}
+
+	async function togglePin(item: Announcement) {
+		setPinBusyId(item.id);
+		try {
+			await api.updateAnnouncement(item.id, {
+				title: item.title,
+				body: item.body,
+				isModalAlert: item.isModalAlert,
+				isPinned: !item.isPinned,
+			});
+			await refresh();
+		} catch (error) {
+			onNotify(error instanceof Error ? error.message : String(error));
+		} finally {
+			setPinBusyId(undefined);
 		}
 	}
 
@@ -125,6 +153,12 @@ export function AnnouncementsPage({ onNotify }: AnnouncementsPageProps) {
 						<input type="checkbox" checked={isModalAlert} onChange={(event) => setIsModalAlert(event.target.checked)} />
 						<span>
 							แสดงเป็น <strong>modal แจ้งเตือนสำคัญ</strong> — เด้งขึ้นกลางจอทันทีที่เข้าระบบ (ใช้กับข่าวสำคัญที่ต้องรู้เท่านั้น)
+						</span>
+					</label>
+					<label className="announce-modal-checkbox">
+						<input type="checkbox" checked={isPinned} onChange={(event) => setIsPinned(event.target.checked)} />
+						<span>
+							<strong>ปักหมุด</strong> — อยู่บนสุดของรายการเสมอ ไม่ว่าจะมีประกาศใหม่กว่าเข้ามากี่อัน
 						</span>
 					</label>
 					<button className="primary-button" type="submit" disabled={busy}>
@@ -168,6 +202,12 @@ export function AnnouncementsPage({ onNotify }: AnnouncementsPageProps) {
 										แสดงเป็น <strong>modal แจ้งเตือนสำคัญ</strong>
 									</span>
 								</label>
+								<label className="announce-modal-checkbox">
+									<input type="checkbox" checked={editIsPinned} onChange={(event) => setEditIsPinned(event.target.checked)} />
+									<span>
+										<strong>ปักหมุด</strong>
+									</span>
+								</label>
 								<div className="announce-card-actions">
 									<button className="primary-button" type="submit" disabled={editBusy}>
 										{editBusy ? "กำลังบันทึก…" : "บันทึก"}
@@ -178,9 +218,14 @@ export function AnnouncementsPage({ onNotify }: AnnouncementsPageProps) {
 								</div>
 							</form>
 						) : (
-							<article className="announce-card" key={item.id}>
+							<article className="announce-card" key={item.id} data-pinned={item.isPinned}>
 								<div className="announce-card-main">
 									<div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+										{item.isPinned && (
+											<span aria-label="ปักหมุดอยู่" title="ปักหมุดอยู่">
+												📌
+											</span>
+										)}
 										<strong>{item.title}</strong>
 										{item.isModalAlert && <span className="chip chip--warn">modal แจ้งเตือนสำคัญ</span>}
 									</div>
@@ -192,6 +237,9 @@ export function AnnouncementsPage({ onNotify }: AnnouncementsPageProps) {
 									</div>
 								</div>
 								<div className="announce-card-actions">
+									<button className="ghost-button" onClick={() => void togglePin(item)} disabled={pinBusyId === item.id}>
+										{item.isPinned ? "เลิกปักหมุด" : "ปักหมุด"}
+									</button>
 									<button className="ghost-button" onClick={() => startEdit(item)}>
 										แก้ไข
 									</button>

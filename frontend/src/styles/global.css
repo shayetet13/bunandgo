@@ -560,6 +560,11 @@ textarea {
 	border-radius: 14px;
 }
 
+.announce-card[data-pinned="true"] {
+	border-color: var(--signal-warn-dim);
+	box-shadow: inset 3px 0 0 0 var(--signal-warn);
+}
+
 .announce-card-actions {
 	display: flex;
 	gap: var(--space-xs);

@@ -423,6 +423,7 @@ export interface Announcement {
 	createdAt: number;
 	updatedAt: number;
 	isModalAlert: boolean;
+	isPinned: boolean;
 }
 
 export interface IdLockMismatchEvent {

@@ -488,6 +488,14 @@ const migrations: Migration[] = [
 			}
 		},
 	},
+	{
+		id: "035_announcements_pinned",
+		up: (db) => {
+			if (!hasColumn(db, "announcements", "is_pinned")) {
+				db.exec("ALTER TABLE announcements ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0");
+			}
+		},
+	},
 ];
 
 /**
