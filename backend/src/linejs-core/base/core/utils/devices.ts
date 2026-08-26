@@ -77,3 +77,33 @@ export function getDeviceDetails(device: Device, version?: string): DeviceDetail
 
 	return { device, appVersion, systemName, systemVersion };
 }
+
+/**
+ * QR login (`qrCodeLoginV2ForSecure`) sends a `modelName` field separate from
+ * `DeviceDetails` — LINE's real clients populate it with actual hardware,
+ * which this project has no way to know precisely. These are plausible,
+ * current-looking placeholders (better than a literal library name) rather
+ * than a value captured from real traffic; revisit if a specific string is
+ * ever confirmed to matter.
+ */
+export function defaultModelName(device: Device): string {
+	switch (device) {
+		case "DESKTOPWIN":
+			return "Windows";
+		case "DESKTOPMAC":
+			return "Mac";
+		case "ANDROID":
+		case "ANDROIDSECONDARY":
+			return "SM-S928N";
+		case "IOS":
+			return "iPhone16,2";
+		case "IOSIPAD":
+			return "iPad14,5";
+		case "WATCHOS":
+			return "Watch7,1";
+		case "WEAROS":
+			return "SM-R925";
+		default:
+			return "Windows";
+	}
+}

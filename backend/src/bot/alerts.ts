@@ -50,7 +50,14 @@ const DEDUPE_WINDOW_MS = 10 * 60 * 1000;
 const SEND_TIMEOUT_MS = 8000;
 
 export type AlertKind =
-	"offline" | "recovered" | "login_required" | "reply_blocked" | "system_overload" | "system_recovered" | "security_intrusion";
+	| "offline"
+	| "recovered"
+	| "login_required"
+	| "reply_blocked"
+	| "system_overload"
+	| "system_recovered"
+	| "security_intrusion"
+	| "line_restricted";
 
 const lastSentAt = new Map<string, number>();
 
@@ -102,6 +109,8 @@ function format(kind: AlertKind, botName: string, detail?: string): string {
 			return `✅ โหลดระบบบอทกลับสู่ระดับปกติแล้ว${suffix}`;
 		case "security_intrusion":
 			return `🚨 ตรวจพบความพยายามเข้าถึงระบบผิดปกติ${suffix}`;
+		case "line_restricted":
+			return `⛔ บอท "${botName}" ได้รับสัญญาณว่าบัญชีอาจถูกจำกัด/แบนจาก LINE (ไม่ได้สั่งหยุดอัตโนมัติ ต้องตัดสินใจเอง)${suffix}`;
 	}
 }
 

@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { type Client, loginWithAuthToken, loginWithQR, SquareMessage, type TalkMessage } from "../linejs-core/client/mod.ts";
-import type { Device } from "../linejs-core/base/mod.ts";
+import { InternalError, type Device } from "../linejs-core/base/mod.ts";
 import { createDispatchFetch } from "../dispatch/client.ts";
 import { ensureWarm, startWarmer } from "../dispatch/warmer.ts";
 import { clearSqliteStorageCache, SqliteStorage } from "../db/sqlite-storage.ts";
@@ -1482,11 +1482,49 @@ export function deleteBotSession(botId: number): void {
  * unexplained backend restart (cold connections, a fresh QR wait) with
  * nothing in the log pointing at why.
  */
+/**
+ * Community-reverse-engineered TalkErrorCode/SquareErrorCode names (not
+ * published by LINE) that plausibly mean "this account is restricted",
+ * rather than an ordinary transient failure. `code` is Talk's field name;
+ * `errorCode` is Square's (see e.g. the `sendMessage(/SQ1) ->
+ * {"errorCode":"NOT_FOUND",...}` shape already seen in the wild — Square
+ * errors do not use `code`). Deliberately alert-only: these names are
+ * unofficial and could be wrong, so nothing here stops a bot automatically —
+ * see [[feedback_no_autonomous_login_or_speed_changes]] memory note, this
+ * project's own login/logout is off-limits for automatic action.
+ */
+const ACCOUNT_RESTRICTION_CODES = new Set([
+	"ABUSE_BLOCK",
+	"BANNED",
+	"SECURITY_CENTER_BLOCKED",
+	"FORBIDDEN",
+	"AUTHENTICATION_FAILURE",
+]);
+
+function restrictionCodeOf(err: unknown): string | undefined {
+	if (!(err instanceof InternalError) || err.name !== "RequestError") return undefined;
+	const code = err.data?.code ?? err.data?.errorCode;
+	return typeof code === "string" && ACCOUNT_RESTRICTION_CODES.has(code) ? code : undefined;
+}
+
 export function emitError(botId: number, err: unknown): void {
 	const message = err instanceof Error ? err.message : String(err);
 	console.error(`[bot ${botId}] ${message}`);
 	botEvents.emit("bot_error", { botId, message });
 	logBotEvent(botId, "error", message);
+
+	const restrictionCode = restrictionCodeOf(err);
+	if (restrictionCode) {
+		const bot = getBot(botId);
+		logBotEvent(botId, "account_restriction_signal", `พบสัญญาณบัญชีถูกจำกัด: ${restrictionCode} — ${message}`);
+		sendAlert(
+			"line_restricted",
+			botId,
+			bot?.name ?? String(botId),
+			`code: ${restrictionCode}\n${message}`,
+			`restriction:${botId}:${restrictionCode}`,
+		);
+	}
 }
 
 /**

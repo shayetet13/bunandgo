@@ -1,6 +1,6 @@
 import { getRSACrypto } from "./rsa-verify.ts";
 import { EMAIL_REGEX, PASSWORD_REGEX } from "./regex.ts";
-import { type Device, isV3Support } from "../core/utils/devices.ts";
+import { defaultModelName, type Device, isV3Support } from "../core/utils/devices.ts";
 import { InternalError } from "../core/mod.ts";
 import type * as LINETypes from "@evex/linejs-types";
 import { Buffer } from "node:buffer";
@@ -291,7 +291,16 @@ export class Login {
 			// this response to a dropped connection would throw away a scan
 			// that worked — exactly the case that leaves LINE showing the
 			// account as logged in while the console never comes up.
-			const response = await withTransportRetry(this.client, "qrCodeLoginV2ForSecure", () => this.qrCodeLoginV2ForSecure(sqr, nonce));
+			//
+			// modelName/systemName were previously left at this method's own
+			// defaults ("evex-device"/"linejs-v2" — the vendored library's own
+			// placeholder values), meaning every login announced itself as the
+			// unofficial client by name. Pass the same device identity every
+			// other request on this client already sends via the
+			// x-line-application header (see request/mod.ts's systemType).
+			const response = await withTransportRetry(this.client, "qrCodeLoginV2ForSecure", () =>
+				this.qrCodeLoginV2ForSecure(sqr, nonce, defaultModelName(this.client.device), this.client.deviceDetails.systemName),
+			);
 			// Response shape per `oc4.q` (QrCodeLoginV2Response — reused
 			// by both V2 and V2ForSecure):
 			//   1: certificate, 2: accessTokenV2 (legacy str),
