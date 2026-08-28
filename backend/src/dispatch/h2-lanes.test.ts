@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createServer, constants, type Http2Server, type ServerHttp2Stream, type IncomingHttpHeaders } from "node:http2";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 import {
 	buildHeaders,
@@ -8,6 +10,7 @@ import {
 	fastestSendCandidates,
 	H2_LANE_ROLE_HEADER,
 	H2_LANE_ROUTE_KEY_HEADER,
+	laneAddressStride,
 	laneCandidates,
 	laneFetch,
 	laneStats,
@@ -81,20 +84,22 @@ describe("owned HTTP/2 lanes", () => {
 		expect(await readResponseBytes(response!)).toEqual(new Uint8Array([0x82, 0x21, 0x00]));
 	});
 
-	test("cools a lane after a raw SEND result above 23ms", async () => {
+	test("cools a lane after a raw SEND result over the slow floor", async () => {
 		const { origin, server } = await startServer((stream) => {
 			setTimeout(() => {
 				stream.respond({ ":status": 200 });
 				stream.end();
-			}, 30);
+			}, 35);
 		});
 		running = server;
 
 		await ensureLanes(origin);
 		await laneFetch(`${origin}/CA5`, { method: "POST", body: new Uint8Array([1]) as BodyInit });
 
+		// 35ms is past the 28ms absolute floor even with no faster lane to
+		// compare against, so it still cools. A 24ms result would not.
 		const used = laneStats().find((lane) => lane.lastSendOkAt > 0);
-		expect(used?.sendRttMs).toBeGreaterThan(23);
+		expect(used?.sendRttMs).toBeGreaterThan(28);
 		expect(used?.sendSlowUntil).toBeGreaterThan(Date.now());
 	});
 
@@ -372,7 +377,9 @@ describe("owned HTTP/2 lanes", () => {
 });
 
 describe("RTT-aware lane ranking", () => {
-	test("spreads lanes across every resolved fast IP and rotates on reconnect", () => {
+	test("spreads consecutive lane ids across the whole fast-IP pool and rotates on reconnect", () => {
+		// The pin file lists all IPv4 then all IPv6; a plain +1 offset kept the
+		// low-numbered reserved SEND lanes (0..3) permanently on the IPv4 half.
 		const addresses = [
 			{ address: "147.92.146.129", family: 4 as const },
 			{ address: "147.92.146.138", family: 4 as const },
@@ -380,12 +387,20 @@ describe("RTT-aware lane ranking", () => {
 			{ address: "2400:dcc0:a3a1:1000::2", family: 6 as const },
 		];
 
-		expect(new Set(Array.from({ length: 8 }, (_, laneId) => selectLaneRouteAddress(addresses, laneId).address))).toEqual(
+		// Every lane id visits a distinct address over one span of the pool.
+		expect(new Set(Array.from({ length: 4 }, (_, laneId) => selectLaneRouteAddress(addresses, laneId).address))).toEqual(
 			new Set(addresses.map(({ address }) => address)),
 		);
+		// Consecutive SEND lanes 0..3 straddle both families rather than clustering.
+		const sendLaneFamilies = [0, 1, 2, 3].map((laneId) => selectLaneRouteAddress(addresses, laneId).family);
+		expect(sendLaneFamilies).toContain(4);
+		expect(sendLaneFamilies).toContain(6);
+		// Stride 3 for a 4-address pool: (laneId * 3 + rotation) % 4.
 		expect(selectLaneRouteAddress(addresses, 0, 0)).toEqual(addresses[0]);
+		expect(selectLaneRouteAddress(addresses, 1, 0)).toEqual(addresses[3]);
 		expect(selectLaneRouteAddress(addresses, 0, 1)).toEqual(addresses[1]);
-		expect(selectLaneRouteAddress(addresses, 3, 1)).toEqual(addresses[0]);
+		expect(laneAddressStride(8)).toBe(3);
+		expect(laneAddressStride(2)).toBe(1);
 	});
 
 	test("chooses Server 3 only when its real result is faster", () => {
@@ -735,6 +750,45 @@ describe("send-reserved lanes", () => {
 		expect(shouldPreferFastestSendLane({ pollRttMs: 1, lastPollOkAt: 100, lastOkAt: 100, inFlight: 0 }, current, 0.1)).toBeFalse();
 		expect(shouldPreferFastestSendLane({ sendRttMs: 21.9, lastSendOkAt: 100, lastOkAt: 100, inFlight: 0 }, current, 0.1)).toBeTrue();
 		expect(shouldPreferFastestSendLane({ sendRttMs: 21.91, lastSendOkAt: 101, lastOkAt: 101, inFlight: 0 }, current, 0.1)).toBeFalse();
+	});
+
+	test("rotates sends across lanes whose scores sit within the switch margin", () => {
+		const lanes = [
+			{ id: 0, sendRttMs: 19, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 },
+			{ id: 1, sendRttMs: 19, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 },
+			{ id: 2, sendRttMs: 19.05, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 },
+		];
+		const picks = Array.from({ length: 6 }, () => selectFastestSendLaneCandidate(lanes, undefined, "bot-x")?.id);
+		expect(new Set(picks)).toEqual(new Set([0, 1, 2]));
+		expect(picks).toEqual([0, 1, 2, 0, 1, 2]);
+	});
+
+	test("does not rotate onto a lane that is genuinely slower than the margin", () => {
+		const lanes = [
+			{ id: 0, sendRttMs: 18, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 },
+			{ id: 1, sendRttMs: 25, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 },
+		];
+		const picks = Array.from({ length: 4 }, () => selectFastestSendLaneCandidate(lanes, undefined, "bot-y")?.id);
+		expect(picks).toEqual([0, 0, 0, 0]);
+	});
+
+	test("ranks a cold lane by the offline per-IP median, not its edge PING", async () => {
+		const rankFile = join(tmpdir(), `legy-ip-rank-${Date.now()}.json`);
+		await Bun.write(rankFile, JSON.stringify({ "10.0.0.9": 30, "10.0.0.1": 12 }));
+		const previous = process.env.LINE_H2_IP_RANK_FILE;
+		process.env.LINE_H2_IP_RANK_FILE = rankFile;
+		stopLanes(); // drop any cached ranking so the new file is read
+		try {
+			const lanes = [
+				{ id: 0, rttMs: 1.2, remoteAddress: "10.0.0.9", lastOkAt: 1, inFlight: 0 },
+				{ id: 1, rttMs: 1.9, remoteAddress: "10.0.0.1", lastOkAt: 1, inFlight: 0 },
+			];
+			// Lane 0 has the lower PING but the slower measured IP; the ranking wins.
+			expect(selectFastestSendLaneCandidate(lanes, undefined, "bot-z")?.id).toBe(1);
+		} finally {
+			if (previous === undefined) delete process.env.LINE_H2_IP_RANK_FILE;
+			else process.env.LINE_H2_IP_RANK_FILE = previous;
+		}
 	});
 });
 

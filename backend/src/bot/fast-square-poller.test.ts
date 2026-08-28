@@ -181,4 +181,68 @@ describe("fast Square per-room poller", () => {
 		await running;
 		expect(calls).toBe(0);
 	});
+
+	test("consults quietBeforeNextFetchMs only after a primed delivery, before the next fetch", async () => {
+		const abort = new AbortController();
+		const trace: string[] = [];
+		const responses: FastSquareFetchResponse[] = [
+			{ events: [], syncToken: "primed" },
+			{ events: [event(1)], syncToken: "s1" },
+			{ events: [event(2)], syncToken: "s2" },
+		];
+
+		await runFastSquarePoller({
+			squareChatMid: "m-room",
+			signal: abort.signal,
+			intervalMs: 0,
+			async fetchEvents() {
+				trace.push("fetch");
+				return responses.shift()!;
+			},
+			onEvent() {
+				trace.push("deliver");
+				if (responses.length === 0) abort.abort();
+			},
+			quietBeforeNextFetchMs() {
+				trace.push("quiet?");
+				return 0;
+			},
+		});
+
+		// The drain fetch delivers nothing and is not followed by a quiet
+		// check; each real delivery is, before the next fetch.
+		expect(trace).toEqual(["fetch", "fetch", "deliver", "quiet?", "fetch", "deliver", "quiet?"]);
+	});
+
+	test("a quiet value larger than the interval delays the next fetch", async () => {
+		const abort = new AbortController();
+		const fetchAt: number[] = [];
+		let quietOnce = 40;
+		const responses: FastSquareFetchResponse[] = [
+			{ events: [], syncToken: "primed" },
+			{ events: [event(1)], syncToken: "s1" },
+			{ events: [event(2)], syncToken: "s2" },
+		];
+
+		await runFastSquarePoller({
+			squareChatMid: "m-room",
+			signal: abort.signal,
+			intervalMs: 0,
+			async fetchEvents() {
+				fetchAt.push(performance.now());
+				return responses.shift()!;
+			},
+			onEvent() {
+				if (responses.length === 0) abort.abort();
+			},
+			quietBeforeNextFetchMs() {
+				const value = quietOnce;
+				quietOnce = 0;
+				return value;
+			},
+		});
+
+		// Gap between the fetch after the first delivery and the next one.
+		expect(fetchAt[2]! - fetchAt[1]!).toBeGreaterThanOrEqual(30);
+	});
 });

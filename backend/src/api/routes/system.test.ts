@@ -5,6 +5,7 @@ import { getCookie } from "hono/cookie";
 import { createSession, getSessionUser, SESSION_COOKIE } from "../../auth/session.ts";
 import { createUser } from "../../auth/users.ts";
 import { db } from "../../db/sqlite.ts";
+import { refreshSquarePollQuietConfig } from "../../bot/square-poll-quiet.ts";
 import { createSystemRoute } from "./system.ts";
 
 async function requireAuth(c: Context, next: Next) {
@@ -42,7 +43,9 @@ beforeEach(() => {
 	db.prepare("DELETE FROM app_meta WHERE key = 'system.worker.last_restart_requested_at'").run();
 	db.prepare("DELETE FROM app_meta WHERE key = 'hedge.send.config'").run();
 	db.prepare("DELETE FROM app_meta WHERE key = 'system.maintenance_mode'").run();
+	db.prepare("DELETE FROM app_meta WHERE key = 'square.fast_poll.quiet_ms'").run();
 	db.prepare("DELETE FROM lane_race_events").run();
+	refreshSquarePollQuietConfig();
 });
 
 describe("POST /api/system/restart-worker", () => {
@@ -135,6 +138,45 @@ describe("/api/system/hedge", () => {
 		expect(report.windowHours).toBe(24);
 		expect(report.totalSamples).toBe(0);
 		expect(report.workers).toEqual([]);
+	});
+});
+
+describe("/api/system/square-poll-quiet", () => {
+	function quietRequest(app: Hono, cookie = "", quietMs?: unknown) {
+		return app.request("/api/system/square-poll-quiet", {
+			method: quietMs === undefined ? "GET" : "PUT",
+			headers: {
+				"content-type": "application/json",
+				...(cookie ? { cookie } : {}),
+			},
+			...(quietMs === undefined ? {} : { body: JSON.stringify({ quietMs }) }),
+		});
+	}
+
+	test("requires authentication and an admin role", async () => {
+		const app = buildApp();
+		expect((await quietRequest(app)).status).toBe(401);
+
+		const user = createUser(`quiet-user-${Date.now()}`, "quiet-test-password");
+		const userCookie = `${SESSION_COOKIE}=${createSession(user.id)}`;
+		expect((await quietRequest(app, userCookie)).status).toBe(403);
+	});
+
+	test("GET defaults to 0, PUT rejects out-of-range and non-integer values", async () => {
+		const app = buildApp();
+		const adminCookie = `${SESSION_COOKIE}=${createSession()}`;
+		expect(await (await quietRequest(app, adminCookie)).json()).toEqual({ quietMs: 0 });
+		expect((await quietRequest(app, adminCookie, 99)).status).toBe(400);
+		expect((await quietRequest(app, adminCookie, 12.5)).status).toBe(400);
+	});
+
+	test("PUT applies the window and GET reports it back", async () => {
+		const app = buildApp();
+		const adminCookie = `${SESSION_COOKIE}=${createSession()}`;
+		const put = await quietRequest(app, adminCookie, 16);
+		expect(put.status).toBe(200);
+		expect(await put.json()).toEqual({ ok: true, quietMs: 16 });
+		expect(await (await quietRequest(app, adminCookie)).json()).toEqual({ quietMs: 16 });
 	});
 });
 

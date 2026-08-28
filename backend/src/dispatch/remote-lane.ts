@@ -9,12 +9,13 @@
  * lane's PING, SEND and POLL samples without mixing their roles.
  */
 
-import { nextSendSlowUntil } from "./lane-speed-policy.ts";
+import { nextSendSlowUntil, SEND_SLOW_THRESHOLD_MS } from "./lane-speed-policy.ts";
 import {
 	freshSendRouteProfile,
 	getOrCreateSendRouteProfile,
 	percentile,
 	recordSendRouteSample,
+	SEND_ROUTE_SAMPLE_MAX_AGE_MS,
 	SEND_SAMPLE_WINDOW,
 	type SendRouteProfile,
 } from "./send-prediction.ts";
@@ -27,7 +28,13 @@ export const REMOTE_LANE_ID = 900;
  * longer trusted as "current" — a few multiples of its own ~5s report
  * interval, generous enough to absorb one missed push. */
 const REPORT_STALE_MS = Math.max(3_000, Number(process.env.LINE_RELAY_STALE_MS ?? 3_000));
-const APPLICATION_SAMPLE_MAX_AGE_MS = Math.max(1_000, Number(process.env.LINE_H2_APPLICATION_SAMPLE_MAX_AGE_MS ?? 30_000));
+/**
+ * 15 minutes, matching send-prediction's route window. Production SEND traffic
+ * to one origin is minutes apart, so the old 30s made the relay's own
+ * end-to-end samples expire before the next real send and it fell back to its
+ * self-reported PING forever — the same starvation the local lanes had.
+ */
+const APPLICATION_SAMPLE_MAX_AGE_MS = Math.max(1_000, Number(process.env.LINE_H2_APPLICATION_SAMPLE_MAX_AGE_MS ?? 900_000));
 
 export interface RemoteLaneMetrics {
 	readonly id: number;
@@ -179,8 +186,38 @@ export function recordRemoteDispatchStart(origin: string, _routeKey?: string): v
 	ensureOrigin(origin).metrics.inFlight++;
 }
 
+/**
+ * True while the relay is reachable and self-reporting but this worker has no
+ * fresh end-to-end SEND/POLL sample for it. The relay is only ever picked *from*
+ * a real sample (see `shouldPreferRemoteLane` in h2-lanes.ts), so without a
+ * nudge it can never earn its first one. `laneFetch` routes a bounded share of
+ * live sends here until that first sample lands, then score-based selection
+ * takes over on its own.
+ */
+export function remoteLaneNeedsBootstrap(origin: string, now: number = Date.now()): boolean {
+	if (!remoteDispatchConfig()) return false;
+	const state = origins.get(origin);
+	if (!state) return false;
+	if (now - state.reportedAt > REPORT_STALE_MS || state.reportedPingRttMs === undefined) return false;
+	const fresh = (at: number, maxAge: number): boolean => at > 0 && now - at <= maxAge;
+	if (fresh(state.metrics.lastSendOkAt, APPLICATION_SAMPLE_MAX_AGE_MS)) return false;
+	if (fresh(state.metrics.lastPollOkAt, APPLICATION_SAMPLE_MAX_AGE_MS)) return false;
+	if (fresh(state.reportedSendSampleAt, APPLICATION_SAMPLE_MAX_AGE_MS)) return false;
+	if (fresh(state.reportedPollSampleAt, APPLICATION_SAMPLE_MAX_AGE_MS)) return false;
+	for (const profile of state.sendRouteProfiles.values()) {
+		if (fresh(profile.lastAt, SEND_ROUTE_SAMPLE_MAX_AGE_MS)) return false;
+	}
+	return true;
+}
+
 /** Mirrors h2-lanes.ts's role-specific median-of-three route score. */
-export function recordRemoteDispatchEnd(origin: string, role: "send" | "poll" | undefined, elapsedMs: number, routeKey?: string): void {
+export function recordRemoteDispatchEnd(
+	origin: string,
+	role: "send" | "poll" | undefined,
+	elapsedMs: number,
+	routeKey?: string,
+	slowThresholdMs: number = SEND_SLOW_THRESHOLD_MS,
+): void {
 	const state = ensureOrigin(origin);
 	const m = state.metrics;
 	m.inFlight = Math.max(0, m.inFlight - 1);
@@ -198,8 +235,8 @@ export function recordRemoteDispatchEnd(origin: string, role: "send" | "poll" | 
 		m.sendRttMs = recordMedian(state.sendSamples, elapsedMs);
 		m.sendRttSamples = state.sendSamples;
 		m.lastSendOkAt = now;
-		m.sendSlowUntil = nextSendSlowUntil(Math.max(elapsedMs, m.sendRttMs), now);
-		if (routeKey) recordSendRouteSample(getOrCreateSendRouteProfile(state.sendRouteProfiles, routeKey), elapsedMs, now);
+		m.sendSlowUntil = nextSendSlowUntil(Math.max(elapsedMs, m.sendRttMs), now, slowThresholdMs);
+		if (routeKey) recordSendRouteSample(getOrCreateSendRouteProfile(state.sendRouteProfiles, routeKey), elapsedMs, now, slowThresholdMs);
 	}
 	m.lastOkAt = now;
 }

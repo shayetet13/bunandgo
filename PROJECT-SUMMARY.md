@@ -12,6 +12,7 @@
 **Stack หลัก:** Bun + TypeScript (backend), React + Vite (frontend), SQLite (เก็บข้อมูลทั้งหมด), Hono (API framework), Go (ตัวช่วยส่ง/dispatch relay เดิม — ปัจจุบันมี direct transport ทาง Bun ด้วย)
 
 **โครงสร้าง repo หลัก:**
+
 - `backend/src/linejs-core/` — LINE protocol client ที่ vendor เข้ามาแก้เอง (ไม่ใช่แค่ import library เฉยๆ)
 - `backend/src/dispatch/` — ระบบ h2-lanes (หัวใจของความเร็ว)
 - `backend/src/bot/` — session management, rules engine, scheduled posts, announcements
@@ -22,11 +23,11 @@
 
 ## 2. Infrastructure — 3 เซิร์ฟเวอร์
 
-| เซิร์ฟเวอร์ | Provider | IP | หน้าที่ |
-|---|---|---|---|
-| **Server 1** | AWS EC2 (ap-northeast-1, Tokyo), instance `t3.small` | `3.112.61.130` | Edge เท่านั้น — Nginx, TLS, static frontend build, proxy `/api` และ `/ws` ไป Server 2. **ไม่รัน backend จริง** (`linebot-backend` disabled โดยตั้งใจ กัน 2 worker แย่งบัญชี LINE เดียวกัน) |
-| **Server 2** | Linode / Akamai Connected Cloud (Tokyo) | `10.77.0.2` (private, เข้าผ่าน ProxyJump ทาง Server 1) | **Backend จริง** — รัน bot ทุกตัว, primary (`linebot-worker`, port 8791) + shard-b (`linebot-worker-shard-b`, port 8792) แยกความรับผิดชอบบอทตาม `worker-topology.json` |
-| **Server 3** | Linode / Akamai Connected Cloud (Tokyo) | `172.105.237.118` | Overflow lane-relay เท่านั้น — ไม่เก็บ session/credential ของ LINE เลย เป็น stateless HTTP relay ที่ Server 2 เรียกใช้ตอน lane local หมด/ช้าเกิน |
+| เซิร์ฟเวอร์  | Provider                                             | IP                                                     | หน้าที่                                                                                                                                                                                    |
+| ------------ | ---------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Server 1** | AWS EC2 (ap-northeast-1, Tokyo), instance `t3.small` | `3.112.61.130`                                         | Edge เท่านั้น — Nginx, TLS, static frontend build, proxy `/api` และ `/ws` ไป Server 2. **ไม่รัน backend จริง** (`linebot-backend` disabled โดยตั้งใจ กัน 2 worker แย่งบัญชี LINE เดียวกัน) |
+| **Server 2** | Linode / Akamai Connected Cloud (Tokyo)              | `10.77.0.2` (private, เข้าผ่าน ProxyJump ทาง Server 1) | **Backend จริง** — รัน bot ทุกตัว, primary (`linebot-worker`, port 8791) + shard-b (`linebot-worker-shard-b`, port 8792) แยกความรับผิดชอบบอทตาม `worker-topology.json`                     |
+| **Server 3** | Linode / Akamai Connected Cloud (Tokyo)              | `172.105.237.118`                                      | Overflow lane-relay เท่านั้น — ไม่เก็บ session/credential ของ LINE เลย เป็น stateless HTTP relay ที่ Server 2 เรียกใช้ตอน lane local หมด/ช้าเกิน                                           |
 
 **ข้อค้นพบสำคัญของ session นี้:** ตรวจสอบ `sys_vendor` ผ่าน DMI จริงพบว่า Server 2/3 คือ **Linode** ไม่ใช่ AWS (memory เก่าบันทึกผิดว่าย้ายไป AWS ทั้งหมด — จริงๆ ย้ายแค่ Server 1) วัด latency เปรียบเทียบจริงกับ IP เดียวกันพบว่า **Linode เร็วกว่า AWS ~7-8ms** (10-12ms vs 18-19ms) สำหรับการเข้าถึง LINE gateway — ยืนยันว่าเลือก provider ถูกที่อยู่แล้ว
 
@@ -48,13 +49,15 @@ Domain นี้ front ด้วย **Akamai** (CNAME ไปที่ `legy.line
 
 **กลไกย่อยที่ประกอบกันเป็นระบบนี้:**
 
-1. **Predicted-fastest-lane selection** — วัด RTT จริงของแต่ละ lane แบบ rolling window (7 samples ล่าสุด, ปรับได้ผ่าน `LINE_H2_SEND_SAMPLE_WINDOW`) คำนวณ p50/p95 แล้วทำนายเวลาที่จะเสร็จ (`predictSendCompletion` ใน `send-prediction.ts`) รวม queue cost ถ้า lane นั้นมี concurrent stream ค้างอยู่ เลือก lane ที่คาดว่าเร็วสุดทุกครั้งที่จะส่ง
+1. **Predicted-fastest-lane selection** — วัด RTT จริงของแต่ละ lane แบบ rolling window (7 samples ล่าสุด, ปรับได้ผ่าน `LINE_H2_SEND_SAMPLE_WINDOW`) คำนวณ p50/p95 แล้วทำนายเวลาที่จะเสร็จ (`predictSendCompletion` ใน `send-prediction.ts`) รวม queue cost ถ้า lane นั้นมี concurrent stream ค้างอยู่ เลือก lane ที่คาดว่าเร็วสุดทุกครั้งที่จะส่ง — เมื่อหลาย lane คะแนนอยู่ในระยะ margin `0.1ms` (กรณีปกติ) จะ **หมุนเวียน** (round-robin ต่อ bot route key) แทนการเกาะ lane id ต่ำสุด เพื่อให้ทุก lane มี traffic + sample สด
 2. **Route-key profile แยกตามบอท และ (ใหม่ session นี้) แยกตามประเภทข้อความ** — เดิมทำนายความเร็วแยกตาม `botId` เท่านั้น ทำให้ RTT ของ Square (~18-20ms) กับ Talk/OA (~6-8ms) ปนกันในหน้าต่างเดียวกัน (Square ส่งถี่กว่ามาก เลยกลบสัญญาณของ Talk/OA) แก้โดยเติม suffix `:t` ให้ compact-Talk request แยก window ออกจาก Square โดยเฉพาะ
 3. **Reserved send/poll lane** — กัน lane บางส่วนไว้เฉพาะการส่ง ไม่ให้ traffic poll (ที่วิ่งตลอดเวลา) แย่งช่อง จนการส่งจริงต้องรอคิว (`LINE_H2_SEND_RESERVED_LANES`, ปัจจุบัน 4 จาก 16)
 4. **Hot/discard ceiling** — lane ที่วัดได้ช้ากว่า `applicationHotCeilingMs` (18ms) เริ่มไม่ถูกเลือกเป็นอันดับแรก, ช้ากว่า `applicationDiscardCeilingMs` (20ms) ถูกตัดเข้า repair — ค่าพวกนี้ override ผ่าน `worker-topology.json` บน production ไม่ใช่ default ใน source code (ต้อง SSH เช็คสดเสมอ ห้ามเชื่อ source)
 5. **TLS session-ticket resumption** — resume TLS session ข้าม reconnect ของ lane เดียวกัน ลด handshake cost
 6. **Fast-ACK protocol shortcut** — อ่าน byte แรกของ response พอรู้ว่า "1" (สำเร็จ) ก็ return ทันทีโดยไม่ต้อง parse response แบบเต็ม (ใช้ทั้ง Square send และ compact Talk send)
-7. **IP-per-lane distribution** — แต่ละ lane กระจายไปคนละ IP ในทั้ง 8 IP ที่ pin ไว้ (2 lane ต่อ IP พอดี บน 16 lane) ไม่ให้ lane ทั้งหมดกระจุกอยู่ IP เดียว
+7. **IP-per-lane distribution** — แต่ละ lane กระจายไปคนละ IP ในทั้ง 8 IP ที่ pin ไว้ (2 lane ต่อ IP พอดี บน 16 lane, 4 ต่อ IP บน 32 lane ของ Server 3) ไม่ให้ lane ทั้งหมดกระจุกอยู่ IP เดียว สูตรใช้ **stride ที่ coprime กับจำนวน IP** (`(laneId × stride + rotation) % n`, `selectLaneRouteAddress`) ไม่ใช่ offset `+1` เดิม — offset `+1` ทำให้ reserved SEND lane (id 0–3) เกาะ IPv4 4 ตัวแรกตลอด ไม่เคยแตะครึ่ง IPv6 และหนี IP ช้าไม่ได้แม้ selector รู้ว่าช้า; `pin-legy-fast-ips.sh` เขียน `/etc/hosts` เรียง median เร็วสุดก่อน + เขียน `legy-ip-rank.json` ให้ cold lane จัดอันดับด้วย median จริงแทน PING
+8. **Server 3 bootstrap share** — relay lane เลือกได้ก็ต่อเมื่อมี SEND/POLL sample จริง แต่ไม่มีทางได้ sample ถ้าไม่เคยถูกเลือก → route SEND สัดส่วนคงที่ `1/16` (`LINE_RELAY_BOOTSTRAP_SHARE`) ไป Server 3 ตอนที่มัน healthy แต่ยัง 0 sample แล้วหยุดเองเมื่อได้ sample แรก
+9. **Dead-poll gate** — บอทที่ไม่มี enabled rule ครอบ Square (surface `square`/`all`) จะไม่ถูก fast-poll เลย (`botCanAnswerSquare` ใน `session-manager.ts`) — เดิม 0ms poller วิ่งต่อเนื่องในห้องที่ตอบไม่ได้ กิน cursor + LINE upstream เปล่า; normal push ยังคุมห้องนั้นอยู่
 
 ### 3.3 IP Pinning (`scripts/pin-legy-fast-ips.sh`)
 
@@ -66,9 +69,12 @@ Domain นี้ front ด้วย **Akamai** (CNAME ไปที่ `legy.line
 
 **อัปเดต session นี้:** เพิ่ม **absolute ceiling guard** (25ms) — เดิมเช็คแค่ relative (ช้ากว่า median ในรอบนั้น 1.8 เท่า) ซึ่งจับไม่ได้ถ้า pool ทั้งชุดหลุดไปอยู่ภูมิภาคอื่นพร้อมกัน (เจอแหล่งข้อมูล third-party ว่า domain นี้เคย resolve ไปสิงคโปร์ได้จากบาง vantage point) ตอนนี้ถ้า median รวมเกิน 25ms จะ abort ไม่แตะ `/etc/hosts` เลย
 
+**อัปเดตต่อ:** (1) **hard-exclude** `147.92.249.185` / `2400:dcc0:a303:b1a4::39` ถาวร (`LEGY_PIN_FORCE_EXCLUDE_IPS`) แม้ noisy window จะจัดว่าเร็ว (2) เขียน `/etc/hosts` **เรียง median เร็วสุดก่อน** ไม่ใช่ `sort -u` (3) เขียน `legy-ip-rank.json` (`{ip: medianMs}`) ให้ transport ใช้จัดอันดับ cold lane (4) `--print-ranking` ดู median ต่อ IP โดยไม่แตะไฟล์ — **ต้องติดตั้ง script รุ่นนี้บน Server 2** (รุ่นเดิมไม่มี hard-exclude) และตั้ง systemd timer 6 ชม. ทั้งสองเครื่อง
+
 ### 3.4 Prewarm
 
 Warm-up สิ่งที่มีต้นทุนสูงตอน "ครั้งแรก" ให้จ่ายก่อนบอทจะ "online" แทนที่จะให้ reply จริงครั้งแรกต้องจ่ายเอง:
+
 - Crypto/E2EE key derivation (วัดได้ ~13ms บน Windows ถ้าไม่ warm)
 - Compact-send target ต่อ mid ที่รู้จัก
 - Square `sendMessage` prewarm
@@ -85,12 +91,12 @@ Warm-up สิ่งที่มีต้นทุนสูงตอน "คร�
 
 จากการวัดสะสมหลาย session:
 
-| Surface | ตัวเลขที่วัดได้ | หมายเหตุ |
-|---|---|---|
-| Talk / OA (1:1) | **6-8ms** end-to-end | ใกล้ floor ทางกายภาพแล้ว |
-| Square / OpenChat | **18-20ms** end-to-end | ช้ากว่า Talk เพราะ backend ฝั่ง LINE เอง (broadcast ไปหลายคน) ไม่ใช่ช้าเพราะโค้ดเรา |
-| TCP RTT ดิบไป LINE (Tokyo↔Tokyo) | 1-3ms (Linode) / ~18-19ms (AWS) | วัดจาก `ss -tin` โดยตรงบน production |
-| โค้ดของเราเอง (ทุกขั้นตอนรวมกัน) | **<1.5ms** | decrypt, match, limiter, relayEncode, goPrep ฯลฯ รวมกันไม่ถึง 1.5ms จาก reply ทั้งหมด |
+| Surface                          | ตัวเลขที่วัดได้                 | หมายเหตุ                                                                              |
+| -------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------- |
+| Talk / OA (1:1)                  | **6-8ms** end-to-end            | ใกล้ floor ทางกายภาพแล้ว                                                              |
+| Square / OpenChat                | **18-20ms** end-to-end          | ช้ากว่า Talk เพราะ backend ฝั่ง LINE เอง (broadcast ไปหลายคน) ไม่ใช่ช้าเพราะโค้ดเรา   |
+| TCP RTT ดิบไป LINE (Tokyo↔Tokyo) | 1-3ms (Linode) / ~18-19ms (AWS) | วัดจาก `ss -tin` โดยตรงบน production                                                  |
+| โค้ดของเราเอง (ทุกขั้นตอนรวมกัน) | **<1.5ms**                      | decrypt, match, limiter, relayEncode, goPrep ฯลฯ รวมกันไม่ถึง 1.5ms จาก reply ทั้งหมด |
 
 **สรุป:** ~97-99% ของเวลา reply คือ LINE เองประมวลผล ไม่ใช่โค้ดเรา — "ทำไมไม่ต่ำกว่า 15ms" คือคำถามที่ตอบไม่ได้จากฝั่งเรา เพราะไม่มี bottleneck เหลือให้แก้แล้ว ปรับ send path เพิ่มได้อีกไม่เกิน ~1.5ms
 
@@ -160,6 +166,7 @@ Warm-up สิ่งที่มีต้นทุนสูงตอน "คร�
 ### 5.9 🟡 เหตุการณ์แบน 60 วัน (session นี้ — สืบสวนแล้ว ไม่ใช่บั๊กจากงานล่าสุด)
 
 บอท "test" โดนแบน 60 วัน สืบจนพบว่า:
+
 - ไม่เกี่ยวกับ deploy ที่เพิ่งทำ — login/QR ใช้คนละ code path จาก h2-lanes
 - error `E2EE_GROUP_TOO_MANY_MEMBERS` ที่เจอเป็น **throttle ชั่วคราวจริง** ไม่ใช่รหัสปลอมตัว (ยืนยันจาก community reverse-engineer: อยู่ในกลุ่ม E2EE code ไม่ใช่กลุ่ม throttle code) — เกิดกับหลายบอทสลับกันมาตลอด 24+ ชม.ก่อนหน้าอยู่แล้ว
 - 60 วันคือ pattern มาตรฐานของ LINE จริงสำหรับบัญชีส่วนตัวที่โดน flag (ยืนยันจากแหล่งข้อมูล third-party ภาษาญี่ปุ่นหลายแหล่ง) ไม่รับประกันว่าจะคืนสถานะ และเสี่ยงถาวรถ้าทำซ้ำ
@@ -194,6 +201,7 @@ Warm-up สิ่งที่มีต้นทุนสูงตอน "คร�
 ค้นหาเชิงลึกยืนยันว่า **ไม่มีใครในที่สาธารณะทำระดับใกล้เคียงระบบนี้เลย** (ทั้ง GitHub ecosystem ของ `linejs`/`CHRLINE`/`linepy` และชุมชนนานาชาติ/Reddit) — ทุก reference implementation ใช้ connection เดียว poll ทุกวินาที ไม่มี lane pooling/IP pinning/TLS tuning ระดับนี้เลย
 
 **ความเสี่ยงที่สำคัญกว่าความเร็วที่เหลือ:**
+
 - **ความเร็วตอบกลับเองคือสัญญาณเตือนภัย** — reply ที่เร็วกว่ามนุษย์ทำได้ทางกายภาพ (sub-second) เป็น red flag ในงานวิจัย anti-bot หลายสาย ไม่เกี่ยวกับ network/TLS เลย ตัวเลข 6-8ms/18-20ms ที่ทำได้อยู่คือสิ่งที่ระบบตรวจจับพวกนี้มองหาโดยตรง
 - **Akamai** (เจ้าของ CDN ที่ front LINE gateway) มีระบบให้คะแนนบอทแบบ published จริง (JA3/JA4 TLS fingerprint + HTTP/2 ordering) — Bun/Node default TLS stack ไม่ตรงกับแอพมือถือจริง เป็นช่องที่ยังไม่ได้แก้
 - คู่แข่งจริงถูกกันด้วย **ความกล้าเสี่ยงเรื่องแบน** มากกว่าความยากทางเทคนิค (protocol เป็นสาธารณะหมด)

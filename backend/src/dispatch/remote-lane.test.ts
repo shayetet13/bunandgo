@@ -5,6 +5,7 @@ import {
 	recordRemoteDispatchStart,
 	remoteDispatchConfig,
 	remoteLaneCandidate,
+	remoteLaneNeedsBootstrap,
 	resetRemoteLaneStateForTest,
 	updateRemoteLaneFromReport,
 } from "./remote-lane.ts";
@@ -34,6 +35,32 @@ describe("remoteDispatchConfig", () => {
 
 	test("present when both env vars are set", () => {
 		expect(remoteDispatchConfig()).toEqual({ url: "http://10.90.0.2:8795/dispatch", token: "test-token" });
+	});
+});
+
+describe("remoteLaneNeedsBootstrap", () => {
+	test("true once the relay reports a fresh PING but has no measured sample", () => {
+		const now = Date.now();
+		updateRemoteLaneFromReport(ORIGIN, { pingRttMs: 6.4 }, now);
+		expect(remoteLaneNeedsBootstrap(ORIGIN, now + 1_000)).toBe(true);
+	});
+
+	test("false before any report, when unconfigured, or when the report is stale", () => {
+		const now = Date.now();
+		expect(remoteLaneNeedsBootstrap(ORIGIN, now)).toBe(false);
+		updateRemoteLaneFromReport(ORIGIN, { pingRttMs: 6.4 }, now);
+		expect(remoteLaneNeedsBootstrap(ORIGIN, now + 10_000)).toBe(false);
+		delete process.env.LINE_RELAY_URL;
+		expect(remoteLaneNeedsBootstrap(ORIGIN, now + 1_000)).toBe(false);
+	});
+
+	test("false again once a real end-to-end sample has landed", () => {
+		const now = Date.now();
+		updateRemoteLaneFromReport(ORIGIN, { pingRttMs: 6.4 }, now);
+		recordRemoteDispatchStart(ORIGIN, "bot-a");
+		recordRemoteDispatchEnd(ORIGIN, "send", 19, "bot-a");
+		updateRemoteLaneFromReport(ORIGIN, { pingRttMs: 6.4 }, Date.now());
+		expect(remoteLaneNeedsBootstrap(ORIGIN, Date.now() + 1_000)).toBe(false);
 	});
 });
 

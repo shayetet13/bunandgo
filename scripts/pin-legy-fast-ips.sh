@@ -44,19 +44,29 @@ CURL_TIMEOUT="${LEGY_PIN_TIMEOUT:-5}"
 SLOW_MULTIPLIER="${LEGY_PIN_SLOW_MULTIPLIER:-1.8}"
 MIN_FAST_IPS="${LEGY_PIN_MIN_FAST_IPS:-4}"
 DOH_RESOLVER="${LEGY_PIN_DOH_RESOLVER:-https://cloudflare-dns.com/dns-query}"
+# The lane transport reads this to rank a cold lane by measured HTTPS median
+# instead of its (misleadingly low) HTTP/2 PING. Written on every apply run.
+RANK_FILE="${LEGY_PIN_RANK_FILE:-/opt/linebot/shared/legy-ip-rank.json}"
+# These two addresses repeatedly form the slow side of the Tokyo pool on both
+# worker hosts. Keep them out even when a noisy measurement window raises the
+# relative 1.8x threshold enough to classify them as fast. Operators can
+# replace (or clear) this whitespace/comma-separated list through the env.
+FORCE_EXCLUDE_IPS_RAW="${LEGY_PIN_FORCE_EXCLUDE_IPS:-147.92.249.185 2400:dcc0:a303:b1a4::39}"
+read -r -a FORCE_EXCLUDE_IPS <<< "${FORCE_EXCLUDE_IPS_RAW//,/ }"
 
 mode="apply"
 case "${1:-}" in
 	--dry-run) mode="dry-run" ;;
 	--rollback) mode="rollback" ;;
+	--print-ranking) mode="print-ranking" ;;
 	"") mode="apply" ;;
 	*)
-		echo "usage: $0 [--dry-run|--rollback]" >&2
+		echo "usage: $0 [--dry-run|--rollback|--print-ranking]" >&2
 		exit 2
 		;;
 esac
 
-if [[ "$mode" != "rollback" && "$(id -u)" -ne 0 ]]; then
+if [[ "$mode" == "apply" && "$(id -u)" -ne 0 ]]; then
 	echo "must run as root (writes $HOSTS_FILE)" >&2
 	exit 1
 fi
@@ -146,6 +156,17 @@ echo "overall median=${overall_median}ms, slow threshold=${threshold}ms (${SLOW_
 fast_ips=()
 slow_ips=()
 for ip in "${pool[@]}"; do
+	force_excluded=0
+	for excluded_ip in "${FORCE_EXCLUDE_IPS[@]}"; do
+		if [[ "$ip" == "$excluded_ip" ]]; then
+			force_excluded=1
+			break
+		fi
+	done
+	if [[ "$force_excluded" -eq 1 ]]; then
+		slow_ips+=("$ip")
+		continue
+	fi
 	if awk -v v="${median_of[$ip]}" -v t="$threshold" 'BEGIN{exit !(v<=t)}'; then
 		fast_ips+=("$ip")
 	else
@@ -153,8 +174,50 @@ for ip in "${pool[@]}"; do
 	fi
 done
 
-echo "fast (${#fast_ips[@]}): ${fast_ips[*]:-none}"
+# Order the fast set fastest-median first. /etc/hosts order is preserved
+# verbatim by the lane resolver, and the transport's per-lane stride starts
+# from the low indices, so a fastest-first list means the reserved SEND lanes
+# reach for the quickest IPs before the stride spreads the rest.
+if [[ "${#fast_ips[@]}" -gt 0 ]]; then
+	mapfile -t fast_ips < <(
+		for ip in "${fast_ips[@]}"; do printf '%s\t%s\n' "${median_of[$ip]}" "$ip"; done | sort -n | cut -f2-
+	)
+fi
+
+echo "fast (${#fast_ips[@]}, fastest first): ${fast_ips[*]:-none}"
 echo "slow/excluded (${#slow_ips[@]}): ${slow_ips[*]:-none}"
+
+# Ranking file for the lane transport: every measured IP -> its median ms.
+# Written for fast and slow alike so a lane still connected through an
+# excluded IP during a transition is still ranked correctly.
+rank_json="{"
+rank_sep=""
+for ip in "${pool[@]}"; do
+	[[ -n "${median_of[$ip]:-}" ]] || continue
+	rank_json+="${rank_sep}\"${ip}\": ${median_of[$ip]}"
+	rank_sep=", "
+done
+rank_json+="}"
+
+if [[ "$mode" == "print-ranking" ]]; then
+	echo "--- per-IP HTTPS median (fastest first) ---"
+	for ip in "${fast_ips[@]}" "${slow_ips[@]}"; do
+		[[ -n "${median_of[$ip]:-}" ]] || continue
+		printf '  %-28s %sms\n' "$ip" "${median_of[$ip]}"
+	done
+	echo "--- ranking json (${RANK_FILE}) ---"
+	echo "$rank_json"
+	exit 0
+fi
+
+# Refresh the ranking file on every apply, even when the fast set (and so
+# /etc/hosts) is unchanged -- the medians still move and the transport wants
+# the current numbers.
+if [[ "$mode" == "apply" ]]; then
+	mkdir -p "$(dirname "$RANK_FILE")"
+	printf '%s\n' "$rank_json" >"${RANK_FILE}.tmp" && mv "${RANK_FILE}.tmp" "$RANK_FILE"
+	echo "wrote ranking file $RANK_FILE"
+fi
 
 if [[ "${#fast_ips[@]}" -lt "$MIN_FAST_IPS" ]]; then
 	echo "only ${#fast_ips[@]} fast IPs (< MIN_FAST_IPS=$MIN_FAST_IPS) -- looks like a bad measurement window, aborting without touching $HOSTS_FILE" >&2
@@ -162,9 +225,9 @@ if [[ "${#fast_ips[@]}" -lt "$MIN_FAST_IPS" ]]; then
 fi
 
 new_block="$MARKER_BEGIN
-# Generated $(date -u +%FT%TZ). Excludes IPs measured >${SLOW_MULTIPLIER}x the
-# pool median RTT (see scripts/pin-legy-fast-ips.sh for rationale). SNI/Host
-# stays ${HOSTNAME_TARGET} so the LINE TLS cert still validates normally.
+# Generated $(date -u +%FT%TZ). Fastest median first; excludes IPs measured
+# >${SLOW_MULTIPLIER}x the pool median RTT (see scripts/pin-legy-fast-ips.sh).
+# SNI/Host stays ${HOSTNAME_TARGET} so the LINE TLS cert still validates.
 # Excluded this run: ${slow_ips[*]:-none}"
 for ip in "${fast_ips[@]}"; do
 	new_block="$new_block

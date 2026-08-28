@@ -401,6 +401,8 @@ botDetailRoute.post("/rules", async (c) => {
 	try {
 		const rule = createRule(botId, result.data as RuleInput);
 		await prewarmReplyText(botId, rule.replyText);
+		// The bot's first Square-capable rule makes its rooms fast-poll-eligible.
+		syncFastSquarePollers(botId);
 		logUserAction(requestUser(c)!, "rule.create", { botId, ruleId: rule.id, matchValue: rule.matchValue });
 		return c.json(rule, 201);
 	} catch (error) {
@@ -420,6 +422,8 @@ botDetailRoute.put("/rules/:id", async (c) => {
 			return c.json({ error: "rule not found" }, 404);
 		}
 		await prewarmReplyText(botId, result.data.replyText);
+		// Enabling/disabling a rule can flip the bot's Square-poll eligibility.
+		syncFastSquarePollers(botId);
 		logUserAction(requestUser(c)!, "rule.update", { botId, ruleId: id });
 		return c.json({ ok: true });
 	} catch (error) {
@@ -433,6 +437,8 @@ botDetailRoute.delete("/rules/:id", (c) => {
 	const id = ruleIdOf(c);
 	if (id === undefined) return c.json({ error: "invalid rule id" }, 400);
 	if (!deleteRule(botId, id)) return c.json({ error: "rule not found" }, 404);
+	// Removing the last Square-capable rule retires the bot's fast pollers.
+	syncFastSquarePollers(botId);
 	logUserAction(requestUser(c)!, "rule.delete", { botId, ruleId: id });
 	return c.json({ ok: true });
 });

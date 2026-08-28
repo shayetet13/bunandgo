@@ -92,6 +92,8 @@ for new_file in \
 	backend/src/api/worker-proxy.test.ts \
 	backend/src/api/routes/system.ts \
 	backend/src/api/routes/system.test.ts \
+	backend/src/bot/square-poll-quiet.ts \
+	backend/src/bot/square-poll-quiet.test.ts \
 	backend/src/bot/start-confirmation.test.ts \
 	backend/src/bot/worker-assignment.ts \
 	backend/src/bot/worker-assignment.test.ts \

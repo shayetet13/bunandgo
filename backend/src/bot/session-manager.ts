@@ -73,6 +73,7 @@ import {
 	runFastSquarePoller,
 } from "./fast-square-poller.ts";
 import { selectFastPollRooms, type FastPollCandidate } from "./fast-poll-room.ts";
+import { markSquareReplyDispatched, squarePollQuietRemainingMs } from "./square-poll-quiet.ts";
 import { primaryBotIdFor } from "./primary-bot.ts";
 import { shouldRunControlPlaneJobs } from "./worker-topology.ts";
 
@@ -1493,13 +1494,7 @@ export function deleteBotSession(botId: number): void {
  * see [[feedback_no_autonomous_login_or_speed_changes]] memory note, this
  * project's own login/logout is off-limits for automatic action.
  */
-const ACCOUNT_RESTRICTION_CODES = new Set([
-	"ABUSE_BLOCK",
-	"BANNED",
-	"SECURITY_CENTER_BLOCKED",
-	"FORBIDDEN",
-	"AUTHENTICATION_FAILURE",
-]);
+const ACCOUNT_RESTRICTION_CODES = new Set(["ABUSE_BLOCK", "BANNED", "SECURITY_CENTER_BLOCKED", "FORBIDDEN", "AUTHENTICATION_FAILURE"]);
 
 function restrictionCodeOf(err: unknown): string | undefined {
 	if (!(err instanceof InternalError) || err.name !== "RequestError") return undefined;
@@ -1610,12 +1605,21 @@ function replyOwnerKey(botId: number, ownerUserId = runtimes.get(botId)?.ownerUs
 /** Re-entrancy guard for the sibling nudge in `syncFastSquarePollers`. */
 let nudgingSiblings = false;
 
+/** A bot can only answer a Square message if it has an enabled rule whose
+ * surface covers Square. Rules are per-bot, not per-room, so this gates the
+ * whole bot: with nothing that can match, a dedicated 0ms poller only burns a
+ * cursor and LINE upstream — the normal push connection still covers the room. */
+export function botCanAnswerSquare(botId: number): boolean {
+	return getCompiledRules(botId).some((rule) => rule.enabled && (rule.surface === "square" || rule.surface === "all"));
+}
+
 /**
  * The OpenChats this bot may reply in, each with how busy it has been, in
  * the stable most-recently-joined-first order `selectFastPollRoom` expects
  * as its tie-break.
  */
 function fastPollCandidates(botId: number): FastPollCandidate[] {
+	if (!botCanAnswerSquare(botId)) return [];
 	const mids = enabledSquareChatMidsStmt.all(botId).map((row) => row.mid);
 	if (mids.length <= 1) return mids.map((mid) => ({ mid, recentMessages: 0 }));
 	const activity = new Map(
@@ -1709,6 +1713,7 @@ export function syncFastSquarePollers(botId: number): void {
 			squareChatMid,
 			signal: controller.signal,
 			intervalMs,
+			quietBeforeNextFetchMs: () => squarePollQuietRemainingMs(squareChatMid),
 			fetchEvents: (options, signal) => client.base.square.fetchSquareChatEvents({ ...options, signal }),
 			onEvent: (event, receivedAt) => {
 				if (rt.stopRequested || runtimes.get(botId)?.client !== client) return;
@@ -2338,6 +2343,10 @@ async function handleIncoming(
 			upstreamCalls: 0,
 			upstreamMs: 0,
 		};
+		// Tell this room's fast poll cursor a reply is on its way, so it holds
+		// its next zero-delay fetch instead of making LINE handle the send next
+		// to a poll (see square-poll-quiet.ts). No-op while the window is 0.
+		if (surface === "square") markSquareReplyDispatched(targetMid);
 		// Real (non-prewarm) Square sends are tracked by message id so a
 		// moderator destroying this exact reply can be answered — see
 		// reply-defense.ts.

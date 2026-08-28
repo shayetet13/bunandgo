@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { nextSendSlowUntil, sendCandidatesOutsideCooldown } from "./lane-speed-policy.ts";
+import { effectiveSendSlowThresholdMs, nextSendSlowUntil, SEND_SLOW_FLOOR_MS, sendCandidatesOutsideCooldown } from "./lane-speed-policy.ts";
 
 describe("SEND slow-lane cooldown", () => {
 	test("keeps results at the 23ms boundary available and cools only results above it", () => {
@@ -25,5 +25,27 @@ describe("SEND slow-lane cooldown", () => {
 			{ id: 2, sendSlowUntil: 30_000 },
 		];
 		expect(sendCandidatesOutsideCooldown(lanes, 10_000)).toEqual(lanes);
+	});
+});
+
+describe("effectiveSendSlowThresholdMs", () => {
+	test("only the floor applies with no measured sibling", () => {
+		expect(effectiveSendSlowThresholdMs(undefined)).toBe(SEND_SLOW_FLOOR_MS);
+		expect(effectiveSendSlowThresholdMs(0)).toBe(SEND_SLOW_FLOOR_MS);
+	});
+
+	test("a fast pool holds its lanes to a fast bar, tighter than the floor", () => {
+		// fastest 15ms -> 15 * 1.5 = 22.5, below the 28ms floor
+		expect(effectiveSendSlowThresholdMs(15)).toBeCloseTo(22.5, 5);
+		// a 24ms send in a 15ms pool now cools; a 24ms send with no sibling does not
+		expect(nextSendSlowUntil(24, 1_000, effectiveSendSlowThresholdMs(15))).toBeGreaterThan(0);
+		expect(nextSendSlowUntil(24, 1_000, effectiveSendSlowThresholdMs(undefined))).toBe(0);
+	});
+
+	test("a slow upstream (every lane slow) never pushes the threshold above the floor", () => {
+		// fastest 22ms -> 22 * 1.5 = 33, capped at the 28ms floor so a 30ms lane
+		// still cools rather than everything sitting just under a moving ceiling
+		expect(effectiveSendSlowThresholdMs(22)).toBe(SEND_SLOW_FLOOR_MS);
+		expect(nextSendSlowUntil(30, 1_000, effectiveSendSlowThresholdMs(22))).toBeGreaterThan(0);
 	});
 });

@@ -7,8 +7,16 @@ function boundedEnv(name: string, fallback: number, min: number, max: number): n
 
 /** Seven results react quickly while retaining enough history to expose a spike. */
 export const SEND_SAMPLE_WINDOW = Math.trunc(boundedEnv("LINE_H2_SEND_SAMPLE_WINDOW", 7, 3, 31));
-/** A bot-specific result older than this falls back to the lane's shared prior. */
-export const SEND_ROUTE_SAMPLE_MAX_AGE_MS = boundedEnv("LINE_H2_SEND_ROUTE_SAMPLE_MAX_AGE_MS", 30_000, 1_000, 300_000);
+/**
+ * A bot-specific result older than this falls back to the lane's shared prior.
+ *
+ * 15 minutes, not 30 seconds: real production SEND traffic on one bot/room is
+ * minutes apart, so a 30s window meant the per-route predictor was effectively
+ * never fresh and every selection fell back to transport PING. A lane only
+ * lives ~15min before it is recycled anyway (LANE_MAX_AGE_MS), so the samples
+ * cannot outlive the physical route they describe.
+ */
+export const SEND_ROUTE_SAMPLE_MAX_AGE_MS = boundedEnv("LINE_H2_SEND_ROUTE_SAMPLE_MAX_AGE_MS", 900_000, 1_000, 3_600_000);
 /** Converts observed p95-p50 spread into a conservative completion estimate. */
 export const SEND_JITTER_WEIGHT = boundedEnv("LINE_H2_SEND_JITTER_WEIGHT", 0.35, 0, 2);
 /** Defensive memory bound; normal production has far fewer live bots. */
@@ -42,12 +50,17 @@ export function percentile(values: readonly number[], fraction: number): number 
 	);
 }
 
-export function recordSendRouteSample(profile: SendRouteProfile, sampleMs: number, now: number = Date.now()): void {
+export function recordSendRouteSample(
+	profile: SendRouteProfile,
+	sampleMs: number,
+	now: number = Date.now(),
+	slowThresholdMs: number = SEND_SLOW_THRESHOLD_MS,
+): void {
 	if (!Number.isFinite(sampleMs) || sampleMs < 0) return;
 	profile.samples.push(sampleMs);
 	if (profile.samples.length > SEND_SAMPLE_WINDOW) profile.samples.shift();
 	profile.lastAt = now;
-	profile.slowUntil = sampleMs > SEND_SLOW_THRESHOLD_MS ? now + SEND_SLOW_COOLDOWN_MS : 0;
+	profile.slowUntil = sampleMs > slowThresholdMs ? now + SEND_SLOW_COOLDOWN_MS : 0;
 }
 
 export function freshSendRouteProfile(

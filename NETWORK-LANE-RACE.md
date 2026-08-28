@@ -24,16 +24,16 @@ Bot บน Server 2
 
 - `NETWORK · LINE ↔ AKAMAI` แสดงสถานะ connection และค่าปัจจุบัน
 - `LANE RACE` แสดงคะแนนและประวัติผลงานของแต่ละ lane
-- เป้าหมาย SEND ต่ำกว่า `20ms`; ผลเกิน `23ms` ทำให้ route พักชั่วคราวเมื่อมีทางเลือก
+- เป้าหมาย SEND ต่ำกว่า `20ms`; lane ที่ช้ากว่า lane เร็วที่สุดในกลุ่ม (เกิน `1.5×` หรือเกินเพดาน `28ms` แล้วแต่อันไหนแคบกว่า) จะพักชั่วคราวเมื่อมีทางเลือก
 - แต่ละ request ใช้เพียงหนึ่ง server และหนึ่ง lane เพื่อป้องกันข้อความซ้ำ
 
 ## โครงสร้าง Server 2/3
 
-| Worker | ที่อยู่ | Lane source | จำนวน lane |
-|---|---|---|---:|
-| Primary | Server 2 | Local และมี Server 3 เป็น remote candidate | 16 local + 32 remote |
-| Shard B | Server 2 | Local และมี Server 3 เป็น remote candidate | 16 local + 32 remote |
-| Lane Relay | Server 3 | เชื่อม `legy.line-apps.com` | 32 |
+| Worker     | ที่อยู่  | Lane source                                |           จำนวน lane |
+| ---------- | -------- | ------------------------------------------ | -------------------: |
+| Primary    | Server 2 | Local และมี Server 3 เป็น remote candidate | 16 local + 32 remote |
+| Shard B    | Server 2 | Local และมี Server 3 เป็น remote candidate | 16 local + 32 remote |
+| Lane Relay | Server 3 | เชื่อม `legy.line-apps.com`                |                   32 |
 
 Server 3 ไม่มี bot, login, LINE session หรือฐานข้อมูล และไม่รับ `gf.line.naver.jp`
 
@@ -41,14 +41,14 @@ Server 3 ไม่มี bot, login, LINE session หรือฐานข้อ
 
 ### สถานะ lane
 
-| สถานะ | ความหมาย |
-|---|---|
-| `พร้อม` | HTTP/2 session ใช้งานได้ |
-| `กำลังต่อ` | กำลังเปิด DNS/TCP/TLS/HTTP2 |
-| `กำลังปิด` | ได้รับ GOAWAY หรือกำลังรอให้งานค้างจบ |
-| `ตาย` | Connection ใช้งานไม่ได้และกำลัง reconnect |
-| `ว่าง` | ไม่มี request ค้างอยู่ |
-| `กำลังส่ง N คำขอ` | มี HTTP/2 stream ทำงานพร้อมกัน N รายการ |
+| สถานะ             | ความหมาย                                  |
+| ----------------- | ----------------------------------------- |
+| `พร้อม`           | HTTP/2 session ใช้งานได้                  |
+| `กำลังต่อ`        | กำลังเปิด DNS/TCP/TLS/HTTP2               |
+| `กำลังปิด`        | ได้รับ GOAWAY หรือกำลังรอให้งานค้างจบ     |
+| `ตาย`             | Connection ใช้งานไม่ได้และกำลัง reconnect |
+| `ว่าง`            | ไม่มี request ค้างอยู่                    |
+| `กำลังส่ง N คำขอ` | มี HTTP/2 stream ทำงานพร้อมกัน N รายการ   |
 
 สีเขียวหมายถึงพร้อมหรือเป็น route ที่เลือกอยู่ สีเหลืองหมายถึงกำลังเชื่อมหรือคำเตือน และสีแดงสงวนไว้สำหรับ connection failure ไม่ได้ใช้ตัดสินจากตัวเลข RTT
 
@@ -94,12 +94,12 @@ PING ใหม่ = PING เดิม × 0.70 + ตัวอย่างให�
 
 ระบบแยก measurement เป็นสามประเภท:
 
-| ค่า | ความหมาย | ใช้เลือก SEND หรือไม่ |
-|---|---|---|
-| `rttMs` | HTTP/2 PING | ไม่ใช้เป็น SEND จริง |
-| `sendRttMs` | SEND จริง | ใช้ |
-| `pollRttMs` | POLL จริง | ไม่ใช้แทน SEND |
-| `applicationRttMs` | ค่าของ SEND/POLL role ที่มีผลล่าสุดสำหรับหน้าจอ | ใช้แสดงผลเท่านั้น |
+| ค่า                | ความหมาย                                        | ใช้เลือก SEND หรือไม่ |
+| ------------------ | ----------------------------------------------- | --------------------- |
+| `rttMs`            | HTTP/2 PING                                     | ไม่ใช้เป็น SEND จริง  |
+| `sendRttMs`        | SEND จริง                                       | ใช้                   |
+| `pollRttMs`        | POLL จริง                                       | ไม่ใช้แทน SEND        |
+| `applicationRttMs` | ค่าของ SEND/POLL role ที่มีผลล่าสุดสำหรับหน้าจอ | ใช้แสดงผลเท่านั้น     |
 
 POLL ใช้ median ของผลล่าสุดสูงสุดเจ็ดครั้ง เพื่อกรอง spike เดี่ยว แต่ยังตอบสนองเมื่อเส้นทางช้าติดต่อกัน SEND ไม่ใช้ median เฉย ๆ อีกต่อไป แต่ทำนาย completion time จากหน้าต่างเจ็ดผลล่าสุด **แยกต่อบอท** (ดูหัวข้อ "กฎเลือก SEND lane")
 
@@ -128,48 +128,48 @@ queue waves = floor(inFlight / maxConcurrentStreams ที่ peer ประก�
 
 ตัวอย่าง:
 
-| Lane | p50 (บอทนี้) | p95 (บอทนี้) | Predicted | หมายเหตุ |
-|---|---:|---:|---:|---|
-| A | 15ms | 48ms | ~26.6ms | median ต่ำแต่ jitter สูง (เคย spike ถึง 48ms) |
-| B | 17ms | 18ms | ~17.4ms | นิ่งกว่า ชนะแม้ median สูงกว่า A |
+| Lane | p50 (บอทนี้) | p95 (บอทนี้) | Predicted | หมายเหตุ                                      |
+| ---- | -----------: | -----------: | --------: | --------------------------------------------- |
+| A    |         15ms |         48ms |   ~26.6ms | median ต่ำแต่ jitter สูง (เคย spike ถึง 48ms) |
+| B    |         17ms |         18ms |   ~17.4ms | นิ่งกว่า ชนะแม้ median สูงกว่า A              |
 
 ระบบเลือก Lane B เพราะ predicted completion ต่ำที่สุด ไม่ใช่แค่ median ต่ำที่สุด `inFlight` ใช้ตัดสินเฉพาะเมื่อ predicted score เท่ากันพอดี
 
-บอทแต่ละตัวสามารถชนะคนละ lane กันได้ในเวลาเดียวกัน และ cooldown (raw SEND > 23ms) ของบอทหนึ่งจะพักเฉพาะ bot-route นั้นบน lane นั้น ไม่ลาม lane ทิ้งไปทั้งกลุ่มสำหรับบอทอื่น bot-route profile หมดอายุหลัง 30 วินาทีไม่มีผลจริงใหม่ แล้ว fallback กลับไปใช้ prior ของ lane
+บอทแต่ละตัวสามารถชนะคนละ lane กันได้ในเวลาเดียวกัน และ cooldown ของบอทหนึ่งจะพักเฉพาะ bot-route นั้นบน lane นั้น ไม่ลาม lane ทิ้งไปทั้งกลุ่มสำหรับบอทอื่น bot-route profile หมดอายุหลัง **15 นาที** ไม่มีผลจริงใหม่ (traffic SEND จริงต่อ 1 บอท/ห้องห่างกันเป็นนาที — 30 วินาทีเดิมทำให้ predictor ไม่เคยสด) แล้ว fallback กลับไปใช้ prior ของ lane
 
-### Soft affinity
+### Round-robin ระหว่าง lane ที่เสมอกัน
 
-ระบบจำ preferred send lane **แยกต่อบอท** (`origin + bot route key`) ไม่ใช่ต่อ origin เฉยๆ และมี switch margin `0.1ms` เพื่อให้ความต่างระดับเสี้ยว millisecond มีผลต่อผู้ชนะ โดยยังไม่สลับเมื่อค่าต่างกันต่ำกว่า `0.1ms`
+เมื่อมีหลาย lane ที่คะแนน predicted อยู่ในระยะ switch margin `0.1ms` จากตัวเร็วสุด (กรณีปกติ เพราะ lane ทั้งกลุ่มวิ่งไปยัง IP เร็วชุดเดียวกัน) ระบบ **หมุนเวียน** SEND ไปทีละ lane ต่อ bot route key แทนที่จะให้ lane id ต่ำสุดรับงานทั้งหมด — เพื่อให้ทุก lane มี traffic และมี sample สด ถ้ามี lane ที่เร็วกว่าจริงเกิน margin lane นั้นชนะเดี่ยว ๆ ไม่เข้าการหมุนเวียน
 
 ```text
-เดิม 18.0ms / ใหม่ 17.91ms / ต่าง 0.09ms → อยู่ lane เดิม
-เดิม 18.0ms / ใหม่ 17.90ms / ต่าง 0.10ms → ย้ายได้
+lane 0/1/2 คะแนน 19.0 / 19.0 / 19.05ms → SEND หมุน 0 → 1 → 2 → 0 …
+lane 0 คะแนน 18ms, lane 1 คะแนน 25ms → lane 0 รับทุกครั้ง
 ```
-
-นี่ไม่ใช่การล็อก lane ถาวร เพราะทุก request จะคำนวณใหม่ต่อบอทนั้นเอง
 
 ### Lane ที่ยังไม่มี SEND sample
 
-ระบบไม่ถือว่า lane เร็วเพียงเพราะ PING ต่ำ:
+ระบบไม่ถือว่า lane เร็วเพียงเพราะ PING ต่ำ (PING จบที่ Akamai edge ~1–3ms ไม่ใช่ RPC จริง):
 
 ```text
 cold lane = ไม่มีสิทธิ์ชนะ lane ที่มี SEND measurement จริง
+จัดอันดับ cold lane ด้วย median HTTPS ต่อ IP (legy-ip-rank.json จาก pin-legy-fast-ips.sh) ไม่ใช่ PING
 ```
 
 ถ้า measured route อยู่ใน cooldown ทั้งหมด ระบบจึงให้ cold lane ที่พร้อมอยู่รับงานหนึ่งครั้งเพื่อสร้าง SEND sample โดยไม่ส่งข้อความซ้ำ
 
-### Guardrail 20/23ms
+### Guardrail — cooldown แบบ relative
 
 - ต่ำกว่า 20ms: เป้าหมายปกติ
-- 20–23ms: ยังใช้งานได้ แต่แพ้ค่าที่ต่ำกว่าเสมอ
-- มากกว่า 23ms: พัก 15 วินาทีเมื่อมี route อื่น — พักเฉพาะ **bot-route** นั้นบน lane นั้น ไม่ใช่ทั้ง lane สำหรับบอทอื่น
-- ถ้าทุก route พักพร้อมกัน (สำหรับบอทนั้น): ใช้ SEND RTT ต่ำที่สุดต่อเพื่อไม่ทิ้งข้อความ
+- lane cool เมื่อผลเกิน `min(28ms, 1.5 × lane เร็วสุดที่วัดได้ในกลุ่ม)` — เพดานคงที่ 23ms เดิมต่ำกว่า p50 จริงเลย cool เกือบทุก send จน ranking พัง; ถ้าไม่มี sibling ที่วัดได้ใช้เพดาน `28ms` อย่างเดียว
+- พัก 15 วินาที เฉพาะ **bot-route** นั้นบน lane นั้น ไม่ใช่ทั้ง lane สำหรับบอทอื่น
+- ถ้าทุก route พักพร้อมกัน: ใช้ SEND RTT ต่ำที่สุดต่อเพื่อไม่ทิ้งข้อความ
 - ผลเร็วครั้งถัดไปของบอทนั้นล้าง cooldown ของบอทนั้นทันที
+- knob: `LINE_H2_SEND_SLOW_FLOOR_MS` (28), `LINE_H2_SEND_SLOW_RATIO` (1.5), `LINE_H2_SEND_ROUTE_SAMPLE_MAX_AGE_MS` (900000)
 
 ## กฎเลือก POLL lane
 
 1. เลือก lane ที่ยังไม่มี `pollRttMs`
-2. เริ่มจาก lane ที่ PING ต่ำที่สุดในกลุ่มที่ยังไม่วัด
+2. เริ่มจาก lane ที่ PING ต่ำที่สุดในกลุ่มที่ยังไม่วัด (POLL ยังใช้ PING เป็น prior เพราะ POLL เป็น read path สั้น ไม่เหมือน SEND ที่ใช้ IP ranking)
 3. ให้ POLL จริงหนึ่งงานผ่าน lane
 4. ทำซ้ำจน lane ได้รับการ calibrate
 5. หลัง calibrate เลือก lane ที่ `pollRttMs` ต่ำที่สุด
@@ -202,7 +202,9 @@ Server 3 ส่งรายงานกลับ Server 2 ทุกหนึ่�
 
 ถ้ารายงานเก่ากว่าสามวินาที Server 3 จะถูกถอดออกจาก candidate และหายจากหน้าจอจนกว่าจะมีรายงานใหม่
 
-SEND/POLL sample ที่เก่ากว่าประมาณ 30 วินาทีจะไม่ถูกอ้างว่าเป็นค่าปัจจุบัน — สำหรับ SEND นี่คือ per-bot-route profile (สูงสุด 2,048 บอทต่อ physical lane, evict แบบ least-recently-used) ที่หมดอายุแล้ว fallback ไปใช้ prior ของ lane แทน ไม่ใช่ทิ้งค่าทั้งหมด
+SEND/POLL sample ที่เก่ากว่า **15 นาที** (`LINE_H2_APPLICATION_SAMPLE_MAX_AGE_MS`) จะไม่ถูกอ้างว่าเป็นค่าปัจจุบัน — สำหรับ SEND นี่คือ per-bot-route profile (สูงสุด 2,048 บอทต่อ physical lane, evict แบบ least-recently-used) ที่หมดอายุแล้ว fallback ไปใช้ prior ของ lane แทน ไม่ใช่ทิ้งค่าทั้งหมด
+
+Server 3 มีปัญหา cold-start: เลือกได้ก็ต่อเมื่อมี sample จริง แต่ไม่มี sample ถ้าไม่เคยถูกเลือก → ระบบ route SEND สัดส่วน `1/16` (`LINE_RELAY_BOOTSTRAP_SHARE`, `remoteLaneNeedsBootstrap`) ไป Server 3 ตอนมัน healthy แต่ยัง 0 sample แล้วหยุดเองเมื่อได้ sample แรก
 
 เมื่อ Primary ส่งผ่าน Server 3 ระบบวัดแบบ end-to-end:
 
@@ -252,11 +254,11 @@ LANE RACE เป็นระบบคะแนนและประวัติ 
 
 ### FASTEST / STANDBY / WAIT
 
-| สถานะ | ความหมาย |
-|---|---|
-| `FASTEST` | SEND lane ที่ได้คะแนนดีที่สุดใน worker นั้น |
-| `STANDBY` | มีงานจริงแล้ว แต่ไม่ได้เป็นผู้ชนะปัจจุบัน |
-| `WAIT` | Connection อุ่นแล้ว แต่ยังไม่มี SEND/POLL จริง |
+| สถานะ     | ความหมาย                                       |
+| --------- | ---------------------------------------------- |
+| `FASTEST` | SEND lane ที่ได้คะแนนดีที่สุดใน worker นั้น    |
+| `STANDBY` | มีงานจริงแล้ว แต่ไม่ได้เป็นผู้ชนะปัจจุบัน      |
+| `WAIT`    | Connection อุ่นแล้ว แต่ยังไม่มี SEND/POLL จริง |
 
 ### ดาวและกล้วย
 
@@ -270,14 +272,14 @@ RTT ของงานนี้ > benchmark + 1.5ms → 🍌
 
 ตัวอย่าง benchmark SEND เท่ากับ `18ms`:
 
-| RTT | คะแนน |
-|---:|---|
-| 17.5ms | ⭐ |
-| 18.0ms | ⭐ |
-| 19.4ms | ⭐ |
-| 19.5ms | ⭐ |
-| 19.6ms | 🍌 |
-| 30ms | 🍌 |
+|    RTT | คะแนน |
+| -----: | ----- |
+| 17.5ms | ⭐    |
+| 18.0ms | ⭐    |
+| 19.4ms | ⭐    |
+| 19.5ms | ⭐    |
+| 19.6ms | 🍌    |
+|   30ms | 🍌    |
 
 ดาวและกล้วยเป็นสถิติ ไม่มีผลเพิ่มสิทธิ์หรือบังคับ routing และไม่มีเกณฑ์ต่ำกว่า `20ms`
 
@@ -306,12 +308,12 @@ Network จริงล่าสุด = 18ms
 
 รายการ bot latency แสดง:
 
-| ค่า | ความหมาย |
-|---|---|
-| `IN` | เวลารอรับ event ก่อนเข้าโค้ด |
-| `CODE` | Rule matching, E2EE และ protocol preparation |
-| `LINE` | เวลาตั้งแต่ dispatch จนได้ response จาก LINE |
-| `TOTAL` | เวลารวมของการตอบข้อความ |
+| ค่า     | ความหมาย                                     |
+| ------- | -------------------------------------------- |
+| `IN`    | เวลารอรับ event ก่อนเข้าโค้ด                 |
+| `CODE`  | Rule matching, E2EE และ protocol preparation |
+| `LINE`  | เวลาตั้งแต่ dispatch จนได้ response จาก LINE |
+| `TOTAL` | เวลารวมของการตอบข้อความ                      |
 
 ตัวอย่าง:
 
@@ -326,15 +328,15 @@ LANE RTT จึงไม่จำเป็นต้องเท่ากับ T
 
 ## รอบการอัปเดตและการเก็บข้อมูล
 
-| รายการ | รอบเวลา/ระยะเก็บ |
-|---|---|
-| HTTP/2 PING | ทุก 15 วินาที |
-| Server 3 report | ทุก 1 วินาที |
-| Network panel | ทุก 5 วินาที |
-| LANE RACE panel | ทุก 15 วินาที |
-| POLL race persistence | สูงสุดหนึ่งครั้งต่อ lane ต่อนาที |
-| ประวัติ Server 2 | 30 วันโดยค่าเริ่มต้น |
-| Recent lane events ใน memory | 240 รายการ |
+| รายการ                       | รอบเวลา/ระยะเก็บ                 |
+| ---------------------------- | -------------------------------- |
+| HTTP/2 PING                  | ทุก 15 วินาที                    |
+| Server 3 report              | ทุก 1 วินาที                     |
+| Network panel                | ทุก 5 วินาที                     |
+| LANE RACE panel              | ทุก 15 วินาที                    |
+| POLL race persistence        | สูงสุดหนึ่งครั้งต่อ lane ต่อนาที |
+| ประวัติ Server 2             | 30 วันโดยค่าเริ่มต้น             |
+| Recent lane events ใน memory | 240 รายการ                       |
 
 Server 3 ไม่มีฐานข้อมูล คะแนน LANE RACE ของ Server 3 จึงเริ่มใหม่เมื่อ relay restart
 

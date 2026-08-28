@@ -5,6 +5,7 @@ import { isMaintenanceModeEnabled, setMaintenanceMode } from "../../bot/maintena
 import { readWorkerTopology } from "../../bot/worker-topology.ts";
 import { db } from "../../db/sqlite.ts";
 import { applyHedgeConfig, hedgeConfig, hedgeShadowReport, parseHedgeConfig } from "../../dispatch/hedge.ts";
+import { applySquarePollQuietMs, parseQuietMs, squarePollQuietWindowMs } from "../../bot/square-poll-quiet.ts";
 import { listServerLoadSamples } from "../../monitoring/server-load-history.ts";
 
 const RESTART_UNIT = "linebot-worker.service";
@@ -104,6 +105,28 @@ export function createSystemRoute(options: SystemRouteOptions = {}): Hono {
 		const user = requestUser(c)!;
 		logUserActionImmediately(user, "system.hedge.config.updated", { previous, applied });
 		return c.json({ ok: true, config: applied });
+	});
+
+	// Post-reply poll-quiet window (bot/square-poll-quiet.ts). Like hedge, the
+	// value lives in shared app_meta and every worker picks it up within a few
+	// seconds — tuning it from 0 upward never needs a restart.
+	route.get("/square-poll-quiet", (c) => {
+		return c.json({ quietMs: squarePollQuietWindowMs() });
+	});
+
+	route.put("/square-poll-quiet", async (c) => {
+		const body = (await c.req.json().catch(() => undefined)) as unknown;
+		let quietMs;
+		try {
+			quietMs = parseQuietMs(body);
+		} catch (error) {
+			return c.json({ error: error instanceof Error ? error.message : "ค่า quietMs ไม่ถูกต้อง" }, 400);
+		}
+		const previous = squarePollQuietWindowMs();
+		const applied = applySquarePollQuietMs(quietMs);
+		const user = requestUser(c)!;
+		logUserActionImmediately(user, "system.square_poll_quiet.updated", { previous, applied });
+		return c.json({ ok: true, quietMs: applied });
 	});
 
 	// Servers tab trend graphs — recorded on a shared ~30s clock by

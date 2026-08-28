@@ -33,10 +33,12 @@ describe("per-bot SEND profiles", () => {
 	test("keeps a slow bot-specific route separate and expires stale history", () => {
 		const profiles = new Map<string, SendRouteProfile>();
 		const profile = getOrCreateSendRouteProfile(profiles, "bot-12");
-		recordSendRouteSample(profile, 28, 1_000_000);
+		recordSendRouteSample(profile, 40, 1_000_000);
 		expect(freshSendRouteProfile(profiles, "bot-12", 1_001_000)?.slowUntil).toBeGreaterThan(1_000_000);
 		expect(freshSendRouteProfile(profiles, "another-bot", 1_001_000)).toBeUndefined();
-		expect(freshSendRouteProfile(profiles, "bot-12", 1_100_000)).toBeUndefined();
+		// Fresh within the 15-minute route window, stale past it.
+		expect(freshSendRouteProfile(profiles, "bot-12", 1_000_000 + 899_000)).toBeDefined();
+		expect(freshSendRouteProfile(profiles, "bot-12", 1_000_000 + 901_000)).toBeUndefined();
 	});
 
 	test("a fast result immediately clears that bot's cooldown", () => {

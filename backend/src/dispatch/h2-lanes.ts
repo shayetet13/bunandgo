@@ -1,5 +1,6 @@
 import { connect as connectHttp2, constants, type ClientHttp2Session, type ClientHttp2Stream, type OutgoingHttpHeaders } from "node:http2";
 import { lookup as lookupDns } from "node:dns/promises";
+import { readFileSync } from "node:fs";
 import { connect as connectTcp } from "node:net";
 import { connect as connectTls, type ConnectionOptions as TlsConnectionOptions } from "node:tls";
 import { gunzipSync, inflateSync, brotliDecompressSync } from "node:zlib";
@@ -12,8 +13,9 @@ import {
 	recordRemoteDispatchStart,
 	remoteDispatchConfig,
 	remoteLaneCandidate,
+	remoteLaneNeedsBootstrap,
 } from "./remote-lane.ts";
-import { nextSendSlowUntil, sendCandidatesOutsideCooldown } from "./lane-speed-policy.ts";
+import { effectiveSendSlowThresholdMs, nextSendSlowUntil, sendCandidatesOutsideCooldown } from "./lane-speed-policy.ts";
 import {
 	freshSendRouteProfile,
 	getOrCreateSendRouteProfile,
@@ -121,6 +123,60 @@ function addressCacheInterval(raw: string | undefined): number {
 
 const ADDRESS_CACHE_MS = addressCacheInterval(process.env.LINE_H2_ADDRESS_CACHE_MS);
 
+/**
+ * Offline per-IP HTTPS median written by scripts/pin-legy-fast-ips.sh on its
+ * six-hourly run: `{ "<ip>": <medianMs> }`. A cold lane with no fresh real SEND
+ * sample is ranked by this instead of its HTTP/2 PING — PING terminates at a
+ * cheap Akamai edge (~1-3ms) and made every cold lane look faster than any
+ * genuinely measured route, so the selector never converged. Absent or
+ * unreadable file → the old `lane.rttMs` fallback, so nothing breaks before the
+ * updated pin script has run anywhere.
+ */
+// Resolved on every read, not cached at module load — matches
+// remoteDispatchConfig()'s convention so tests can point it at a fixture, and
+// so the six-hourly pin run's path override takes effect without a restart.
+function ipRankFilePath(): string {
+	return process.env.LINE_H2_IP_RANK_FILE?.trim() || "/opt/linebot/shared/legy-ip-rank.json";
+}
+let ipRankCache: { at: number; map: Map<string, number> } | undefined;
+
+function loadIpRankFile(): Map<string, number> {
+	const map = new Map<string, number>();
+	try {
+		const parsed = JSON.parse(readFileSync(ipRankFilePath(), "utf8")) as Record<string, unknown>;
+		for (const [ip, ms] of Object.entries(parsed)) {
+			if (typeof ms === "number" && Number.isFinite(ms) && ms > 0) map.set(ip, ms);
+		}
+	} catch {
+		// No ranking file yet, or malformed — callers fall back to PING.
+	}
+	return map;
+}
+
+function ipRankPriorMs(address: string | undefined, now: number = Date.now()): number | undefined {
+	if (!address) return undefined;
+	if (!ipRankCache || now - ipRankCache.at > ADDRESS_CACHE_MS) {
+		ipRankCache = { at: now, map: loadIpRankFile() };
+	}
+	return ipRankCache.map.get(address);
+}
+
+/**
+ * Fraction of eligible sends routed to the relay while it is reachable but has
+ * no measured sample yet (see `remoteLaneNeedsBootstrap`). 1/16 by default: one
+ * send in sixteen is enough to earn a first real end-to-end sample within a
+ * minute of normal traffic, after which selection is purely score-based and
+ * this stops firing. 0 disables the bootstrap entirely.
+ */
+const RELAY_BOOTSTRAP_SHARE = Math.max(0, Math.min(1, Number(process.env.LINE_RELAY_BOOTSTRAP_SHARE ?? 1 / 16)));
+let relayBootstrapCounter = 0;
+
+function shouldBootstrapRelay(): boolean {
+	if (RELAY_BOOTSTRAP_SHARE <= 0) return false;
+	const oneInN = Math.max(1, Math.round(1 / RELAY_BOOTSTRAP_SHARE));
+	return relayBootstrapCounter++ % oneInN === 0;
+}
+
 type LaneState = "connecting" | "ready" | "draining" | "dead";
 export type LaneRole = "send" | "poll" | "warm" | undefined;
 
@@ -220,15 +276,45 @@ const originPrimeRuns = new Map<string, Promise<void>>();
 const sessionTickets = new Map<string, Buffer>();
 /** Per-bot soft affinity, re-evaluated against predicted completion every send. */
 const preferredSendLaneIds = new Map<string, number>();
+/**
+ * Per-route rotation cursor. When several lanes score within the switch margin
+ * of the fastest — the normal case, since real lanes to the same fast-IP pool
+ * differ by fractions of a millisecond — the send goes to each in turn instead
+ * of the lowest id taking all of them, so every lane carries traffic and keeps
+ * a fresh sample.
+ */
+const sendRoundRobinCursor = new Map<string, number>();
 /** Last rolling lane replacement per origin; keeps replacements staggered. */
 const lastLaneRecycleAt = new Map<string, number>();
 const addressCache = new Map<string, AddressCacheEntry>();
 let pingTimer: ReturnType<typeof setInterval> | undefined;
 
+/**
+ * Smallest integer > 1 that is coprime with `n`, or 1 when none exists (n<=2).
+ * Used as a stride so consecutive lane ids do not land on consecutive
+ * addresses: with a plain `+1` offset, the low-numbered reserved SEND lanes
+ * (ids 0..reserved-1) always mapped onto addresses 0..reserved-1, so SEND
+ * never touched the second half of the fast-IP pool and could not escape a
+ * slow one even after the selector learned it was slow.
+ */
+export function laneAddressStride(n: number): number {
+	if (n <= 2) return 1;
+	const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+	for (let stride = 2; stride < n; stride++) {
+		if (gcd(stride, n) === 1) return stride;
+	}
+	return 1;
+}
+
 /** Deterministic spread at startup; one-step rotation whenever a lane reconnects. */
 export function selectLaneRouteAddress(addresses: readonly LaneRouteAddress[], laneId: number, rotation: number = 0): LaneRouteAddress {
 	if (addresses.length === 0) throw new Error("no resolved lane addresses");
-	return addresses[(laneId + rotation) % addresses.length]!;
+	const n = addresses.length;
+	// laneId * stride visits every index exactly once as laneId spans 0..n-1,
+	// interleaving IPv4/IPv6 (the pin file lists all v4 then all v6). `rotation`
+	// still advances one step per reconnect so a lane walks the whole pool over
+	// its lifetime.
+	return addresses[(((laneId * laneAddressStride(n) + rotation) % n) + n) % n]!;
 }
 
 function originHostname(origin: string): string {
@@ -371,6 +457,8 @@ interface LaneChoiceMetrics {
 	sendRttSamples?: readonly number[];
 	sendRouteProfiles?: ReadonlyMap<string, SendRouteProfile>;
 	streamCapacity?: number;
+	/** IP this physical session connected through, for the cold-path rank prior. */
+	remoteAddress?: string;
 }
 
 const APPLICATION_SWITCH_MARGIN_MS = Math.max(0, Number(process.env.LINE_H2_APPLICATION_SWITCH_MARGIN_MS ?? 0.1));
@@ -440,31 +528,37 @@ export function sendLaneScore(
 	);
 	if (prediction) return prediction.predictedMs;
 	if (candidates.some((candidate) => candidate.sendRttMs !== undefined)) return Number.POSITIVE_INFINITY;
-	return lane.rttMs ?? Number.POSITIVE_INFINITY;
+	// A genuinely cold lane (never sent this life — startup, fresh recycle, the
+	// relay) is ranked by the offline per-IP HTTPS median, not its HTTP/2 PING:
+	// PING ends at a cheap edge and made every cold lane look ~1-3ms and outrank
+	// real routes. `lane.remoteAddress` is undefined for the relay → falls to PING.
+	return ipRankPriorMs(lane.remoteAddress, now) ?? lane.rttMs ?? Number.POSITIVE_INFINITY;
 }
 
 export function selectFastestSendLaneCandidate<T extends LaneChoiceMetrics & { id: number }>(
 	candidates: T[],
-	preferredId?: number,
+	_preferredId?: number,
 	routeKey?: string,
 	now: number = Date.now(),
 ): T | undefined {
 	if (candidates.length === 0) return undefined;
-	let best = candidates[0]!;
-	let bestScore = sendLaneScore(best, candidates, routeKey, now);
-	for (const lane of candidates.slice(1)) {
-		const score = sendLaneScore(lane, candidates, routeKey, now);
-		if (
-			score < bestScore ||
-			(score === bestScore && lane.inFlight < best.inFlight) ||
-			(score === bestScore && lane.inFlight === best.inFlight && lane.id < best.id)
-		) {
-			best = lane;
-			bestScore = score;
-		}
-	}
-	const preferred = preferredId === undefined ? undefined : candidates.find((lane) => lane.id === preferredId);
-	return preferred && sendLaneScore(preferred, candidates, routeKey, now) < bestScore + APPLICATION_SWITCH_MARGIN_MS ? preferred : best;
+	const scored = candidates.map((lane) => ({ lane, score: sendLaneScore(lane, candidates, routeKey, now) }));
+	const bestScore = Math.min(...scored.map((entry) => entry.score));
+	// Every lane within the switch margin of the fastest is an equally valid
+	// choice — fastest first, then least loaded, then lowest id.
+	const tied = scored
+		.filter((entry) => entry.score <= bestScore + APPLICATION_SWITCH_MARGIN_MS)
+		.sort((left, right) => left.score - right.score || left.lane.inFlight - right.lane.inFlight || left.lane.id - right.lane.id)
+		.map((entry) => entry.lane);
+	if (tied.length === 1) return tied[0]!;
+	// The paths left here are interchangeable, so rotate through them instead of
+	// letting affinity or the lowest id take every send — that is what left the
+	// other reserved lanes cold and unmeasured. `tied` is fastest-first, so the
+	// rotation still favours the quickest of the equal set.
+	const key = routeKey ?? "shared";
+	const cursor = sendRoundRobinCursor.get(key) ?? 0;
+	sendRoundRobinCursor.set(key, cursor + 1);
+	return tied[cursor % tied.length]!;
 }
 
 /** Chooses Server 3 only from a role-matched real result. Transport PING keeps
@@ -600,8 +694,17 @@ function recordApplicationRtt(lane: Lane, role: LaneRole, sampleMs: number, rout
 	if (lane.sendRttSamples.length > APPLICATION_RTT_WINDOW) lane.sendRttSamples.shift();
 	lane.sendRttMs = median(lane.sendRttSamples);
 	lane.lastSendOkAt = now;
-	lane.sendSlowUntil = nextSendSlowUntil(Math.max(sampleMs, lane.sendRttMs ?? sampleMs), now);
-	if (routeKey) recordSendRouteSample(getOrCreateSendRouteProfile(lane.sendRouteProfiles, routeKey), sampleMs, now);
+	// Cool this lane only if it trails the fastest lane actually measured in
+	// this pool — a fixed 23ms ceiling sat under the live p50 and cooled almost
+	// every send, collapsing the ranking. `lane.sendRttMs` above already
+	// includes this result, so a lane that is itself the fastest is compared
+	// against itself and effectively never self-cools.
+	const measuredSiblings = lanesForOrigin(lane.origin)
+		.map((sibling) => sibling.sendRttMs)
+		.filter((rtt): rtt is number => rtt !== undefined);
+	const slowThresholdMs = effectiveSendSlowThresholdMs(measuredSiblings.length > 0 ? Math.min(...measuredSiblings) : undefined);
+	lane.sendSlowUntil = nextSendSlowUntil(Math.max(sampleMs, lane.sendRttMs ?? sampleMs), now, slowThresholdMs);
+	if (routeKey) recordSendRouteSample(getOrCreateSendRouteProfile(lane.sendRouteProfiles, routeKey), sampleMs, now, slowThresholdMs);
 }
 
 function pingLane(lane: Lane): void {
@@ -730,7 +833,12 @@ async function openLane(lane: Lane): Promise<void> {
 		throw error;
 	}
 	if (lane.disposed) throw new Error("lane pool stopped");
-	const selectedAddress = selectLaneRouteAddress(addresses, lane.id, lane.addressRotation);
+	// When the pool is larger than the address list (32 lanes over 8 IPs on the
+	// relay box), the stride alone puts `laneId % n`-equal lanes on the same
+	// address. A fixed per-lane phase offset staggers those groups so all IPs
+	// carry an equal share from the first connect, not only after reconnects.
+	const rotationSeed = Math.floor(lane.id / addresses.length);
+	const selectedAddress = selectLaneRouteAddress(addresses, lane.id, lane.addressRotation + rotationSeed);
 	lane.addressRotation = (lane.addressRotation + 1) % addresses.length;
 
 	return new Promise<void>((resolve, reject) => {
@@ -1227,10 +1335,26 @@ export function laneFetch(info: RequestInfo | URL, init?: RequestInit): Promise<
 	if (relayConfig) {
 		const remote = remoteLaneCandidate(url.origin, Date.now(), routeKey);
 		if (remote && shouldPreferRemoteLane(remote, lane, role, routeKey)) return dispatchViaRemoteLane(relayConfig, url, init, role);
+		// The relay is reachable but has never carried a real request from this
+		// worker, so it has no sample and can never be chosen on merit. Route a
+		// bounded 1-in-N share here to earn that first sample; self-limiting once
+		// `remoteLaneCandidate` starts returning one.
+		if ((role === "send" || role === "poll") && remoteLaneNeedsBootstrap(url.origin) && shouldBootstrapRelay()) {
+			return dispatchViaRemoteLane(relayConfig, url, init, role);
+		}
 	}
 
 	if (!lane) return undefined;
 	return sendOnLane(lane, url, init, toBodyBytes(init?.body as BodyInit | null | undefined), role, routeKey);
+}
+
+/** Lowest real SEND median across this origin's local lanes, for sizing the
+ * relative cooldown of routes that cannot see the pool directly (the relay). */
+function fastestLocalSendMedianMs(origin: string): number | undefined {
+	const measured = lanesForOrigin(origin)
+		.map((lane) => lane.sendRttMs)
+		.filter((rtt): rtt is number => rtt !== undefined);
+	return measured.length > 0 ? Math.min(...measured) : undefined;
 }
 
 async function dispatchViaRemoteLane(
@@ -1244,6 +1368,7 @@ async function dispatchViaRemoteLane(
 	recordRemoteDispatchStart(url.origin, routeKey);
 	const startedAt = performance.now();
 	const scoredRole = role === "send" || role === "poll" ? role : undefined;
+	const slowThresholdMs = effectiveSendSlowThresholdMs(fastestLocalSendMedianMs(url.origin));
 	try {
 		const response = await dispatchViaRelay(config, url, init, role);
 		if (!response) {
@@ -1251,7 +1376,7 @@ async function dispatchViaRemoteLane(
 			recordRemoteDispatchFailure(url.origin);
 			return undefined;
 		}
-		recordRemoteDispatchEnd(url.origin, scoredRole, performance.now() - startedAt, routeKey);
+		recordRemoteDispatchEnd(url.origin, scoredRole, performance.now() - startedAt, routeKey, slowThresholdMs);
 		return response;
 	} catch (error) {
 		recordRemoteDispatchFailure(url.origin);
@@ -1352,6 +1477,9 @@ export function stopLanes(): void {
 	primedOrigins.clear();
 	originPrimeRuns.clear();
 	preferredSendLaneIds.clear();
+	sendRoundRobinCursor.clear();
 	lastLaneRecycleAt.clear();
 	addressCache.clear();
+	ipRankCache = undefined;
+	relayBootstrapCounter = 0;
 }

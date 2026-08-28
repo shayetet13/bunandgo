@@ -190,6 +190,13 @@ export interface FastSquarePollerOptions {
 	initialDelayMs?: number;
 	/** Overrides FETCH_TIMEOUT_MS; exists for tests, not meant to be tuned per-room. */
 	fetchTimeoutMs?: number;
+	/**
+	 * Consulted after each delivery: milliseconds to hold the next fetch
+	 * because a reply for this room is in flight and a concurrent poll makes
+	 * LINE handle the send slower (see square-poll-quiet.ts). Returns 0 when
+	 * nothing was answered, so a quiet room keeps polling at `intervalMs`.
+	 */
+	quietBeforeNextFetchMs?: () => number;
 }
 
 async function fetchWithTimeout(
@@ -263,6 +270,7 @@ export async function runFastSquarePoller(options: FastSquarePollerOptions): Pro
 			syncToken = response.syncToken;
 			consecutiveFailures = 0;
 
+			let delivered = false;
 			if (!primed) {
 				drainCalls++;
 				// An empty page is the clean history boundary. The cap prevents a
@@ -274,9 +282,17 @@ export async function runFastSquarePoller(options: FastSquarePollerOptions): Pro
 				// Synchronous by design: the handler starts the reply request before
 				// this poller updates timers or asks LINE for the next page.
 				for (const event of response.events) options.onEvent(event, receivedAt);
+				delivered = response.events.length > 0;
 			}
 
-			await waitFor(intervalMs, options.signal);
+			// When a delivery just handed events to the reply path, a send may be
+			// in flight for this room. Continuing to fetch at zero delay makes
+			// LINE handle that send next to a poll, which measures it ~13ms
+			// slower — so hold the next fetch until the send has had the account
+			// to itself (see square-poll-quiet.ts). Returns 0 unless a reply was
+			// actually dispatched, so a quiet or non-matching room is unaffected.
+			const quietMs = delivered ? (options.quietBeforeNextFetchMs?.() ?? 0) : 0;
+			await waitFor(Math.max(intervalMs, quietMs), options.signal);
 		} catch (error) {
 			if (options.signal.aborted) break;
 			consecutiveFailures++;
