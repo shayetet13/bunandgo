@@ -1335,11 +1335,12 @@ export function laneFetch(info: RequestInfo | URL, init?: RequestInit): Promise<
 	if (relayConfig) {
 		const remote = remoteLaneCandidate(url.origin, Date.now(), routeKey);
 		if (remote && shouldPreferRemoteLane(remote, lane, role, routeKey)) return dispatchViaRemoteLane(relayConfig, url, init, role);
-		// The relay is reachable but has never carried a real request from this
-		// worker, so it has no sample and can never be chosen on merit. Route a
-		// bounded 1-in-N share here to earn that first sample; self-limiting once
-		// `remoteLaneCandidate` starts returning one.
-		if ((role === "send" || role === "poll") && remoteLaneNeedsBootstrap(url.origin) && shouldBootstrapRelay()) {
+		// The relay is reachable and already carrying POLL overflow, but SEND
+		// selection needs a real SEND result to ever prefer it — which it can
+		// never get without a nudge. Route a bounded 1-in-N share of sends here
+		// to earn that first SEND sample; self-limiting once `remoteLaneCandidate`
+		// starts returning one. POLL needs no such nudge.
+		if (role === "send" && remoteLaneNeedsBootstrap(url.origin) && shouldBootstrapRelay()) {
 			return dispatchViaRemoteLane(relayConfig, url, init, role);
 		}
 	}

@@ -188,11 +188,13 @@ export function recordRemoteDispatchStart(origin: string, _routeKey?: string): v
 
 /**
  * True while the relay is reachable and self-reporting but this worker has no
- * fresh end-to-end SEND/POLL sample for it. The relay is only ever picked *from*
- * a real sample (see `shouldPreferRemoteLane` in h2-lanes.ts), so without a
- * nudge it can never earn its first one. `laneFetch` routes a bounded share of
- * live sends here until that first sample lands, then score-based selection
- * takes over on its own.
+ * fresh end-to-end **SEND** sample for it. SEND selection needs a real SEND
+ * result to ever prefer the relay (`shouldPreferRemoteLane`, role "send"), and
+ * POLL overflow reaches the relay on its own, so a live POLL sample must NOT
+ * suppress the SEND bootstrap — in production the relay always has fresh POLL
+ * traffic, which is exactly why the earlier version never fired. `laneFetch`
+ * routes a bounded share of live sends here until that first SEND sample lands,
+ * then score-based selection takes over.
  */
 export function remoteLaneNeedsBootstrap(origin: string, now: number = Date.now()): boolean {
 	if (!remoteDispatchConfig()) return false;
@@ -201,9 +203,7 @@ export function remoteLaneNeedsBootstrap(origin: string, now: number = Date.now(
 	if (now - state.reportedAt > REPORT_STALE_MS || state.reportedPingRttMs === undefined) return false;
 	const fresh = (at: number, maxAge: number): boolean => at > 0 && now - at <= maxAge;
 	if (fresh(state.metrics.lastSendOkAt, APPLICATION_SAMPLE_MAX_AGE_MS)) return false;
-	if (fresh(state.metrics.lastPollOkAt, APPLICATION_SAMPLE_MAX_AGE_MS)) return false;
 	if (fresh(state.reportedSendSampleAt, APPLICATION_SAMPLE_MAX_AGE_MS)) return false;
-	if (fresh(state.reportedPollSampleAt, APPLICATION_SAMPLE_MAX_AGE_MS)) return false;
 	for (const profile of state.sendRouteProfiles.values()) {
 		if (fresh(profile.lastAt, SEND_ROUTE_SAMPLE_MAX_AGE_MS)) return false;
 	}

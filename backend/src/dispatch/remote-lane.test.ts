@@ -54,13 +54,24 @@ describe("remoteLaneNeedsBootstrap", () => {
 		expect(remoteLaneNeedsBootstrap(ORIGIN, now + 1_000)).toBe(false);
 	});
 
-	test("false again once a real end-to-end sample has landed", () => {
+	test("false again once a real end-to-end SEND sample has landed", () => {
 		const now = Date.now();
 		updateRemoteLaneFromReport(ORIGIN, { pingRttMs: 6.4 }, now);
 		recordRemoteDispatchStart(ORIGIN, "bot-a");
 		recordRemoteDispatchEnd(ORIGIN, "send", 19, "bot-a");
 		updateRemoteLaneFromReport(ORIGIN, { pingRttMs: 6.4 }, Date.now());
 		expect(remoteLaneNeedsBootstrap(ORIGIN, Date.now() + 1_000)).toBe(false);
+	});
+
+	test("a live POLL sample does not suppress the SEND bootstrap", () => {
+		// In production the relay always carries POLL overflow; that must not
+		// stop SEND from ever being tried there.
+		const now = Date.now();
+		updateRemoteLaneFromReport(ORIGIN, { pingRttMs: 6.4, pollRttMs: 12, pollSampleAt: now }, now);
+		recordRemoteDispatchStart(ORIGIN, "bot-a");
+		recordRemoteDispatchEnd(ORIGIN, "poll", 12, "bot-a");
+		updateRemoteLaneFromReport(ORIGIN, { pingRttMs: 6.4, pollRttMs: 12, pollSampleAt: Date.now() }, Date.now());
+		expect(remoteLaneNeedsBootstrap(ORIGIN, Date.now() + 1_000)).toBe(true);
 	});
 });
 
