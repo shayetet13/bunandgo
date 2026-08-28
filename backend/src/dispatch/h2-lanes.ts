@@ -171,6 +171,20 @@ function ipRankPriorMs(address: string | undefined, now: number = Date.now()): n
 const RELAY_BOOTSTRAP_SHARE = Math.max(0, Math.min(1, Number(process.env.LINE_RELAY_BOOTSTRAP_SHARE ?? 1 / 16)));
 let relayBootstrapCounter = 0;
 
+/**
+ * SEND is a latency-critical one-shot and stays on the proven-fastest *local*
+ * lane. The relay's extra machine hop measures ~21ms end-to-end against ~17-20ms
+ * local, so letting it carry any share of sends — on merit or via the bootstrap
+ * nudge — only widens the SEND distribution. POLL is continuous background load
+ * and offloads to the relay cleanly. Set LINE_RELAY_SEND=1 on a worker that
+ * genuinely needs the relay's send capacity. Read per call (like
+ * remoteDispatchConfig) so a config change lands on the same restart a code
+ * change would, with no extra module-cache staleness.
+ */
+function relaySendEnabled(): boolean {
+	return process.env.LINE_RELAY_SEND === "1";
+}
+
 function shouldBootstrapRelay(): boolean {
 	if (RELAY_BOOTSTRAP_SHARE <= 0) return false;
 	const oneInN = Math.max(1, Math.round(1 / RELAY_BOOTSTRAP_SHARE));
@@ -1332,14 +1346,15 @@ export function laneFetch(info: RequestInfo | URL, init?: RequestInit): Promise<
 	const lanes = LANE_COUNT === 0 ? undefined : pools.get(url.origin);
 	const lane = lanes ? pickLane(lanes, role, routeKey) : undefined;
 	const relayConfig = remoteDispatchConfig();
-	if (relayConfig) {
+	// POLL always considers the relay; SEND only when LINE_RELAY_SEND=1 (see
+	// RELAY_SEND_ENABLED). This keeps the relay's ~21ms cross-machine hop out of
+	// the SEND path by default while still offloading continuous POLL load.
+	if (relayConfig && (role === "poll" || relaySendEnabled())) {
 		const remote = remoteLaneCandidate(url.origin, Date.now(), routeKey);
 		if (remote && shouldPreferRemoteLane(remote, lane, role, routeKey)) return dispatchViaRemoteLane(relayConfig, url, init, role);
-		// The relay is reachable and already carrying POLL overflow, but SEND
-		// selection needs a real SEND result to ever prefer it — which it can
-		// never get without a nudge. Route a bounded 1-in-N share of sends here
-		// to earn that first SEND sample; self-limiting once `remoteLaneCandidate`
-		// starts returning one. POLL needs no such nudge.
+		// Reached only with RELAY_SEND_ENABLED (a "send" role could not pass the
+		// guard otherwise). Route a bounded 1-in-N share of sends to the relay so
+		// it can earn its first real SEND sample; self-limiting once it has one.
 		if (role === "send" && remoteLaneNeedsBootstrap(url.origin) && shouldBootstrapRelay()) {
 			return dispatchViaRemoteLane(relayConfig, url, init, role);
 		}

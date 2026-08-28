@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { laneFetch } from "./h2-lanes.ts";
+import { H2_LANE_ROLE_HEADER, laneFetch } from "./h2-lanes.ts";
+import { resetRemoteLaneStateForTest, updateRemoteLaneFromReport } from "./remote-lane.ts";
 
 const saved = new Map<string, string | undefined>();
 const ENV_KEYS = ["LINE_RELAY_MODE", "LINE_RELAY_URL", "LINE_RELAY_TOKEN"] as const;
@@ -86,6 +87,52 @@ describe("relay-only lane transport", () => {
 			expect(calls).toBe(1);
 		} finally {
 			relay.stop(true);
+		}
+	});
+
+	test("hybrid mode: POLL may offload to the relay but SEND stays local unless LINE_RELAY_SEND=1", async () => {
+		const prevMode = process.env.LINE_RELAY_MODE;
+		const prevLanes = process.env.LINE_H2_LANES;
+		const prevSend = process.env.LINE_RELAY_SEND;
+		let calls: Array<{ url: string; role?: string }> = [];
+		const relay = Bun.serve({
+			port: 0,
+			async fetch(request) {
+				const payload = (await request.json()) as { url: string; role?: string };
+				calls.push({ url: payload.url, role: payload.role });
+				return Response.json({ status: 200, headers: {}, bodyBase64: "" });
+			},
+		});
+		try {
+			for (const key of ENV_KEYS) saved.set(key, process.env[key]);
+			delete process.env.LINE_RELAY_MODE; // hybrid, not relay-only
+			process.env.LINE_RELAY_URL = `http://127.0.0.1:${relay.port}/dispatch`;
+			process.env.LINE_RELAY_TOKEN = "test-relay-token";
+			process.env.LINE_H2_LANES = "0"; // no local lane, so any relay dispatch is visible
+			resetRemoteLaneStateForTest();
+			updateRemoteLaneFromReport("https://legy.line-apps.com", { pingRttMs: 6, pollRttMs: 12, pollSampleAt: Date.now() }, Date.now());
+
+			delete process.env.LINE_RELAY_SEND;
+			await laneFetch("https://legy.line-apps.com/POLL", { method: "POST", headers: { [H2_LANE_ROLE_HEADER]: "poll" } });
+			expect(calls.map((c) => c.role)).toEqual(["poll"]);
+			await laneFetch("https://legy.line-apps.com/SEND", { method: "POST" });
+			expect(calls.length).toBe(1); // SEND did not reach the relay
+
+			calls = [];
+			process.env.LINE_RELAY_SEND = "1";
+			resetRemoteLaneStateForTest();
+			updateRemoteLaneFromReport("https://legy.line-apps.com", { pingRttMs: 6, sendRttMs: 15, sendSampleAt: Date.now() }, Date.now());
+			await laneFetch("https://legy.line-apps.com/SEND", { method: "POST" });
+			expect(calls.map((c) => c.role)).toEqual(["send"]);
+		} finally {
+			relay.stop(true);
+			resetRemoteLaneStateForTest();
+			if (prevMode === undefined) delete process.env.LINE_RELAY_MODE;
+			else process.env.LINE_RELAY_MODE = prevMode;
+			if (prevLanes === undefined) delete process.env.LINE_H2_LANES;
+			else process.env.LINE_H2_LANES = prevLanes;
+			if (prevSend === undefined) delete process.env.LINE_RELAY_SEND;
+			else process.env.LINE_RELAY_SEND = prevSend;
 		}
 	});
 

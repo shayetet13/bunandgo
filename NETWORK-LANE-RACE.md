@@ -204,7 +204,9 @@ Server 3 ส่งรายงานกลับ Server 2 ทุกหนึ่�
 
 SEND/POLL sample ที่เก่ากว่า **15 นาที** (`LINE_H2_APPLICATION_SAMPLE_MAX_AGE_MS`) จะไม่ถูกอ้างว่าเป็นค่าปัจจุบัน — สำหรับ SEND นี่คือ per-bot-route profile (สูงสุด 2,048 บอทต่อ physical lane, evict แบบ least-recently-used) ที่หมดอายุแล้ว fallback ไปใช้ prior ของ lane แทน ไม่ใช่ทิ้งค่าทั้งหมด
 
-Server 3 มีปัญหา cold-start: เลือกได้ก็ต่อเมื่อมี sample จริง แต่ไม่มี sample ถ้าไม่เคยถูกเลือก → ระบบ route SEND สัดส่วน `1/16` (`LINE_RELAY_BOOTSTRAP_SHARE`, `remoteLaneNeedsBootstrap`) ไป Server 3 ตอนมัน healthy แต่ยัง 0 sample แล้วหยุดเองเมื่อได้ sample แรก
+**SEND ไม่วิ่งผ่าน Server 3 โดย default** — SEND เป็น one-shot วิกฤต hop ข้ามเครื่องของ relay วัดได้ ~21ms vs local ~17-20ms เลยเก็บไว้ที่ local lane ทั้งหมด Server 3 รับแค่ **POLL overflow** (background load, ~15-17ms พอ ๆ กับ local) ตั้ง `LINE_RELAY_SEND=1` บน worker ที่ต้องการ capacity ฝั่ง send จริง ๆ
+
+เมื่อเปิด `LINE_RELAY_SEND=1`: Server 3 มีปัญหา cold-start (เลือกได้ต่อเมื่อมี sample จริง แต่ไม่มี sample ถ้าไม่เคยถูกเลือก) → route SEND สัดส่วน `1/16` (`LINE_RELAY_BOOTSTRAP_SHARE`, `remoteLaneNeedsBootstrap`) ไป Server 3 ตอน healthy แต่ยัง 0 sample แล้วหยุดเองเมื่อได้ sample แรก
 
 เมื่อ Primary ส่งผ่าน Server 3 ระบบวัดแบบ end-to-end:
 
