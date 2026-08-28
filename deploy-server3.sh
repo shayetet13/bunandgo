@@ -10,7 +10,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
-KEY_PATH="${KEY_PATH:-$HOME/.ssh/linode_bot_deploy}"
+# Verified authorized on root@172.105.237.118 (2026-08-28). The Linode-sounding
+# linode_bot_deploy key is NOT accepted by this box.
+KEY_PATH="${KEY_PATH:-$HOME/.ssh/id_ed25519}"
 TARGET="${TARGET:-root@172.105.237.118}"
 RELEASE_BASE="/opt/linebot-relay/releases"
 CURRENT_LINK="/opt/linebot-relay/current"
@@ -43,9 +45,12 @@ log_info "Current link:  $CURRENT_LINK"
 log_info "Health URL:    $HEALTH_URL"
 log_info ""
 
-# Confirm action
-read -r -p "Proceed with build + deploy to Server 3 (lane relay)? [y/N] " confirm
-[[ "$confirm" == "y" || "$confirm" == "Y" ]] || { log_error "Aborted"; exit 1; }
+# Confirm action. ASSUME_YES=1 skips the prompt for non-interactive runs
+# (e.g. triggered from a shell with no TTY on stdin).
+if [ "${ASSUME_YES:-}" != "1" ]; then
+	read -r -p "Proceed with build + deploy to Server 3 (lane relay)? [y/N] " confirm
+	[[ "$confirm" == "y" || "$confirm" == "Y" ]] || { log_error "Aborted"; exit 1; }
+fi
 
 # Verify SSH key
 if [ ! -f "$KEY_PATH" ]; then
