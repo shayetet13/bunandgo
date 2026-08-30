@@ -71,6 +71,8 @@ export class ConnManager {
 	_pingInterval = 30;
 	/** Decides whether keeping a square fetch armed is still safe. */
 	readonly #squareRearm = new SquareRearmPolicy();
+	/** Diagnostic only: when the current re-arm request was sent, for round-trip logging on the response that answers it. */
+	#rearmSentAt: number | undefined;
 	/**
 	 * Serializes every square-event fetch response through one queue.
 	 *
@@ -351,7 +353,18 @@ export class ConnManager {
 					// per second. Writing every one to journald competes with the event
 					// loop that must notice the one non-empty response immediately.
 					if (events.length > 0 || this.client.debugLogsEnabled) {
-						this.log(`response fetchMyEvent(${subscriptionId}) events:${events.length}, syncToken:${syncToken}`);
+						// Round-trip since the re-arm that this response answers was
+						// sent — this is the long-poll's own hold time, not something
+						// a client-side transport change can shorten (see
+						// `#rearmSquareFetch`'s doc comment: this path already delivers
+						// events inline, no follow-up fetch). Logged to tell it apart
+						// from `_OnPushResponse`'s notify-then-fetch path, which does
+						// pay a separate round trip.
+						const rearmRoundTripMs =
+							this.#rearmSentAt === undefined ? undefined : Math.round((performance.now() - this.#rearmSentAt) * 10) / 10;
+						this.log(
+							`response fetchMyEvent(${subscriptionId}) events:${events.length}, syncToken:${syncToken}, rearmRoundTripMs:${rearmRoundTripMs}`,
+						);
 					}
 					if (typeof subscriptionId !== "number") {
 						throw new Error(`subscriptionId should be int: ${subscriptionId}`);
@@ -582,6 +595,7 @@ export class ConnManager {
 		}
 
 		try {
+			this.#rearmSentAt = performance.now();
 			await this.buildAndSendSignOnRequest(conn, 3, {
 				request: { subscriptionId, syncToken, limit: 100 },
 			});
@@ -599,6 +613,12 @@ export class ConnManager {
 	}
 
 	async _OnPushResponse(pushFrame: LegyH2PushFrame) {
+		// Diagnostic-only (see `log()`'s `squareDiagnosticsEnabled` gate) —
+		// splits "how long the push frame took to reach us" from "how long the
+		// follow-up fetchMyEvents took" so a slow push can be pinned on one or
+		// the other instead of only seeing the combined total the way the
+		// dashboard's inbound-delay metric already does for every source.
+		const frameArrivedAt = performance.now();
 		this.log("_OnPushResponse", pushFrame);
 		try {
 			if (pushFrame.serviceType === 3 && pushFrame.pushPayload) {
@@ -610,11 +630,13 @@ export class ConnManager {
 				// traffic; waiting the (typically low tens of ms) for that
 				// fetch to settle first costs far less than losing a message.
 				await this.#squareFetchQueue.run(async () => {
+					const queuedAt = performance.now();
 					const res = await this.client.square.fetchMyEvents({
 						subscriptionId: this.subscriptionId,
 						syncToken: this.client.poll.sync.square,
 						limit: 100,
 					});
+					const fetchedAt = performance.now();
 					const { events, syncToken, subscription } = res;
 
 					for (const ev of events) {
@@ -631,6 +653,10 @@ export class ConnManager {
 					this.log("SQ_fetchMyEvents", {
 						syncToken,
 						subscriptionId: this.subscriptionId,
+						events: events.length,
+						queueWaitMs: Math.round((queuedAt - frameArrivedAt) * 10) / 10,
+						fetchMs: Math.round((fetchedAt - queuedAt) * 10) / 10,
+						totalMs: Math.round((fetchedAt - frameArrivedAt) * 10) / 10,
 					});
 				});
 			}

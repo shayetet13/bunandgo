@@ -153,9 +153,25 @@ export class RequestClient {
 		}
 
 		const url = `https://${this.endpoint}${path}`;
-		const hotSquareRpc = path === "/SQ1" && (methodName === "sendMessage" || methodName === "fetchSquareChatEvents");
+		// `fetchMyEvents` is what the push connection calls to actually retrieve
+		// an event after a push frame (or the re-arm long-poll) notifies that one
+		// exists — every bit as latency-sensitive as the per-room poll below, and
+		// until now the one Square RPC left on the generic transport instead of
+		// this process's own pre-warmed, IP-ranked lane pool. Confirmed live: push
+		// won 0 of 86 real replies over 6h while dedicated-poll (already hot) won
+		// the rest.
+		const hotSquareRpc =
+			path === "/SQ1" && (methodName === "sendMessage" || methodName === "fetchSquareChatEvents" || methodName === "fetchMyEvents");
 		if (hotSquareRpc) {
-			headers[H2_LANE_ROLE_HEADER] = methodName === "sendMessage" ? "send" : "poll";
+			const isSend = methodName === "sendMessage";
+			headers[H2_LANE_ROLE_HEADER] = isSend ? "send" : "poll";
+			// RFC 9218 Extensible Priorities: u=0 is the most urgent a client can
+			// ask for, u=7 the least. A server that does not implement the header
+			// is required by the RFC to ignore it, so this cannot make a reply
+			// slower even if LEGY does not act on it. Poll traffic is marked
+			// incremental ("i") — later chunks of the same resource, not a
+			// standalone deadline the way a reply is.
+			headers.priority = isSend ? "u=0" : "u=7, i";
 		}
 		const init: RequestInit = {
 			method: overrideMethod,
