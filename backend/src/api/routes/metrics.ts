@@ -12,7 +12,6 @@ import { laneRaceView, type LaneRaceLaneView } from "../../dispatch/h2-lanes.ts"
 import { LANE_RACE_RETENTION_DAYS, laneRaceDailyHistory, laneRaceSnapshot, WORKER_ID } from "../../dispatch/lane-race.ts";
 import { isControlPlane } from "../../bot/worker-topology.ts";
 import { relayedFastPathSamples, relayedLatencySamples } from "../worker-events.ts";
-import { remoteLaneRaces } from "../lane-relay-events.ts";
 
 export const metricsRoute = new Hono();
 const PROCESS_STARTED_AT = Date.now();
@@ -129,12 +128,9 @@ const recentLaneLatencyStmt = db.prepare<LatencySampleRow, [number]>(
  */
 metricsRoute.get("/lane-race", (c) => {
 	if (requestUser(c)!.role !== "admin") return c.json({ error: "forbidden" }, 403);
-	// This process's own lanes plus whatever any lane-relay box (a separate
-	// physical machine that owns no bots, only extra h2-lanes — see
-	// backend/src/relay/) most recently reported. Tagged with workerId since
-	// lane ids (0..15) repeat across processes/machines and would otherwise
-	// collide as React keys on the dashboard.
-	const lanes: LaneRaceResponseLane[] = [...laneRaceView().map((lane) => ({ ...lane, workerId: WORKER_ID })), ...remoteLaneRaces()];
+	// Tagged with workerId because lane ids repeat across Primary and Shard B
+	// and would otherwise collide as React keys on the dashboard.
+	const lanes: LaneRaceResponseLane[] = laneRaceView().map((lane) => ({ ...lane, workerId: WORKER_ID }));
 	lanes.sort(
 		(a, b) =>
 			Number(b.routingPreferred) - Number(a.routingPreferred) ||

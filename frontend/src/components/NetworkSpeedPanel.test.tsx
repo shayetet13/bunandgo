@@ -11,7 +11,7 @@ describe("network speed panel RTT tone", () => {
 	});
 
 	test("shows a lane with no real traffic yet as idle, regardless of eligibility", () => {
-		// A relay box can sit fully idle by design (overflow-only routing) —
+		// An owned lane can sit fully idle by design —
 		// its PING alone must never be colored the same as the selected fastest
 		// under real send/poll traffic.
 		expect(rttToneClass(false, false)).toBe("chip--idle");

@@ -6,15 +6,6 @@ import { connect as connectTls, type ConnectionOptions as TlsConnectionOptions }
 import { gunzipSync, inflateSync, brotliDecompressSync } from "node:zlib";
 import { attachRawDispatchBody } from "./raw-response.ts";
 import { laneRaceScore, recordLaneRace, shouldScorePollLane, type LaneRaceScore } from "./lane-race.ts";
-import {
-	dispatchViaRelay,
-	recordRemoteDispatchEnd,
-	recordRemoteDispatchFailure,
-	recordRemoteDispatchStart,
-	remoteDispatchConfig,
-	remoteLaneCandidate,
-	remoteLaneNeedsBootstrap,
-} from "./remote-lane.ts";
 import { effectiveSendSlowThresholdMs, nextSendSlowUntil, sendCandidatesOutsideCooldown } from "./lane-speed-policy.ts";
 import {
 	freshSendRouteProfile,
@@ -50,16 +41,6 @@ import {
 // deliberate small pool: large enough to absorb several concurrent bot
 // sessions without turning every account into its own connection pool.
 const LANE_COUNT = Math.max(0, Number(process.env.LINE_H2_LANES ?? 6));
-
-function relayOnlyEnabled(): boolean {
-	return process.env.LINE_RELAY_MODE === "always";
-}
-
-/** Server3 is a legy transport only. Returning undefined for every other
- * origin makes fetchLineDirect use Server2's own transport for login/control. */
-export function relayOriginAllowed(origin: string): boolean {
-	return origin === "https://legy.line-apps.com";
-}
 
 /**
  * How many low-numbered lanes carry sends only, with poll traffic kept off
@@ -132,9 +113,8 @@ const ADDRESS_CACHE_MS = addressCacheInterval(process.env.LINE_H2_ADDRESS_CACHE_
  * unreadable file → the old `lane.rttMs` fallback, so nothing breaks before the
  * updated pin script has run anywhere.
  */
-// Resolved on every read, not cached at module load — matches
-// remoteDispatchConfig()'s convention so tests can point it at a fixture, and
-// so the six-hourly pin run's path override takes effect without a restart.
+// Resolved on every read, not cached at module load so tests can point it at a
+// fixture and the six-hourly pin run's path override takes effect without a restart.
 function ipRankFilePath(): string {
 	return process.env.LINE_H2_IP_RANK_FILE?.trim() || "/opt/linebot/shared/legy-ip-rank.json";
 }
@@ -159,36 +139,6 @@ function ipRankPriorMs(address: string | undefined, now: number = Date.now()): n
 		ipRankCache = { at: now, map: loadIpRankFile() };
 	}
 	return ipRankCache.map.get(address);
-}
-
-/**
- * Fraction of eligible sends routed to the relay while it is reachable but has
- * no measured sample yet (see `remoteLaneNeedsBootstrap`). 1/16 by default: one
- * send in sixteen is enough to earn a first real end-to-end sample within a
- * minute of normal traffic, after which selection is purely score-based and
- * this stops firing. 0 disables the bootstrap entirely.
- */
-const RELAY_BOOTSTRAP_SHARE = Math.max(0, Math.min(1, Number(process.env.LINE_RELAY_BOOTSTRAP_SHARE ?? 1 / 16)));
-let relayBootstrapCounter = 0;
-
-/**
- * SEND is a latency-critical one-shot and stays on the proven-fastest *local*
- * lane. The relay's extra machine hop measures ~21ms end-to-end against ~17-20ms
- * local, so letting it carry any share of sends — on merit or via the bootstrap
- * nudge — only widens the SEND distribution. POLL is continuous background load
- * and offloads to the relay cleanly. Set LINE_RELAY_SEND=1 on a worker that
- * genuinely needs the relay's send capacity. Read per call (like
- * remoteDispatchConfig) so a config change lands on the same restart a code
- * change would, with no extra module-cache staleness.
- */
-function relaySendEnabled(): boolean {
-	return process.env.LINE_RELAY_SEND === "1";
-}
-
-function shouldBootstrapRelay(): boolean {
-	if (RELAY_BOOTSTRAP_SHARE <= 0) return false;
-	const oneInN = Math.max(1, Math.round(1 / RELAY_BOOTSTRAP_SHARE));
-	return relayBootstrapCounter++ % oneInN === 0;
 }
 
 type LaneState = "connecting" | "ready" | "draining" | "dead";
@@ -542,10 +492,10 @@ export function sendLaneScore(
 	);
 	if (prediction) return prediction.predictedMs;
 	if (candidates.some((candidate) => candidate.sendRttMs !== undefined)) return Number.POSITIVE_INFINITY;
-	// A genuinely cold lane (never sent this life — startup, fresh recycle, the
-	// relay) is ranked by the offline per-IP HTTPS median, not its HTTP/2 PING:
+	// A genuinely cold lane (never sent this life — startup or fresh recycle)
+	// is ranked by the offline per-IP HTTPS median, not its HTTP/2 PING:
 	// PING ends at a cheap edge and made every cold lane look ~1-3ms and outrank
-	// real routes. `lane.remoteAddress` is undefined for the relay → falls to PING.
+	// real routes. Before an address is known the score falls back to PING.
 	return ipRankPriorMs(lane.remoteAddress, now) ?? lane.rttMs ?? Number.POSITIVE_INFINITY;
 }
 
@@ -573,37 +523,6 @@ export function selectFastestSendLaneCandidate<T extends LaneChoiceMetrics & { i
 	const cursor = sendRoundRobinCursor.get(key) ?? 0;
 	sendRoundRobinCursor.set(key, cursor + 1);
 	return tied[cursor % tied.length]!;
-}
-
-/** Chooses Server 3 only from a role-matched real result. Transport PING keeps
- * the relay visible and healthy but can never outrank a SEND or POLL sample. */
-export function shouldPreferRemoteLane(
-	remote: LaneChoiceMetrics,
-	local: LaneChoiceMetrics | undefined,
-	role: LaneRole = "send",
-	routeKey?: string,
-): boolean {
-	if (!local) return role === "poll" ? remote.pollRttMs !== undefined : role === "send" ? remote.sendRttMs !== undefined : false;
-	if (role === "poll") {
-		if (remote.pollRttMs === undefined) return false;
-		if (local.pollRttMs === undefined) return true;
-		return shouldPreferLane(remote, local, "poll");
-	}
-	if (role !== "send") return false;
-	const now = Date.now();
-	const effectiveSlowUntil = (lane: LaneChoiceMetrics): number =>
-		routeKey ? (freshSendRouteProfile(lane.sendRouteProfiles, routeKey, now)?.slowUntil ?? 0) : (lane.sendSlowUntil ?? 0);
-	const localCooling = effectiveSlowUntil(local) > now;
-	const remoteCooling = effectiveSlowUntil(remote) > now;
-	if (localCooling !== remoteCooling) return localCooling;
-	if (remote.sendRttMs === undefined) {
-		// A PING-only Server3 must never displace an idle proven SEND route.
-		// Concurrency is not proof that the relay is faster, so it does not earn
-		// a user's SEND while a measured local route remains available.
-		return false;
-	}
-	if (local.sendRttMs === undefined) return true;
-	return shouldPreferFastestSendLane(remote, local, APPLICATION_SWITCH_MARGIN_MS, routeKey);
 }
 
 /** Applies the exact 0.10ms handoff rule to real application measurements. */
@@ -690,7 +609,7 @@ function recordApplicationRtt(lane: Lane, role: LaneRole, sampleMs: number, rout
 	if (!Number.isFinite(sampleMs) || sampleMs < 0) return;
 	// HEAD / keepalives prove the connection still works, but they terminate
 	// at a cheap edge route and are not representative of a real LINE RPC.
-	// Counting them as sends made Server 3 look like a 1–2ms application path
+	// Counting them as sends makes an edge-only response look like a 1–2ms application path
 	// and permanently pinned traffic to the one lane the warmer happened to
 	// touch. Warm traffic updates lastOkAt only (in sendOnLane), never routing.
 	if (role === "warm" || role === undefined) return;
@@ -848,7 +767,7 @@ async function openLane(lane: Lane): Promise<void> {
 	}
 	if (lane.disposed) throw new Error("lane pool stopped");
 	// When the pool is larger than the address list (32 lanes over 8 IPs on the
-	// relay box), the stride alone puts `laneId % n`-equal lanes on the same
+	// another worker process), the stride alone puts `laneId % n`-equal lanes on the same
 	// address. A fixed per-lane phase offset staggers those groups so all IPs
 	// carry an equal share from the first connect, not only after reconnects.
 	const rotationSeed = Math.floor(lane.id / addresses.length);
@@ -1325,11 +1244,8 @@ function lanesForOrigin(origin: string): Lane[] {
  * the moment that arrives, so the next reply simply picks another. That is
  * the whole benefit here, and it costs no risk of sending twice.
  *
- * A second physical machine's h2-lanes pool (server3, see remote-lane.ts) is
- * folded in here as one more measured candidate, never inside
- * pickLane()/pickPollingLane() themselves — those stay local-lanes-only.
- * Deliberately NOT a duplicate race: the lower known end-to-end RTT wins and
- * exactly one machine sends the request.
+ * Lane selection is process-local. Deliberately NOT a duplicate race: exactly
+ * one owned connection sends the request.
  */
 export function laneFetch(info: RequestInfo | URL, init?: RequestInit): Promise<Response | undefined> {
 	const url = info instanceof URL ? info : new URL(typeof info === "string" ? info : info.url);
@@ -1337,67 +1253,10 @@ export function laneFetch(info: RequestInfo | URL, init?: RequestInit): Promise<
 	// a send/control request and should benefit from send affinity.
 	const role = requestRole(init) ?? "send";
 	const routeKey = requestRouteKey(init);
-	if (relayOnlyEnabled()) {
-		if (!relayOriginAllowed(url.origin)) return Promise.resolve(undefined);
-		const relayConfig = remoteDispatchConfig();
-		if (!relayConfig) return Promise.reject(new Error("relay-only worker has no relay dispatch configuration"));
-		return dispatchViaRemoteLane(relayConfig, url, init, role, true);
-	}
 	const lanes = LANE_COUNT === 0 ? undefined : pools.get(url.origin);
 	const lane = lanes ? pickLane(lanes, role, routeKey) : undefined;
-	const relayConfig = remoteDispatchConfig();
-	// POLL always considers the relay; SEND only when LINE_RELAY_SEND=1 (see
-	// RELAY_SEND_ENABLED). This keeps the relay's ~21ms cross-machine hop out of
-	// the SEND path by default while still offloading continuous POLL load.
-	if (relayConfig && (role === "poll" || relaySendEnabled())) {
-		const remote = remoteLaneCandidate(url.origin, Date.now(), routeKey);
-		if (remote && shouldPreferRemoteLane(remote, lane, role, routeKey)) return dispatchViaRemoteLane(relayConfig, url, init, role);
-		// Reached only with RELAY_SEND_ENABLED (a "send" role could not pass the
-		// guard otherwise). Route a bounded 1-in-N share of sends to the relay so
-		// it can earn its first real SEND sample; self-limiting once it has one.
-		if (role === "send" && remoteLaneNeedsBootstrap(url.origin) && shouldBootstrapRelay()) {
-			return dispatchViaRemoteLane(relayConfig, url, init, role);
-		}
-	}
-
 	if (!lane) return undefined;
 	return sendOnLane(lane, url, init, toBodyBytes(init?.body as BodyInit | null | undefined), role, routeKey);
-}
-
-/** Lowest real SEND median across this origin's local lanes, for sizing the
- * relative cooldown of routes that cannot see the pool directly (the relay). */
-function fastestLocalSendMedianMs(origin: string): number | undefined {
-	const measured = lanesForOrigin(origin)
-		.map((lane) => lane.sendRttMs)
-		.filter((rtt): rtt is number => rtt !== undefined);
-	return measured.length > 0 ? Math.min(...measured) : undefined;
-}
-
-async function dispatchViaRemoteLane(
-	config: { url: string; token: string },
-	url: URL,
-	init: RequestInit | undefined,
-	role: LaneRole,
-	required = false,
-): Promise<Response | undefined> {
-	const routeKey = requestRouteKey(init);
-	recordRemoteDispatchStart(url.origin, routeKey);
-	const startedAt = performance.now();
-	const scoredRole = role === "send" || role === "poll" ? role : undefined;
-	const slowThresholdMs = effectiveSendSlowThresholdMs(fastestLocalSendMedianMs(url.origin));
-	try {
-		const response = await dispatchViaRelay(config, url, init, role);
-		if (!response) {
-			if (required) throw new Error("lane relay unavailable before dispatch");
-			recordRemoteDispatchFailure(url.origin);
-			return undefined;
-		}
-		recordRemoteDispatchEnd(url.origin, scoredRole, performance.now() - startedAt, routeKey, slowThresholdMs);
-		return response;
-	} catch (error) {
-		recordRemoteDispatchFailure(url.origin);
-		throw error;
-	}
 }
 
 export function laneStats(): LaneStat[] {
@@ -1451,10 +1310,7 @@ export interface LaneRaceLaneView {
 
 /**
  * The exact shape the LANE RACE dashboard panel renders, built from this
- * process's own `laneStats()` + persisted scores. Shared by `/api/metrics/
- * lane-race` (this process's own lanes) and the lane-relay service (which
- * ships the same shape for its own lanes to the control plane) so neither
- * has to duplicate the mapping.
+ * process's own `laneStats()` + persisted scores for `/api/metrics/lane-race`.
  */
 export function laneRaceView(): LaneRaceLaneView[] {
 	return laneStats().map((lane) => ({
@@ -1497,5 +1353,4 @@ export function stopLanes(): void {
 	lastLaneRecycleAt.clear();
 	addressCache.clear();
 	ipRankCache = undefined;
-	relayBootstrapCounter = 0;
 }

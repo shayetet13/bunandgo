@@ -183,7 +183,7 @@ export const api = {
 			method: "POST",
 			body: JSON.stringify({ confirm: "restart-linebot-worker" }),
 		}),
-	// Servers tab — CPU/RAM trend for all three machines, recorded on a shared
+	// Servers tab — CPU/RAM trend for both active machines, recorded on a shared
 	// ~30s clock (not sampled live on request; see server-load-history.ts).
 	systemLoadHistory: (hours: number) => request<ServerLoadSample[]>(`/api/system/load-history?hours=${hours}`),
 

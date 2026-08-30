@@ -1,6 +1,6 @@
 /**
  * SQLite adapter for the bot-owning Server2 workers. Keeping this in a
- * separate module guarantees the Server3 relay bundle has no database import
+ * separate module keeps persistence concerns out of the lane scoring module
  * or side effect while preserving the dashboard's persisted history on S2.
  */
 import { db } from "../db/sqlite.ts";

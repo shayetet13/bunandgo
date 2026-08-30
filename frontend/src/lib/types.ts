@@ -132,9 +132,8 @@ export interface HealthStatus {
 export interface LaneStat {
 	origin: string;
 	id: number;
-	/** Which physical process/machine this lane runs on — "standalone"/a
-	 * WORKER_ID like "linebot-worker-2", or a lane-relay box's own id. Needed
-	 * because lane ids repeat across processes/machines. */
+	/** Which local worker process this lane runs on. Needed because lane ids
+	 * repeat across Primary and Shard B. */
 	workerId: string;
 	state: "connecting" | "ready" | "draining" | "dead";
 	inFlight: number;
@@ -153,7 +152,7 @@ export interface LaneStat {
 	consecutiveFailures: number;
 }
 
-export type MonitoredServerId = "server1" | "server2" | "server3";
+export type MonitoredServerId = "server1" | "server2";
 
 export interface ServerStatus {
 	id: MonitoredServerId;

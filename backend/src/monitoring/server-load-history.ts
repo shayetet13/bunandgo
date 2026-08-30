@@ -2,7 +2,6 @@ import { db } from "../db/sqlite.ts";
 import type { MonitoredServerId, ServerLoadSampleRow } from "../db/schema.ts";
 import { getSystemLoadSnapshot } from "./system-load.ts";
 import { shouldRunControlPlaneJobs } from "../bot/worker-topology.ts";
-import { latestRemoteServerLoad } from "../api/lane-relay-events.ts";
 
 export interface ServerLoad {
 	cpuPercent: number;
@@ -35,7 +34,9 @@ function fromRow(row: ServerLoadSampleRow): ServerLoadSample {
 const insertStmt = db.prepare<null, [MonitoredServerId, number, number, number, number, number | null]>(
 	"INSERT INTO server_load_samples (server_id, ts, cpu_percent, memory_percent, capacity_percent, event_loop_lag_ms) VALUES (?, ?, ?, ?, ?, ?)",
 );
-const listSinceStmt = db.prepare<ServerLoadSampleRow, [number]>("SELECT * FROM server_load_samples WHERE ts >= ? ORDER BY ts ASC");
+const listSinceStmt = db.prepare<ServerLoadSampleRow, [number]>(
+	"SELECT * FROM server_load_samples WHERE server_id IN ('server1', 'server2') AND ts >= ? ORDER BY ts ASC",
+);
 const pruneStmt = db.prepare<null, [number]>("DELETE FROM server_load_samples WHERE ts < ?");
 
 export function recordServerLoadSample(
@@ -102,7 +103,7 @@ const RECORD_INTERVAL_MS = Math.max(10_000, Number(process.env.SERVER_LOAD_HISTO
 let started = false;
 
 /**
- * Snapshots all three machines into server_load_samples on one shared clock,
+ * Snapshots Server 1 and Server 2 into server_load_samples on one shared clock,
  * for the dashboard's Servers tab trend graphs. Deliberately coarser than
  * system-load.ts's 5s in-process monitor — this table exists to draw a
  * trend, not to drive alerting, and every worker recording "server2"
@@ -119,9 +120,6 @@ export function startServerLoadHistoryRecorder(): void {
 
 		const server1 = await fetchServer1Status();
 		if (server1.load) recordServerLoadSample("server1", server1.load);
-
-		const server3 = latestRemoteServerLoad();
-		if (server3) recordServerLoadSample("server3", server3);
 
 		pruneServerLoadSamples(now);
 	}

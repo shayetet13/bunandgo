@@ -9,7 +9,6 @@ import { fetchServer1Status, type ServerLoad } from "../../monitoring/server-loa
 import { botEvents, getRuntimeDiagnostics } from "../../bot/session-manager.ts";
 import { isControlPlane } from "../../bot/worker-topology.ts";
 import { workerEventRelayDiagnostics } from "../worker-events.ts";
-import { latestRemoteServerLoad, remoteLaneStats } from "../lane-relay-events.ts";
 import { requireAdmin } from "../../auth/request-user.ts";
 
 export const healthRoute = new Hono();
@@ -19,7 +18,7 @@ const DISPATCH_ADDR = process.env.DISPATCH_ADDR ?? "127.0.0.1:4790";
 const processStartedAt = Date.now();
 
 interface ServerStatus {
-	id: "server1" | "server2" | "server3";
+	id: "server1" | "server2";
 	label: string;
 	role: string;
 	reachable: boolean;
@@ -70,29 +69,10 @@ async function server1Status(): Promise<ServerStatus> {
 	return { id: "server1", label: "Server 1", role: "AWS gateway", ...status };
 }
 
-/** Server 3 owns no bot/login session (see remote-lane.ts) — it only shows up
- * here at all once its lane relay has reported a fresh host-load snapshot;
- * before that (or once its report goes stale) it simply drops off the list
- * rather than showing a permanently "unreachable" card for an optional box. */
-function server3Status(): ServerStatus | undefined {
-	const load = latestRemoteServerLoad();
-	if (!load) return undefined;
-	return {
-		id: "server3",
-		label: "Server 3",
-		role: "Lane relay",
-		reachable: true,
-		serviceHealthy: !load.exceeded,
-		load,
-		detail: load.exceeded ? "โหลดเกินขีดจำกัดที่ตั้งไว้" : "Lane relay ปกติ",
-	};
-}
-
 healthRoute.get("/", async (c) => {
 	const bots = listBotsForUser(requestUser(c)!, { includeAllWorkers: isControlPlane() });
 	const [senderHealthy, server1] = await Promise.all([checkSenderHealthy(), server1Status()]);
 	const dbHealthy = checkDbHealthy();
-	const server3 = server3Status();
 	return c.json({
 		senderHealthy,
 		dbHealthy,
@@ -100,16 +80,12 @@ healthRoute.get("/", async (c) => {
 		botsOnline: bots.filter((b) => b.status === "online").length,
 		botsTotal: bots.length,
 		systemLoad: getSystemLoadSnapshot(),
-		servers: server3
-			? [server1, localServerStatus(senderHealthy, dbHealthy), server3]
-			: [server1, localServerStatus(senderHealthy, dbHealthy)],
+		servers: [server1, localServerStatus(senderHealthy, dbHealthy)],
 		// Surfaced so a reply riding the fetch fallback instead of an owned
 		// lane is visible here rather than only as unexplained jitter on the
-		// latency chart. Tagged with workerId and merged with whatever a lane
-		// relay box (see backend/src/relay/) most recently reported, so a
-		// second physical machine's lanes show up in the same list instead of
-		// only this process's own.
-		lanes: [...laneStats().map((lane) => ({ ...lane, workerId: WORKER_ID })), ...remoteLaneStats()],
+		// latency chart. Tagged with workerId because lane ids repeat across the
+		// Primary and Shard B processes.
+		lanes: laneStats().map((lane) => ({ ...lane, workerId: WORKER_ID })),
 		// One listener per open /ws connection per event name is normal. A
 		// count that keeps climbing with the dashboard closed points at a
 		// socket whose close handler never ran — see api/server.ts's

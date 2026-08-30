@@ -8,7 +8,7 @@ process.
 ## Permanent topology
 
 The source of truth is `/opt/linebot/shared/worker-topology.json`. Start from
-`worker-topology.example.json`, replace both placeholder secrets, then install
+`worker-topology.example.json`, replace the placeholder secret, then install
 the file as `linebot:linebot` mode `0600` before restarting either service.
 
 The production invariants are:
@@ -17,7 +17,7 @@ The production invariants are:
 | --------------------- | ------------------------------- | -------------------------------- |
 | Worker ID             | `primary`                       | `shard-b`                        |
 | API port              | 8791                            | 8792, loopback only              |
-| LINE lane source      | 16 local + 32 Server 3 relay    | 16 local + 32 Server 3 relay     |
+| LINE lane source      | 16 local                        | 16 local                         |
 | Send-reserved lanes   | 4                               | 4                                |
 | Zero-delay poll slots | 8                               | 8                                |
 | Owner allocation      | first new owner, then every tie | second new owner, then every tie |
@@ -31,16 +31,14 @@ rebalanced automatically. Deleting the user removes its obsolete assignment.
 Primary routes requests for Shard B owners over loopback. Shard B accepts only
 authenticated forwards from Primary and reports events back to Primary. Both
 services share `CONTROL_PLANE_TOKEN`, but the token lives only in the protected
-runtime topology. Server 3's separate `relayReportToken` is stored there too,
-so the root-owned env file never needs to change during token rotation. Static
+runtime topology. Static
 `WORKER_OWNER_SCOPE`, `WORKER_OWNER_EXCLUDE`, and
 `WORKER_OWNER_ROUTES` values remain empty.
 
 ## Lane and latency policy
 
-Primary and Shard B each race 16 local H2 lanes against Server 3's 32-lane
-relay pool; neither worker is pinned to one physical machine. Four low-numbered
-local lanes are the cold-start send preference and eight zero-delay poll slots
+Primary and Shard B each own 16 process-local H2 lanes. Four low-numbered
+lanes are the cold-start send preference and eight zero-delay poll slots
 can be active per worker. SEND and POLL measurements never rank each other.
 SEND routing predicts each candidate's completion time per bot from up to the
 seven most recent SEND results for that bot's own route key (falling back to
@@ -54,11 +52,8 @@ exists, without cooling the lane for every other bot. If every route is
 cooling, the lowest predicted route still carries the request so the
 guardrail cannot turn a network-wide slowdown into dropped messages.
 
-Server 3 owns no bot, login, session, database, or public API runtime. Its
-single-file relay bundle accepts only `legy.line-apps.com`; login/control stays
-on Server 2. Its one-second report is stale after three seconds. A request sent
-to either local or relay transport is never retried through the other after it
-may have reached LINE, avoiding duplicate LINE sends.
+A request is sent through exactly one local lane and is never retried through
+another after it may have reached LINE, avoiding duplicate LINE sends.
 
 Application reply telemetry also reports guardrails at 40/50/60/80/90/100ms.
 These are measurement and incident thresholds, not a promise that an external
@@ -96,9 +91,8 @@ sqlite3 /opt/linebot/shared/worker.db \
   'SELECT owner_user_id, worker_id, assigned_at FROM owner_worker_assignments ORDER BY owner_user_id;'
 ```
 
-The control-plane metrics endpoint is the authoritative combined view. Relay
-health is available only over the WireGuard address on Server 3 and returns
-HTTP 200 only when every configured origin has its full lane pool ready.
+The control-plane metrics endpoint is the authoritative combined view of both
+local worker processes.
 
 Never copy a live SQLite file or run the same LINE account from another host.
 For host rollback, stop both workers before moving the database and resume only

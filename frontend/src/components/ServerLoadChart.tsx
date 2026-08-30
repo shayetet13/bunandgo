@@ -39,7 +39,7 @@ function nearestSample(series: ServerLoadSample[], ts: number): ServerLoadSample
 	return series[lo];
 }
 
-/** Hand-rolled SVG line chart — CPU% or RAM% for all three servers on one 0-100 axis,
+/** Hand-rolled SVG line chart — CPU% or RAM% for all active servers on one 0-100 axis,
  * fixed categorical color per server, hover crosshair + one shared tooltip. No chart library,
  * matching this project's existing DispatchChart/BucketBarChart approach. */
 export function ServerLoadChart({ title, metric, samples, rangeHours }: ServerLoadChartProps) {

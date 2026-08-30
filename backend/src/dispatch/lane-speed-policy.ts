@@ -1,6 +1,5 @@
 /**
- * SEND latency policy shared by local Server 2 lanes and the Server 3 relay
- * candidate. These are routing guardrails, not a promise about an external
+ * SEND latency policy for Server 2 lanes. These are routing guardrails, not a promise about an external
  * network: when every route is slow the caller must still use the fastest
  * available one rather than drop a user's message.
  */

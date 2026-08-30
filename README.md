@@ -88,8 +88,7 @@ logout.
 - Production uses durable balanced owner assignment: the first owner goes to
   Primary, the next to Shard B, then alternates by the least-loaded owner
   count. Login, reconnect, restart, and lane health never move an existing
-  owner. Both workers race Server 2 local lanes against the lane service on
-  Server 3, which owns no bot/login session.
+  owner. Both workers use independent process-local H2 lane pools on Server 2.
 - Data (bots, session tokens, rules, chats, latency history) lives in
   `backend/data/app.db` (SQLite), keyed by `bot_id` for full isolation
   between accounts.

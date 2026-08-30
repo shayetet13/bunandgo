@@ -22,7 +22,6 @@ import {
 	selectPollingLaneCandidate,
 	shouldPreferFastestSendLane,
 	shouldPreferLane,
-	shouldPreferRemoteLane,
 	stopLanes,
 } from "./h2-lanes.ts";
 import { readResponseBytes } from "./raw-response.ts";
@@ -125,7 +124,7 @@ describe("owned HTTP/2 lanes", () => {
 		expect(received).toEqual(Buffer.from([9, 8, 7, 6]));
 	});
 
-	test("keeps exactly one lane carrying traffic so a send is never duplicated", async () => {
+	test("sends each request exactly once even if lane selection changes", async () => {
 		let requests = 0;
 		const { origin, server } = await startServer((stream) => {
 			requests++;
@@ -140,8 +139,6 @@ describe("owned HTTP/2 lanes", () => {
 		}
 
 		expect(requests).toBe(5);
-		const used = laneStats().filter((lane) => lane.lastOkAt > 0);
-		expect(used).toHaveLength(1);
 	});
 
 	test("keeps a warm HEAD out of real send and poll measurements", async () => {
@@ -401,100 +398,6 @@ describe("RTT-aware lane ranking", () => {
 		expect(selectLaneRouteAddress(addresses, 0, 1)).toEqual(addresses[1]);
 		expect(laneAddressStride(8)).toBe(3);
 		expect(laneAddressStride(2)).toBe(1);
-	});
-
-	test("chooses Server 3 only when its real result is faster", () => {
-		const local = { sendRttMs: 24, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 };
-		expect(shouldPreferRemoteLane({ sendRttMs: 19, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 }, local)).toBe(true);
-		expect(shouldPreferRemoteLane({ sendRttMs: 31, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 }, local)).toBe(false);
-	});
-
-	test("routes around a cooling result above 23ms when the other server is available", () => {
-		const now = Date.now();
-		const local = { sendRttMs: 18, sendSlowUntil: now + 15_000, lastSendOkAt: now, lastOkAt: now, inFlight: 0 };
-		expect(shouldPreferRemoteLane({ sendRttMs: 21, sendSlowUntil: 0, lastSendOkAt: now, lastOkAt: now, inFlight: 0 }, local)).toBe(true);
-		expect(
-			shouldPreferRemoteLane(
-				{ sendRttMs: 17, sendSlowUntil: now + 15_000, lastSendOkAt: now, lastOkAt: now, inFlight: 0 },
-				{ sendRttMs: 20, sendSlowUntil: 0, lastSendOkAt: now, lastOkAt: now, inFlight: 0 },
-			),
-		).toBe(false);
-	});
-
-	test("does not mistake an unmeasured Server 3 PING for a SEND result", () => {
-		const local = { rttMs: 12, sendRttMs: 25, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 };
-		expect(shouldPreferRemoteLane({ rttMs: 8, lastOkAt: 1, inFlight: 0 }, local)).toBe(false);
-		expect(shouldPreferRemoteLane({ rttMs: 15, lastOkAt: 1, inFlight: 0 }, local)).toBe(false);
-		expect(shouldPreferRemoteLane({ rttMs: 50, lastOkAt: 1, inFlight: 0 }, undefined)).toBe(false);
-		expect(shouldPreferRemoteLane({ sendRttMs: 50, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 }, undefined)).toBe(true);
-	});
-
-	test("does not invent a cold Server 3 SEND score from concurrency", () => {
-		const busyLocal = { rttMs: 12, sendRttMs: 25, lastSendOkAt: 1, lastOkAt: 1, inFlight: 2 };
-		expect(shouldPreferRemoteLane({ rttMs: 8, lastOkAt: 1, inFlight: 0 }, busyLocal)).toBe(false);
-		expect(shouldPreferRemoteLane({ rttMs: 50, lastOkAt: 1, inFlight: 0 }, busyLocal)).toBe(false);
-	});
-
-	test("routes local vs remote independently per bot when only one bot is cooling on each side", () => {
-		const now = Date.now();
-		// Same two physical lane objects shared by both bots: local is cooling
-		// for bot-a only, remote is cooling for bot-b only.
-		const local = {
-			sendRttMs: 18,
-			lastSendOkAt: now,
-			lastOkAt: now,
-			inFlight: 0,
-			sendRouteProfiles: new Map([
-				["bot-a", { samples: [30], lastAt: now, slowUntil: now + 15_000 }],
-				["bot-b", { samples: [16, 17], lastAt: now, slowUntil: 0 }],
-			]),
-		};
-		const remote = {
-			sendRttMs: 20,
-			lastSendOkAt: now,
-			lastOkAt: now,
-			inFlight: 0,
-			sendRouteProfiles: new Map([
-				["bot-a", { samples: [19], lastAt: now, slowUntil: 0 }],
-				["bot-b", { samples: [30], lastAt: now, slowUntil: now + 15_000 }],
-			]),
-		};
-
-		// bot-a: local is cooling, remote is not -> hand off to remote.
-		expect(shouldPreferRemoteLane(remote, local, "send", "bot-a")).toBe(true);
-		// bot-b: remote is cooling, local is not -> stay local.
-		expect(shouldPreferRemoteLane(remote, local, "send", "bot-b")).toBe(false);
-	});
-
-	test("fails open to the lower predicted route when both sides are cooling for the same bot", () => {
-		const now = Date.now();
-		const cooling = now + 15_000;
-		const local = {
-			sendRttMs: 26,
-			lastSendOkAt: now,
-			lastOkAt: now,
-			inFlight: 0,
-			sendRouteProfiles: new Map([["bot-a", { samples: [26], lastAt: now, slowUntil: cooling }]]),
-		};
-		const remoteFaster = {
-			sendRttMs: 24,
-			lastSendOkAt: now,
-			lastOkAt: now,
-			inFlight: 0,
-			sendRouteProfiles: new Map([["bot-a", { samples: [24], lastAt: now, slowUntil: cooling }]]),
-		};
-		// Both cooling, but the remote's own real result is still faster.
-		expect(shouldPreferRemoteLane(remoteFaster, local, "send", "bot-a")).toBe(true);
-
-		const remoteSlower = {
-			sendRttMs: 30,
-			lastSendOkAt: now,
-			lastOkAt: now,
-			inFlight: 0,
-			sendRouteProfiles: new Map([["bot-a", { samples: [30], lastAt: now, slowUntil: cooling }]]),
-		};
-		// Both cooling, and local remains the faster of the two -> no message lost, no pointless hop.
-		expect(shouldPreferRemoteLane(remoteSlower, local, "send", "bot-a")).toBe(false);
 	});
 
 	test("prefers a materially faster route even after accounting for one in-flight stream", () => {

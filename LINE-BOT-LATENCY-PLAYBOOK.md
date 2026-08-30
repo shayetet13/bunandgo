@@ -307,8 +307,7 @@ predicted completion = p50 + (p95 - p50) × 0.35 + queue waves × p50
 
 - เป้าหมายปกติคือ SEND ต่ำกว่า 20ms; ผลดิบที่เกิน 23ms ทำให้ **bot-route นั้นบน lane นั้น** พัก 15 วินาทีเมื่อยังมีทางเลือก โดยไม่พัก lane ทิ้งสำหรับบอทอื่น
 - SEND และ POLL แยกคะแนนกันเด็ดขาด
-- PING ไม่ถูกนับเป็น SEND ระหว่าง Server 2/3 และ concurrency ไม่ถูกแปลงเป็นเวลาปลอมเพื่อให้ cold route ชนะ SEND ที่วัดแล้ว — คิว cost เกิดเฉพาะเมื่อ HTTP/2 capacity ของ lane นั้นเต็มจริงเท่านั้น
-- Server 3 report เก่ากว่า 3 วินาทีไม่ถูกนำมาเปรียบเทียบ
+- PING ไม่ถูกนับเป็น SEND และ concurrency ไม่ถูกแปลงเป็นเวลาปลอมเพื่อให้ cold route ชนะ SEND ที่วัดแล้ว — คิว cost เกิดเฉพาะเมื่อ HTTP/2 capacity ของ lane นั้นเต็มจริงเท่านั้น
 - แต่ละบอทมี route key ของตัวเอง (internal header, ไม่ถึง LINE) จึงชนะคนละ lane กันได้พร้อมกัน jitter สูง (median ต่ำแต่ p95 กระโดด) แพ้ lane ที่นิ่งกว่าได้แม้ median สูงกว่า
 
 ### 7.5 กฎสลับ `0.10ms`
@@ -378,8 +377,8 @@ score = p50(บอทนี้) + (p95(บอทนี้) - p50(บอทนี
 
 1. เลือก predicted completion ต่อบอทต่ำที่สุด (หน้าต่าง 7 ผลล่าสุดของบอทนั้น + jitter weight 0.35 + queue cost จาก HTTP/2 capacity จริง) โดยไม่บวก load penalty เดา
 2. สลับเมื่ออีก lane เร็วกว่าอย่างน้อย switch margin เพื่อกันการสั่นจาก noise
-3. Server 2 และ Server 3 ใช้กฎเปรียบเทียบเดียวกัน รวมทั้ง per-bot route key และ per-bot cooldown
-4. แต่ละ request ออกเพียงเครื่องเดียวและ lane เดียว จึงไม่เกิดข้อความซ้ำ
+3. ทุก local lane ใช้กฎเปรียบเทียบเดียวกัน รวมทั้ง per-bot route key และ per-bot cooldown
+4. แต่ละ request ออเพียง lane เดียว จึงไม่เกิดข้อความซ้ำ
 5. ผลดิบเกิน 23ms พัก bot-route นั้น 15 วินาทีถ้ามีทางเลือก (ไม่พัก lane ทิ้งสำหรับบอทอื่น); ถ้าทุก route ของบอทนั้นช้าให้ใช้ค่าต่ำที่สุดเพื่อไม่ทิ้งข้อความ
 
 ### 7.11 Age-based rolling recycle
@@ -708,7 +707,7 @@ Typecheck: ยังไม่ยืนยัน เนื่องจาก loca
 - GOAWAY lane ถูกนำออกจาก rotation
 - AbortSignal ยกเลิก in-flight request ได้
 - application RTT สำคัญกว่า PING
-- Server 2/3 เปรียบเทียบด้วยค่าจริงโดยไม่มี absolute ceiling
+- local lane บน Server 2 เปรียบเทียบด้วยค่าจริงโดยไม่มี absolute ceiling
 - poll calibrate ทุก lane หนึ่งครั้งก่อนเลือกค่าต่ำที่สุด
 - send-reserved lane ได้รับ poll calibration ก่อนกลับสู่ steady-state partition
 - measured lane ทุกค่าแข่งขันกันได้ ไม่ว่าจะเป็น 20/40/80ms

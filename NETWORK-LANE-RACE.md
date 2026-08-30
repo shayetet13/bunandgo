@@ -1,6 +1,6 @@
 # NETWORK · LINE ↔ AKAMAI และ LANE RACE
 
-เอกสารนี้สรุปการทำงานของระบบ network lane ที่ใช้งานจริงบน Server 2 และ Server 3
+เอกสารนี้สรุปการทำงานของระบบ network lane ที่ใช้งานจริงบน Server 2
 
 ## ภาพรวม
 
@@ -8,10 +8,9 @@
 Bot บน Server 2
       │
       ├─ แยกประเภทงาน SEND / POLL / WARM
-      ├─ ตรวจ local lanes บน Server 2
-      ├─ ตรวจ remote candidate จาก Server 3
+      ├─ ตรวจ local lanes ของ worker นั้น
       ├─ เปรียบเทียบ SEND/POLL RTT จริงตาม role
-      └─ เลือกเพียง 1 server และ 1 lane
+      └─ เลือกเพียง 1 lane
                     │
                     ▼
           legy.line-apps.com
@@ -25,17 +24,14 @@ Bot บน Server 2
 - `NETWORK · LINE ↔ AKAMAI` แสดงสถานะ connection และค่าปัจจุบัน
 - `LANE RACE` แสดงคะแนนและประวัติผลงานของแต่ละ lane
 - เป้าหมาย SEND ต่ำกว่า `20ms`; lane ที่ช้ากว่า lane เร็วที่สุดในกลุ่ม (เกิน `1.5×` หรือเกินเพดาน `28ms` แล้วแต่อันไหนแคบกว่า) จะพักชั่วคราวเมื่อมีทางเลือก
-- แต่ละ request ใช้เพียงหนึ่ง server และหนึ่ง lane เพื่อป้องกันข้อความซ้ำ
+- แต่ละ request ใช้เพียงหนึ่ง lane เพื่อป้องกันข้อความซ้ำ
 
-## โครงสร้าง Server 2/3
+## โครงสร้าง Server 2
 
-| Worker     | ที่อยู่  | Lane source                                |           จำนวน lane |
-| ---------- | -------- | ------------------------------------------ | -------------------: |
-| Primary    | Server 2 | Local และมี Server 3 เป็น remote candidate | 16 local + 32 remote |
-| Shard B    | Server 2 | Local และมี Server 3 เป็น remote candidate | 16 local + 32 remote |
-| Lane Relay | Server 3 | เชื่อม `legy.line-apps.com`                |                   32 |
-
-Server 3 ไม่มี bot, login, LINE session หรือฐานข้อมูล และไม่รับ `gf.line.naver.jp`
+| Worker  | ที่อยู่  | Lane source | จำนวน lane |
+| ------- | -------- | ----------- | ----------: |
+| Primary | Server 2 | Local       |          16 |
+| Shard B | Server 2 | Local       |          16 |
 
 ## NETWORK · LINE ↔ AKAMAI
 
@@ -54,10 +50,10 @@ Server 3 ไม่มี bot, login, LINE session หรือฐานข้อ
 
 ### PING
 
-`PING` วัดเฉพาะเส้นทางจาก Server 2/3 ไปยัง HTTP/2 socket หรือ Akamai edge
+`PING` วัดเฉพาะเส้นทางจาก Server 2 ไปยัง HTTP/2 socket หรือ Akamai edge
 
 ```text
-Server 2/3 ↔ Network ↔ Akamai edge
+Server 2 ↔ Network ↔ Akamai edge
 ```
 
 PING ไม่รวม:
@@ -114,7 +110,7 @@ POLL ใช้ median ของผลล่าสุดสูงสุดเจ�
 
 ## กฎเลือก SEND lane
 
-ทุก bot มี route key ของตัวเอง (`x-linebot-lane-route-key`, ภายในกระบวนการ/ระหว่าง Server 2 ↔ Server 3 เท่านั้น — ไม่ถึง LINE) แต่ละ lane เก็บ SEND history แยกต่อ bot route key ไม่ใช่แยกต่อ origin เฉยๆ อีกต่อไป คะแนนของ lane ต่อ bot หนึ่งตัวคือ **predicted completion time**:
+ทุก bot มี route key ของตัวเอง (`x-linebot-lane-route-key`, ใช้ภายในกระบวนการเท่านั้น — ไม่ถึง LINE) แต่ละ lane เก็บ SEND history แยกต่อ bot route key ไม่ใช่แยกต่อ origin เฉยๆ อีกต่อไป คะแนนของ lane ต่อ bot หนึ่งตัวคือ **predicted completion time**:
 
 ```text
 predicted completion = p50 + (p95 - p50) × 0.35 + queue waves × p50
@@ -175,7 +171,7 @@ cold lane = ไม่มีสิทธิ์ชนะ lane ที่มี SEND
 5. หลัง calibrate เลือก lane ที่ `pollRttMs` ต่ำที่สุด
 6. ถ้า POLL RTT เท่ากันจึงใช้ in-flight เป็นตัวตัดสิน
 
-POLL มี switch margin `0.1ms` สำหรับการเปรียบเทียบ local/remote และบันทึก LANE RACE สูงสุดหนึ่งตัวอย่างต่อ lane ต่อนาที เพื่อลดงานฐานข้อมูล
+POLL มี switch margin `0.1ms` สำหรับการเปรียบเทียบ local lane และบันทึก LANE RACE สูงสุดหนึ่งตัวอย่างต่อ lane ต่อนาที เพื่อลดงานฐานข้อมูล
 
 ## การแบ่ง SEND/POLL lane
 
@@ -188,40 +184,12 @@ lane 4–N   → POLL preference
 
 เป็น preference ไม่ใช่ข้อบังคับ หาก lane ในกลุ่มหนึ่งล่มทั้งหมด ระบบสามารถใช้ usable lane จากอีกกลุ่มได้
 
-## การแข่งขันระหว่าง Server 2 และ Server 3
-
-Server 3 ส่งรายงานกลับ Server 2 ทุกหนึ่งวินาที ประกอบด้วย:
-
-- สถานะ lane
-- PING
-- SEND RTT
-- POLL RTT
-- In-flight
-- Failure count
-- LANE RACE score
-
-ถ้ารายงานเก่ากว่าสามวินาที Server 3 จะถูกถอดออกจาก candidate และหายจากหน้าจอจนกว่าจะมีรายงานใหม่
-
-SEND/POLL sample ที่เก่ากว่า **15 นาที** (`LINE_H2_APPLICATION_SAMPLE_MAX_AGE_MS`) จะไม่ถูกอ้างว่าเป็นค่าปัจจุบัน — สำหรับ SEND นี่คือ per-bot-route profile (สูงสุด 2,048 บอทต่อ physical lane, evict แบบ least-recently-used) ที่หมดอายุแล้ว fallback ไปใช้ prior ของ lane แทน ไม่ใช่ทิ้งค่าทั้งหมด
-
-**SEND ไม่วิ่งผ่าน Server 3 โดย default** — SEND เป็น one-shot วิกฤต hop ข้ามเครื่องของ relay วัดได้ ~21ms vs local ~17-20ms เลยเก็บไว้ที่ local lane ทั้งหมด Server 3 รับแค่ **POLL overflow** (background load, ~15-17ms พอ ๆ กับ local) ตั้ง `LINE_RELAY_SEND=1` บน worker ที่ต้องการ capacity ฝั่ง send จริง ๆ
-
-เมื่อเปิด `LINE_RELAY_SEND=1`: Server 3 มีปัญหา cold-start (เลือกได้ต่อเมื่อมี sample จริง แต่ไม่มี sample ถ้าไม่เคยถูกเลือก) → route SEND สัดส่วน `1/16` (`LINE_RELAY_BOOTSTRAP_SHARE`, `remoteLaneNeedsBootstrap`) ไป Server 3 ตอน healthy แต่ยัง 0 sample แล้วหยุดเองเมื่อได้ sample แรก
-
-เมื่อ Primary ส่งผ่าน Server 3 ระบบวัดแบบ end-to-end:
-
-```text
-Server 2 → WireGuard → Server 3 → Akamai → LINE
-→ Server 3 → WireGuard → Server 2
-```
-
-ค่านี้มีความสำคัญกว่าค่าที่ Server 3 วัดตัวเอง เพราะเป็นเวลาที่ bot บน Server 2 พบจริง
+SEND profile แยกต่อ bot route key มีอายุ **15 นาที** (`LINE_H2_SEND_ROUTE_SAMPLE_MAX_AGE_MS`) แล้ว fallback ไปใช้ prior ของ local lane แทน
 
 ## การป้องกันข้อความซ้ำ
 
 ```text
 คำนวณคะแนน
-→ เลือก 1 server
 → เลือก 1 lane
 → ส่ง 1 ครั้ง
 ```
@@ -333,14 +301,11 @@ LANE RTT จึงไม่จำเป็นต้องเท่ากับ T
 | รายการ                       | รอบเวลา/ระยะเก็บ                 |
 | ---------------------------- | -------------------------------- |
 | HTTP/2 PING                  | ทุก 15 วินาที                    |
-| Server 3 report              | ทุก 1 วินาที                     |
 | Network panel                | ทุก 5 วินาที                     |
 | LANE RACE panel              | ทุก 15 วินาที                    |
 | POLL race persistence        | สูงสุดหนึ่งครั้งต่อ lane ต่อนาที |
 | ประวัติ Server 2             | 30 วันโดยค่าเริ่มต้น             |
 | Recent lane events ใน memory | 240 รายการ                       |
-
-Server 3 ไม่มีฐานข้อมูล คะแนน LANE RACE ของ Server 3 จึงเริ่มใหม่เมื่อ relay restart
 
 การบันทึกคะแนนทำหลัง response จบผ่าน `setImmediate` และ write-behind worker จึงไม่ขวางเส้นทางตอบข้อความ
 

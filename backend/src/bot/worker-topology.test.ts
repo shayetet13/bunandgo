@@ -27,10 +27,6 @@ const ENV_KEYS = [
 	"LINE_H2_LANES",
 	"LINE_EFFECTIVE_H2_LANES",
 	"LINE_H2_SEND_RESERVED_LANES",
-	"LINE_RELAY_MODE",
-	"LINE_RELAY_URL",
-	"LINE_RELAY_TOKEN",
-	"LANE_RELAY_TOKEN",
 	"LINE_H2_POLL_EXPLORE_INTERVAL_MS",
 	"LINE_H2_POLL_CALIBRATION_SAMPLES",
 	"LINE_H2_APPLICATION_HOT_CEILING_MS",
@@ -254,20 +250,15 @@ describe("worker topology", () => {
 		expect(process.env.LINE_H2_IN_FLIGHT_PENALTY_MS).toBeUndefined();
 	});
 
-	test("balanced-sticky topology lets both workers race local and relay routes", () => {
+	test("balanced-sticky topology gives both workers independent local lanes", () => {
 		const runtimeFile = JSON.stringify({
 			version: 1,
 			assignmentMode: "balanced-sticky",
-			relayReportToken: "p".repeat(32),
 			primary: {
 				workerId: "primary",
 				port: 8791,
 				fastPollIntervalMs: 0,
 				h2Lanes: 16,
-				laneSource: "local",
-				relayLanes: 32,
-				relayUrl: "http://10.90.0.2:8795/dispatch",
-				relayToken: "r".repeat(32),
 				sendReservedLanes: 4,
 				fastPollSlots: 8,
 			},
@@ -277,10 +268,6 @@ describe("worker topology", () => {
 					port: 8792,
 					fastPollIntervalMs: 0,
 					h2Lanes: 16,
-					laneSource: "local",
-					relayLanes: 32,
-					relayUrl: "http://10.90.0.2:8795/dispatch",
-					relayToken: "r".repeat(32),
 					sendReservedLanes: 4,
 					fastPollSlots: 8,
 				},
@@ -290,11 +277,8 @@ describe("worker topology", () => {
 		setTopologyEnv({ PORT: "8791" });
 		expect(applyRuntimeTopologyFile(runtimeFile)).toBe(true);
 		expect(process.env.WORKER_ASSIGNMENT_WORKERS).toBe("primary,shard-b");
-		expect(process.env.LANE_RELAY_TOKEN).toBe("p".repeat(32));
 		expect(process.env.WORKER_ROUTES).toBe("shard-b=http://127.0.0.1:8792");
-		expect(process.env.LINE_RELAY_MODE).toBeUndefined();
-		expect(process.env.LINE_RELAY_URL).toBe("http://10.90.0.2:8795/dispatch");
-		expect(process.env.LINE_RELAY_TOKEN).toBe("r".repeat(32));
+		expect(process.env.LINE_H2_LANES).toBe("16");
 		expect(validateWorkerTopology().assignmentMode).toBe("balanced-sticky");
 
 		setTopologyEnv({ PORT: "8792" });
@@ -302,8 +286,6 @@ describe("worker topology", () => {
 		expect(process.env.WORKER_ROUTES).toBeUndefined();
 		expect(process.env.LINE_H2_LANES).toBe("16");
 		expect(process.env.LINE_EFFECTIVE_H2_LANES).toBe("16");
-		expect(process.env.LINE_RELAY_MODE).toBeUndefined();
-		expect(process.env.LINE_RELAY_URL).toBe("http://10.90.0.2:8795/dispatch");
 		expect(validateWorkerTopology().controlPlaneUrl?.port).toBe("8791");
 	});
 
@@ -311,7 +293,6 @@ describe("worker topology", () => {
 		const runtimeFile = JSON.stringify({
 			version: 1,
 			assignmentMode: "balanced-sticky",
-			relayReportToken: "p".repeat(32),
 			primary: { workerId: "primary", port: 8791 },
 			shards: [{ workerId: "shard-b", port: 8792 }],
 			controlPlaneToken: "t".repeat(32),

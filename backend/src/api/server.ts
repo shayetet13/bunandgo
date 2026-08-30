@@ -34,7 +34,6 @@ import {
 	requireControlPlaneForwardOnShard,
 } from "./worker-proxy.ts";
 import { eventBotId, FORWARDED_EVENTS, startWorkerEventRelay, type ForwardedEventName, workerEventsRoute } from "./worker-events.ts";
-import { laneRelayEventsRoute } from "./lane-relay-events.ts";
 import { startServerLoadHistoryRecorder } from "../monitoring/server-load-history.ts";
 
 const { upgradeWebSocket, websocket } = createBunWebSocket<ServerWebSocket>();
@@ -85,11 +84,6 @@ app.all("/internal/security-probe", (c) => {
 // Loopback-only in deployment and authenticated independently with the
 // shared control token. It must be mounted before browser auth middleware.
 app.route("/internal/worker-events", workerEventsRoute);
-// Reached over the server2<->server3 tunnel only, authenticated with its own
-// LANE_RELAY_TOKEN (never the shard control token — see lane-relay-events.ts
-// for why that separation matters). Also mounted ahead of browser auth.
-app.route("/internal/lane-relay-events", laneRelayEventsRoute);
-
 async function requireAuth(c: Context, next: Next) {
 	const token = getCookie(c, SESSION_COOKIE);
 	if (!getSessionUser(token)) {
@@ -208,8 +202,8 @@ startWorkerEventRelay();
 // independently persisted card positions without undoing a user's drag.
 resequenceBotSlots();
 
-// No-op on a shard or on server3 (shouldRunControlPlaneJobs() gates it) — one
-// process per deployment records all three machines' CPU/RAM history.
+// No-op on a shard (shouldRunControlPlaneJobs() gates it) — one
+// process per deployment records both active machines' CPU/RAM history.
 startServerLoadHistoryRecorder();
 
 // Deliberately after the listener is up and not awaited: resuming walks every

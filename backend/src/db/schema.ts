@@ -271,8 +271,8 @@ CREATE TABLE IF NOT EXISTS announcements (
 );
 CREATE INDEX IF NOT EXISTS idx_announcements_created_at ON announcements(created_at DESC);
 
--- Periodic CPU/RAM snapshots for all three physical machines (server1 edge,
--- server2 this process, server3 lane relay) — see monitoring/server-load-history.ts.
+-- Periodic CPU/RAM snapshots for the two active physical machines (server1 edge,
+-- server2 this process) — see monitoring/server-load-history.ts.
 -- Sampled far coarser than the live 5s in-process monitor (system-load.ts);
 -- this table exists only to draw a trend, not to drive alerting.
 CREATE TABLE IF NOT EXISTS server_load_samples (
@@ -434,7 +434,7 @@ export interface AnnouncementRow {
 	is_pinned: number;
 }
 
-export type MonitoredServerId = "server1" | "server2" | "server3";
+export type MonitoredServerId = "server1" | "server2";
 
 export interface ServerLoadSampleRow {
 	id: number;

@@ -23,10 +23,6 @@ export interface WorkerTopology {
 interface RuntimeWorkerTuning {
 	fastPollIntervalMs?: number;
 	h2Lanes?: number;
-	laneSource?: "local" | "relay";
-	relayLanes?: number;
-	relayUrl?: string;
-	relayToken?: string;
 	sendReservedLanes?: number;
 	fastPollSlots?: number;
 	applicationSampleMaxAgeMs?: number;
@@ -51,7 +47,6 @@ interface RuntimeTopologyFile {
 	primary: RuntimeTopologyPrimary;
 	shards: RuntimeTopologyShard[];
 	controlPlaneToken: string;
-	relayReportToken?: string;
 }
 
 function positiveInteger(value: unknown, label: string): number {
@@ -76,34 +71,6 @@ function validateWorkerTuning(worker: RuntimeWorkerTuning, label: string): void 
 	}
 	const h2Lanes = worker.h2Lanes === undefined ? undefined : nonNegativeInteger(worker.h2Lanes, `${label} h2Lanes`);
 	if (h2Lanes !== undefined && h2Lanes > 32) throw new Error(`${label} h2Lanes cannot exceed 32`);
-	const relayLanes = worker.relayLanes === undefined ? undefined : positiveInteger(worker.relayLanes, `${label} relayLanes`);
-	if (relayLanes !== undefined && relayLanes > 32) throw new Error(`${label} relayLanes cannot exceed 32`);
-	const laneSource = worker.laneSource ?? "local";
-	if (laneSource !== "local" && laneSource !== "relay") throw new Error(`${label} laneSource must be local or relay`);
-	const hasRelayConfiguration =
-		laneSource === "relay" || relayLanes !== undefined || worker.relayUrl !== undefined || worker.relayToken !== undefined;
-	if (hasRelayConfiguration) {
-		if (relayLanes === undefined) throw new Error(`${label} relay configuration requires relayLanes`);
-		if (!worker.relayUrl) throw new Error(`${label} relay configuration requires relayUrl`);
-		let relayUrl: URL;
-		try {
-			relayUrl = new URL(worker.relayUrl);
-		} catch {
-			throw new Error(`${label} relayUrl must be a valid URL`);
-		}
-		if (
-			relayUrl.protocol !== "http:" ||
-			relayUrl.pathname !== "/dispatch" ||
-			relayUrl.username ||
-			relayUrl.password ||
-			relayUrl.search ||
-			relayUrl.hash
-		) {
-			throw new Error(`${label} relayUrl must be a plain HTTP /dispatch endpoint without credentials, query, or fragment`);
-		}
-		if ((worker.relayToken?.length ?? 0) < 32) throw new Error(`${label} relayToken must contain at least 32 characters`);
-	}
-	const effectiveLanes = laneSource === "relay" ? relayLanes : h2Lanes;
 	const reserved =
 		worker.sendReservedLanes === undefined ? undefined : positiveInteger(worker.sendReservedLanes, `${label} sendReservedLanes`);
 	const slots = worker.fastPollSlots === undefined ? undefined : positiveInteger(worker.fastPollSlots, `${label} fastPollSlots`);
@@ -113,13 +80,13 @@ function validateWorkerTuning(worker: RuntimeWorkerTuning, label: string): void 
 	const laneMaxAge = worker.laneMaxAgeMs === undefined ? undefined : positiveInteger(worker.laneMaxAgeMs, `${label} laneMaxAgeMs`);
 	const recycleGap =
 		worker.laneRecycleGapMs === undefined ? undefined : positiveInteger(worker.laneRecycleGapMs, `${label} laneRecycleGapMs`);
-	if (effectiveLanes !== undefined && reserved !== undefined && reserved >= effectiveLanes) {
+	if (h2Lanes !== undefined && reserved !== undefined && reserved >= h2Lanes) {
 		throw new Error(`${label} sendReservedLanes must leave at least one poll lane`);
 	}
-	if (effectiveLanes !== undefined && reserved !== undefined && slots !== undefined && slots > effectiveLanes - reserved) {
+	if (h2Lanes !== undefined && reserved !== undefined && slots !== undefined && slots > h2Lanes - reserved) {
 		throw new Error(`${label} fastPollSlots cannot exceed the non-send H2 lane count`);
 	}
-	if (interval === 0 && (effectiveLanes === undefined || reserved === undefined || slots === undefined)) {
+	if (interval === 0 && (h2Lanes === undefined || reserved === undefined || slots === undefined)) {
 		throw new Error(`${label} zero-delay requires an effective lane count, sendReservedLanes, and fastPollSlots`);
 	}
 	if (h2Lanes !== undefined && laneMaxAge !== undefined && recycleGap !== undefined && h2Lanes * recycleGap > laneMaxAge) {
@@ -146,9 +113,6 @@ function parseRuntimeTopologyFile(raw: string): RuntimeTopologyFile {
 		throw new Error(`worker topology assignmentMode must be ${STICKY_ASSIGNMENT_MODE}`);
 	}
 	const sticky = value.assignmentMode === STICKY_ASSIGNMENT_MODE;
-	if (sticky && (value.relayReportToken?.length ?? 0) < 32) {
-		throw new Error("worker topology relayReportToken must contain at least 32 characters");
-	}
 
 	const primaryPort = positiveInteger(value.primary.port, "worker topology primary.port");
 	if (!value.primary.workerId?.trim()) throw new Error("worker topology primary.workerId is required");
@@ -214,7 +178,6 @@ export function applyRuntimeTopologyFile(raw?: string): boolean {
 	const sticky = topology.assignmentMode === STICKY_ASSIGNMENT_MODE;
 
 	process.env.CONTROL_PLANE_TOKEN = topology.controlPlaneToken;
-	if (topology.relayReportToken) process.env.LANE_RELAY_TOKEN = topology.relayReportToken;
 	if (sticky) {
 		process.env.WORKER_ASSIGNMENT_MODE = STICKY_ASSIGNMENT_MODE;
 		process.env.WORKER_PRIMARY_ID = topology.primary.workerId;
@@ -243,22 +206,7 @@ export function applyRuntimeTopologyFile(raw?: string): boolean {
 		if (interval === 0) process.env.SQUARE_FAST_POLL_ALLOW_ZERO_MS = "1";
 		else delete process.env.SQUARE_FAST_POLL_ALLOW_ZERO_MS;
 		if (worker.h2Lanes !== undefined) process.env.LINE_H2_LANES = String(worker.h2Lanes);
-		if (worker.laneSource === "relay") {
-			process.env.LINE_RELAY_MODE = "always";
-			process.env.LINE_EFFECTIVE_H2_LANES = String(worker.relayLanes);
-			process.env.LINE_RELAY_URL = worker.relayUrl!;
-			process.env.LINE_RELAY_TOKEN = worker.relayToken!;
-		} else {
-			delete process.env.LINE_RELAY_MODE;
-			if (worker.relayUrl && worker.relayToken) {
-				process.env.LINE_RELAY_URL = worker.relayUrl;
-				process.env.LINE_RELAY_TOKEN = worker.relayToken;
-			} else {
-				delete process.env.LINE_RELAY_URL;
-				delete process.env.LINE_RELAY_TOKEN;
-			}
-			if (worker.h2Lanes !== undefined) process.env.LINE_EFFECTIVE_H2_LANES = String(worker.h2Lanes);
-		}
+		if (worker.h2Lanes !== undefined) process.env.LINE_EFFECTIVE_H2_LANES = String(worker.h2Lanes);
 		if (worker.sendReservedLanes !== undefined) process.env.LINE_H2_SEND_RESERVED_LANES = String(worker.sendReservedLanes);
 		if (worker.fastPollSlots !== undefined) process.env.SQUARE_FAST_POLL_SLOTS = String(worker.fastPollSlots);
 		if (worker.applicationSampleMaxAgeMs !== undefined)
@@ -408,14 +356,6 @@ export function validateWorkerTopology(): WorkerTopology {
 		} else {
 			if (!topology.controlPlaneUrl) throw new Error("A sticky shard requires CONTROL_PLANE_URL");
 			if (topology.workerRoutes.size > 0) throw new Error("A sticky shard cannot set WORKER_ROUTES");
-		}
-	}
-	if (process.env.LINE_RELAY_MODE === "always") {
-		if (!process.env.LINE_RELAY_URL?.trim() || !process.env.LINE_RELAY_TOKEN?.trim()) {
-			throw new Error("LINE_RELAY_MODE=always requires LINE_RELAY_URL and LINE_RELAY_TOKEN");
-		}
-		if (Number(process.env.LINE_H2_LANES) !== 0) {
-			throw new Error("LINE_RELAY_MODE=always requires LINE_H2_LANES=0 to keep egress pinned");
 		}
 	}
 	if ((splitEnabled || topology.assignmentMode) && !process.env.WORKER_ID?.trim()) {

@@ -8,18 +8,16 @@ beforeEach(() => {
 });
 
 describe("recordServerLoadSample / listServerLoadSamples", () => {
-	test("round-trips a sample for each server", () => {
+	test("round-trips a sample for each active server", () => {
 		const now = Date.now();
 		recordServerLoadSample("server1", { cpuPercent: 12.5, memoryPercent: 40, capacityPercent: 50, sampledAt: now });
 		recordServerLoadSample("server2", { cpuPercent: 33, memoryPercent: 55, capacityPercent: 68.75, eventLoopLagMs: 4.2, sampledAt: now });
-		recordServerLoadSample("server3", { cpuPercent: 5, memoryPercent: 20, capacityPercent: 25, sampledAt: now });
 
 		const samples = listServerLoadSamples(1, now + 1_000);
-		expect(samples).toHaveLength(3);
+		expect(samples).toHaveLength(2);
 		const byServer = new Map(samples.map((s) => [s.serverId, s]));
 		expect(byServer.get("server1")?.cpuPercent).toBe(12.5);
 		expect(byServer.get("server2")?.eventLoopLagMs).toBe(4.2);
-		expect(byServer.get("server3")?.memoryPercent).toBe(20);
 	});
 
 	test("defaults eventLoopLagMs to null when omitted", () => {
@@ -46,6 +44,15 @@ describe("recordServerLoadSample / listServerLoadSamples", () => {
 
 		const samples = listServerLoadSamples(1, now + 1_000);
 		expect(samples.map((s) => s.cpuPercent)).toEqual([1, 2]);
+	});
+
+	test("ignores samples from retired server ids", () => {
+		const now = Date.now();
+		db.prepare(
+			"INSERT INTO server_load_samples (server_id, ts, cpu_percent, memory_percent, capacity_percent, event_loop_lag_ms) VALUES (?, ?, ?, ?, ?, ?)",
+		).run("retired-server", now, 1, 1, 1, null);
+
+		expect(listServerLoadSamples(1, now + 1_000)).toEqual([]);
 	});
 });
 

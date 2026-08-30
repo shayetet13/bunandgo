@@ -20,7 +20,7 @@ function retentionDays(): number {
 }
 export const LANE_RACE_RETENTION_DAYS = retentionDays();
 /** Exported so anything tagging a response with "which process is this" (the
- * dashboard merge in metrics.ts/health.ts, the lane relay's own reports)
+ * dashboard views in metrics.ts/health.ts)
  * reads the exact same value this module already persists events under. */
 export const WORKER_ID = process.env.WORKER_ID?.trim() || "standalone";
 
@@ -103,8 +103,7 @@ type PersistLaneRace = (event: LaneRaceEvent) => void;
 let persistLaneRace: PersistLaneRace | undefined;
 let dailyHistoryProvider: (() => LaneRaceDaily[]) | undefined;
 
-/** Main backend installs persistence after topology validation. The relay
- * never imports a database module and keeps only this bounded memory view. */
+/** Main backend installs persistence after topology validation. */
 export function configureLaneRacePersistence(persist: PersistLaneRace, daily: () => LaneRaceDaily[]): void {
 	persistLaneRace = persist;
 	dailyHistoryProvider = daily;

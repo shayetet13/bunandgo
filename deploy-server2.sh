@@ -99,7 +99,6 @@ for new_file in \
 	backend/src/bot/worker-assignment.test.ts \
 	backend/src/bot/worker-topology.ts \
 	backend/src/bot/worker-topology.test.ts \
-	backend/src/dispatch/relay-only.test.ts \
 	backend/src/bot/maintenance-mode.ts \
 	backend/src/announcements/announcements.ts \
 	backend/src/announcements/announcements.test.ts \

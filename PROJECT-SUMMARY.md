@@ -21,15 +21,13 @@
 
 ---
 
-## 2. Infrastructure — 3 เซิร์ฟเวอร์
+## 2. Infrastructure — 2 เซิร์ฟเวอร์
 
 | เซิร์ฟเวอร์  | Provider                                             | IP                                                     | หน้าที่                                                                                                                                                                                    |
 | ------------ | ---------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Server 1** | AWS EC2 (ap-northeast-1, Tokyo), instance `t3.small` | `3.112.61.130`                                         | Edge เท่านั้น — Nginx, TLS, static frontend build, proxy `/api` และ `/ws` ไป Server 2. **ไม่รัน backend จริง** (`linebot-backend` disabled โดยตั้งใจ กัน 2 worker แย่งบัญชี LINE เดียวกัน) |
 | **Server 2** | Linode / Akamai Connected Cloud (Tokyo)              | `10.77.0.2` (private, เข้าผ่าน ProxyJump ทาง Server 1) | **Backend จริง** — รัน bot ทุกตัว, primary (`linebot-worker`, port 8791) + shard-b (`linebot-worker-shard-b`, port 8792) แยกความรับผิดชอบบอทตาม `worker-topology.json`                     |
-| **Server 3** | Linode / Akamai Connected Cloud (Tokyo)              | `172.105.237.118`                                      | Overflow lane-relay เท่านั้น — ไม่เก็บ session/credential ของ LINE เลย เป็น stateless HTTP relay ที่ Server 2 เรียกใช้ตอน lane local หมด/ช้าเกิน                                           |
-
-**ข้อค้นพบสำคัญของ session นี้:** ตรวจสอบ `sys_vendor` ผ่าน DMI จริงพบว่า Server 2/3 คือ **Linode** ไม่ใช่ AWS (memory เก่าบันทึกผิดว่าย้ายไป AWS ทั้งหมด — จริงๆ ย้ายแค่ Server 1) วัด latency เปรียบเทียบจริงกับ IP เดียวกันพบว่า **Linode เร็วกว่า AWS ~7-8ms** (10-12ms vs 18-19ms) สำหรับการเข้าถึง LINE gateway — ยืนยันว่าเลือก provider ถูกที่อยู่แล้ว
+**ข้อค้นพบสำคัญ:** Server 2 ที่รัน backend อยู่บน Linode Tokyo และวัด latency ไป LINE gateway ได้ดีกว่าเส้นทาง AWS ของ Server 1
 
 ---
 
@@ -55,9 +53,8 @@ Domain นี้ front ด้วย **Akamai** (CNAME ไปที่ `legy.line
 4. **Hot/discard ceiling** — lane ที่วัดได้ช้ากว่า `applicationHotCeilingMs` (18ms) เริ่มไม่ถูกเลือกเป็นอันดับแรก, ช้ากว่า `applicationDiscardCeilingMs` (20ms) ถูกตัดเข้า repair — ค่าพวกนี้ override ผ่าน `worker-topology.json` บน production ไม่ใช่ default ใน source code (ต้อง SSH เช็คสดเสมอ ห้ามเชื่อ source)
 5. **TLS session-ticket resumption** — resume TLS session ข้าม reconnect ของ lane เดียวกัน ลด handshake cost
 6. **Fast-ACK protocol shortcut** — อ่าน byte แรกของ response พอรู้ว่า "1" (สำเร็จ) ก็ return ทันทีโดยไม่ต้อง parse response แบบเต็ม (ใช้ทั้ง Square send และ compact Talk send)
-7. **IP-per-lane distribution** — แต่ละ lane กระจายไปคนละ IP ในทั้ง 8 IP ที่ pin ไว้ (2 lane ต่อ IP พอดี บน 16 lane, 4 ต่อ IP บน 32 lane ของ Server 3) ไม่ให้ lane ทั้งหมดกระจุกอยู่ IP เดียว สูตรใช้ **stride ที่ coprime กับจำนวน IP** (`(laneId × stride + rotation) % n`, `selectLaneRouteAddress`) ไม่ใช่ offset `+1` เดิม — offset `+1` ทำให้ reserved SEND lane (id 0–3) เกาะ IPv4 4 ตัวแรกตลอด ไม่เคยแตะครึ่ง IPv6 และหนี IP ช้าไม่ได้แม้ selector รู้ว่าช้า; `pin-legy-fast-ips.sh` เขียน `/etc/hosts` เรียง median เร็วสุดก่อน + เขียน `legy-ip-rank.json` ให้ cold lane จัดอันดับด้วย median จริงแทน PING
-8. **SEND ไม่ผ่าน Server 3 โดย default** — SEND เป็น one-shot วิกฤต, hop ข้ามเครื่องของ relay ~21ms vs local ~17-20ms → เก็บ SEND ที่ local ทั้งหมด, Server 3 รับแค่ POLL overflow (`LINE_RELAY_SEND=1` เปิด SEND-via-relay กลับ + bootstrap share `1/16` `LINE_RELAY_BOOTSTRAP_SHARE` สำหรับ cold-start)
-9. **Dead-poll gate** — บอทที่ไม่มี enabled rule ครอบ Square (surface `square`/`all`) จะไม่ถูก fast-poll เลย (`botCanAnswerSquare` ใน `session-manager.ts`) — เดิม 0ms poller วิ่งต่อเนื่องในห้องที่ตอบไม่ได้ กิน cursor + LINE upstream เปล่า; normal push ยังคุมห้องนั้นอยู่
+7. **IP-per-lane distribution** — แต่ละ lane กระจายไปคนละ IP ในทั้ง 8 IP ที่ pin ไว้ (2 lane ต่อ IP พอดีบน 16 lane) ไม่ให้ lane ทั้งหมดกระจุกอยู่ IP เดียว สูตรใช้ **stride ที่ coprime กับจำนวน IP** (`(laneId × stride + rotation) % n`, `selectLaneRouteAddress`) ไม่ใช่ offset `+1` เดิม; `pin-legy-fast-ips.sh` เขียน `/etc/hosts` เรียง median เร็วสุดก่อน + เขียน `legy-ip-rank.json` ให้ cold lane จัดอันดับด้วย median จริงแทน PING
+8. **Dead-poll gate** — บอทที่ไม่มี enabled rule ครอบ Square (surface `square`/`all`) จะไม่ถูก fast-poll เลย (`botCanAnswerSquare` ใน `session-manager.ts`) — เดิม 0ms poller วิ่งต่อเนื่องในห้องที่ตอบไม่ได้ กิน cursor + LINE upstream เปล่า; normal push ยังคุมห้องนั้นอยู่
 
 ### 3.3 IP Pinning (`scripts/pin-legy-fast-ips.sh`)
 

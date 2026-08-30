@@ -289,7 +289,7 @@ export class TalkService implements BaseService {
 			// Without this, h2-lanes.ts's pickLane() treats the request as
 			// role=undefined and falls back to its generic best-lane loop instead
 			// of the predicted-fastest-SEND-lane scoring, the send/poll reserved
-			// partition, and remote-relay SEND profiling that Square's sendMessage
+			// partition and per-route SEND profiling that Square's sendMessage
 			// already gets via the identical header in request/mod.ts's
 			// `hotSquareRpc` branch — a 1:1 Talk reply (a LINE OA chat included)
 			// would silently land on a slower path than a group reply.
