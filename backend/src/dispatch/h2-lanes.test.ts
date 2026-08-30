@@ -17,6 +17,7 @@ import {
 	pollingCandidatesForCalibration,
 	primeLanes,
 	selectAgedLaneForRecycle,
+	selectDegradedLaneForRepair,
 	selectFastestSendLaneCandidate,
 	selectLaneRouteAddress,
 	selectPollingLaneCandidate,
@@ -100,6 +101,28 @@ describe("owned HTTP/2 lanes", () => {
 		const used = laneStats().find((lane) => lane.lastSendOkAt > 0);
 		expect(used?.sendRttMs).toBeGreaterThan(28);
 		expect(used?.sendSlowUntil).toBeGreaterThan(Date.now());
+	});
+
+	test("flags a lane degraded after several consecutive slow results", async () => {
+		const { origin, server } = await startServer((stream) => {
+			setTimeout(() => {
+				stream.respond({ ":status": 200 });
+				stream.end();
+			}, 35);
+		});
+		running = server;
+
+		await ensureLanes(origin);
+		// Every real result is uniformly slow, so no lane ever gets a fast
+		// sample to reset its streak. Real load-balancing does not guarantee
+		// an even split across the pool, so this only asserts the wiring
+		// actually flips the flag on real traffic somewhere, not on which
+		// lane — that distribution is the selector tests' job, not this one's.
+		for (let i = 0; i < 24; i++) {
+			await laneFetch(`${origin}/CA5`, { method: "POST", body: new Uint8Array([1]) as BodyInit });
+		}
+
+		expect(laneStats().some((lane) => lane.degraded)).toBe(true);
 	});
 
 	test("delivers the request body unchanged", async () => {
@@ -735,6 +758,54 @@ describe("rolling lane refresh", () => {
 			{ id: 1, state: "ready" as const, inFlight: 0, openedAt: old },
 		];
 		expect(selectAgedLaneForRecycle(lanes, now, 0, 0)).toBeUndefined();
+	});
+});
+
+describe("degraded lane repair", () => {
+	test("picks the worst degraded, idle lane over a merely mediocre one", () => {
+		const lanes = [
+			{ id: 0, state: "ready" as const, inFlight: 0, sendRttMs: 19, degraded: false },
+			{ id: 1, state: "ready" as const, inFlight: 0, sendRttMs: 41, degraded: true },
+			{ id: 2, state: "ready" as const, inFlight: 0, sendRttMs: 26, degraded: true },
+		];
+		expect(selectDegradedLaneForRepair(lanes)?.id).toBe(1);
+	});
+
+	test("never repairs the pool's own fastest lane even if somehow flagged", () => {
+		const lanes = [
+			{ id: 0, state: "ready" as const, inFlight: 0, sendRttMs: 18, degraded: true },
+			{ id: 1, state: "ready" as const, inFlight: 0, sendRttMs: 20, degraded: false },
+		];
+		expect(selectDegradedLaneForRepair(lanes)).toBeUndefined();
+	});
+
+	test("never repairs a lane with a request still in flight", () => {
+		const lanes = [
+			{ id: 0, state: "ready" as const, inFlight: 0, sendRttMs: 19, degraded: false },
+			{ id: 1, state: "ready" as const, inFlight: 1, sendRttMs: 40, degraded: true },
+		];
+		expect(selectDegradedLaneForRepair(lanes)).toBeUndefined();
+	});
+
+	test("does nothing below the minimum measured-lane count", () => {
+		const lanes = [{ id: 0, state: "ready" as const, inFlight: 0, sendRttMs: 40, degraded: true }];
+		expect(selectDegradedLaneForRepair(lanes)).toBeUndefined();
+	});
+
+	test("does nothing when no lane is flagged degraded", () => {
+		const lanes = [
+			{ id: 0, state: "ready" as const, inFlight: 0, sendRttMs: 19, degraded: false },
+			{ id: 1, state: "ready" as const, inFlight: 0, sendRttMs: 24, degraded: false },
+		];
+		expect(selectDegradedLaneForRepair(lanes)).toBeUndefined();
+	});
+
+	test("ignores a lane that is not actually ready", () => {
+		const lanes = [
+			{ id: 0, state: "ready" as const, inFlight: 0, sendRttMs: 19, degraded: false },
+			{ id: 1, state: "draining" as const, inFlight: 0, sendRttMs: 40, degraded: true },
+		];
+		expect(selectDegradedLaneForRepair(lanes)).toBeUndefined();
 	});
 });
 

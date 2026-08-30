@@ -93,6 +93,25 @@ function recycleInterval(raw: string | undefined, fallback: number): number {
 const LANE_MAX_AGE_MS = recycleInterval(process.env.LINE_H2_LANE_MAX_AGE_MS, 15 * 60_000);
 const LANE_RECYCLE_MIN_GAP_MS = recycleInterval(process.env.LINE_H2_LANE_RECYCLE_GAP_MS, 60_000);
 
+/**
+ * Consecutive slow SEND results (see `effectiveSendSlowThresholdMs` in
+ * lane-speed-policy.ts) before a lane is flagged degraded rather than just
+ * cooled for one round. One slow sample already earns a temporary cooldown
+ * (`sendSlowUntil`) so the very next send avoids it; that cooldown always
+ * expires and hands the lane back into rotation regardless of whether the
+ * route actually recovered. A lane whose route has genuinely soured (not
+ * noise) keeps failing the same way every time it cycles back in — this
+ * requires several such results in a row before concluding that, not one.
+ *
+ * Deliberately reuses the same relative threshold as the cooldown rather
+ * than a separate fixed ceiling: an earlier fixed 23ms ceiling here sat
+ * under the live p50 and cooled/would-have-flagged a large slice of
+ * perfectly healthy sends (see lane-speed-policy.ts's own history of this).
+ */
+const LANE_DEGRADED_MIN_SAMPLES = Math.max(2, Math.trunc(Number(process.env.LINE_H2_LANE_DEGRADED_MIN_SAMPLES ?? 3)) || 3);
+/** Minimum spacing between degraded-lane repairs on the same origin — independent of age-based recycling's own gap so the two never compete for one slot's budget. */
+const LANE_DEGRADED_REPAIR_MIN_GAP_MS = recycleInterval(process.env.LINE_H2_LANE_DEGRADED_REPAIR_GAP_MS, 60_000);
+
 const CONNECT_TIMEOUT_MS = 10_000;
 /** Backoff ceiling for a host that is refusing connections outright. */
 const RECONNECT_MAX_DELAY_MS = 8_000;
@@ -175,6 +194,10 @@ interface Lane {
 	lastPollOkAt: number;
 	/** A raw SEND result above 23ms temporarily removes this lane while another route is available. */
 	sendSlowUntil: number;
+	/** Consecutive SEND results at or above the slow threshold; reset by any fast one. */
+	consecutiveSlowSends: number;
+	/** Set once `consecutiveSlowSends` reaches `LANE_DEGRADED_MIN_SAMPLES` — see `repairDegradedLane`. */
+	degraded: boolean;
 	consecutiveFailures: number;
 	/** Wall-clock time this physical HTTP/2 session connected. */
 	openedAt: number;
@@ -204,6 +227,7 @@ export interface LaneStat {
 	lastSendOkAt: number;
 	lastPollOkAt: number;
 	sendSlowUntil: number;
+	degraded: boolean;
 	/** Dashboard-only freshest role view; routing uses the role fields above. */
 	applicationRttMs?: number;
 	applicationSampleAt: number;
@@ -250,6 +274,8 @@ const preferredSendLaneIds = new Map<string, number>();
 const sendRoundRobinCursor = new Map<string, number>();
 /** Last rolling lane replacement per origin; keeps replacements staggered. */
 const lastLaneRecycleAt = new Map<string, number>();
+/** Last degraded-lane repair per origin; a separate budget from age-based recycling. */
+const lastLaneDegradedRepairAt = new Map<string, number>();
 const addressCache = new Map<string, AddressCacheEntry>();
 let pingTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -638,6 +664,19 @@ function recordApplicationRtt(lane: Lane, role: LaneRole, sampleMs: number, rout
 	const slowThresholdMs = effectiveSendSlowThresholdMs(measuredSiblings.length > 0 ? Math.min(...measuredSiblings) : undefined);
 	lane.sendSlowUntil = nextSendSlowUntil(Math.max(sampleMs, lane.sendRttMs ?? sampleMs), now, slowThresholdMs);
 	if (routeKey) recordSendRouteSample(getOrCreateSendRouteProfile(lane.sendRouteProfiles, routeKey), sampleMs, now, slowThresholdMs);
+	// A single slow result already earns the temporary cooldown above, which
+	// always expires and hands the lane back into rotation on its own —
+	// whether or not the route actually recovered. Only several results in a
+	// row (same threshold, raw samples so one median-smoothed blip cannot
+	// count double) conclude the route itself has soured, worth an actual
+	// repair rather than one more cooldown cycle. See `repairDegradedLane`.
+	if (sampleMs > slowThresholdMs) {
+		lane.consecutiveSlowSends++;
+		if (lane.consecutiveSlowSends >= LANE_DEGRADED_MIN_SAMPLES) lane.degraded = true;
+	} else {
+		lane.consecutiveSlowSends = 0;
+		lane.degraded = false;
+	}
 }
 
 function pingLane(lane: Lane): void {
@@ -709,6 +748,56 @@ function recycleAgedLane(lanes: Lane[], now: number): void {
 	retireLane(candidate, "draining");
 }
 
+interface DegradableLane {
+	id: number;
+	state: LaneState;
+	inFlight: number;
+	sendRttMs?: number;
+	degraded: boolean;
+}
+
+/**
+ * Chooses at most one idle, degraded lane to repair, favouring the worst
+ * measured one and never the current fastest lane in the pool. Mirrors the
+ * three safety rails this closes a gap for: never touch a lane with an
+ * in-flight request, always leave at least one measured lane standing
+ * before removing another, and the fastest lane is that guaranteed
+ * survivor regardless of how the flag ended up set on it.
+ */
+export function selectDegradedLaneForRepair<T extends DegradableLane>(lanes: T[], minMeasuredLanes: number = 2): T | undefined {
+	const measured = lanes.filter((lane) => lane.state === "ready" && lane.sendRttMs !== undefined);
+	if (measured.length < minMeasuredLanes) return undefined;
+
+	let fastest = measured[0]!;
+	for (const lane of measured) {
+		if (lane.sendRttMs! < fastest.sendRttMs!) fastest = lane;
+	}
+
+	let worst: T | undefined;
+	for (const lane of measured) {
+		if (lane.id === fastest.id || !lane.degraded || lane.inFlight !== 0) continue;
+		if (worst === undefined || lane.sendRttMs! > worst.sendRttMs!) worst = lane;
+	}
+	return worst;
+}
+
+function repairDegradedLane(lanes: Lane[], now: number): void {
+	if (lanes.length === 0) return;
+	const origin = lanes[0]!.origin;
+	if (now - (lastLaneDegradedRepairAt.get(origin) ?? 0) < LANE_DEGRADED_REPAIR_MIN_GAP_MS) return;
+	const candidate = selectDegradedLaneForRepair(lanes.filter(isUsable));
+	if (!candidate) return;
+
+	lastLaneDegradedRepairAt.set(origin, now);
+	console.log(
+		`[h2-lanes] repairing degraded lane ${candidate.id} (sendRttMs=${candidate.sendRttMs?.toFixed(1)}, origin=${origin})`,
+	);
+	// Same retire path as age-based recycling: inFlight is already 0 here, so
+	// "draining" resolves to "dead" immediately and scheduleReconnect picks a
+	// fresh address on the next rotation step.
+	retireLane(candidate, "draining");
+}
+
 function retireLane(lane: Lane, state: "draining" | "dead"): void {
 	if (lane.state === "dead") return;
 	for (const [key, laneId] of preferredSendLaneIds) {
@@ -752,6 +841,8 @@ async function openLane(lane: Lane): Promise<void> {
 	lane.lastSendOkAt = 0;
 	lane.lastPollOkAt = 0;
 	lane.sendSlowUntil = 0;
+	lane.consecutiveSlowSends = 0;
+	lane.degraded = false;
 	lane.openedAt = 0;
 	lane.remoteAddress = undefined;
 	lane.remoteFamily = undefined;
@@ -937,6 +1028,7 @@ function startPingTimer(): void {
 				pingLane(lane);
 			}
 			recycleAgedLane(lanes, now);
+			repairDegradedLane(lanes, now);
 		}
 		// Every ~10th tick (2.5min at the current 15s interval) rather than
 		// every tick, so this stays a diagnostic and not log spam over a long
@@ -978,6 +1070,8 @@ export async function ensureLanes(origin: string): Promise<void> {
 			lastSendOkAt: 0,
 			lastPollOkAt: 0,
 			sendSlowUntil: 0,
+			consecutiveSlowSends: 0,
+			degraded: false,
 			consecutiveFailures: 0,
 			openedAt: 0,
 			remoteAddress: undefined,
@@ -1278,6 +1372,7 @@ export function laneStats(): LaneStat[] {
 				lastSendOkAt: lane.lastSendOkAt,
 				lastPollOkAt: lane.lastPollOkAt,
 				sendSlowUntil: lane.sendSlowUntil,
+				degraded: lane.degraded,
 				applicationRttMs,
 				applicationSampleAt: applicationSampleAt(lane),
 				routingPreferred: isUsable(lane) && lane.id === fastest?.id,
@@ -1351,6 +1446,7 @@ export function stopLanes(): void {
 	preferredSendLaneIds.clear();
 	sendRoundRobinCursor.clear();
 	lastLaneRecycleAt.clear();
+	lastLaneDegradedRepairAt.clear();
 	addressCache.clear();
 	ipRankCache = undefined;
 }
