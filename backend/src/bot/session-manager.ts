@@ -2256,10 +2256,20 @@ async function handleIncoming(
 
 	const targetMid = message.to.id;
 	const text = message.text ?? "";
-	if (isOwnMessage(botId, surface, message, targetMid)) {
-		if (!isOwnerTestingEnabled(botId)) return;
-		if (isAutomaticReplyEcho(botId, surface, targetMid, text, messageId)) return;
-	}
+	// isOwnMessage's Square path depends on a per-chat self-mid lookup
+	// (squareSelfMids) that can still be unresolved right after a session
+	// rebuild — deliberately treated as "not own" while it resolves (see
+	// fillSquareSelfMid). Without a backstop, a reply sent during that
+	// window echoes back misread as a stranger's message; if its own text
+	// also satisfies a rule, answering it sends another reply, which
+	// echoes back again — a self-sustaining loop that only a restart (or
+	// LINE banning the account from the room) stops. isAutomaticReplyEcho
+	// matches by the exact text we just sent, independent of self-mid, so
+	// it is checked unconditionally here rather than only once isOwnMessage
+	// has already said yes — that is what lets it catch the echo while the
+	// lookup is still unresolved.
+	if (isOwnMessage(botId, surface, message, targetMid) && !isOwnerTestingEnabled(botId)) return;
+	if (isAutomaticReplyEcho(botId, surface, targetMid, text, messageId)) return;
 
 	// The half of the race our own timings never covered: how late LINE
 	// handed us the trigger. A reply cannot be first if it started last, and
@@ -2371,11 +2381,14 @@ async function handleIncoming(
 		// rule's text, or a varied reply would come back looking like a
 		// stranger's message and answer itself. Checked and tracked against
 		// the sending bot: its own account is what will see this reply come
-		// back as an incoming event, never the detecting bot's when the two differ.
+		// back as an incoming event, never the detecting bot's when the two
+		// differ. Tracked unconditionally, not only under owner testing —
+		// this is the sole defense left when isOwnMessage's self-mid lookup
+		// (squareSelfMids) has not resolved yet, and an unresolved lookup is
+		// exactly what let a bot answer its own echoed reply on a loop until
+		// LINE banned it from sending in the room.
 		const cancelEchoTracking =
-			prewarmGuardBotId === undefined && isOwnerTestingEnabled(sendingBotId)
-				? trackAutomaticReply(sendingBotId, surface, targetMid, outgoingText)
-				: undefined;
+			prewarmGuardBotId === undefined ? trackAutomaticReply(sendingBotId, surface, targetMid, outgoingText) : undefined;
 		let completedSquareResult: unknown;
 		replyPromise = sendTimed(
 			// The rate limiter and anomaly log below key off this id — it must
