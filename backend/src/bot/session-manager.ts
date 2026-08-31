@@ -1246,6 +1246,7 @@ function refreshPushConnection(botId: number, client: Client, rt: BotRuntime): b
 			detail: `พยายามปิด connection เพื่อเชื่อมต่อใหม่ แต่ปิดไม่สำเร็จ — ${err instanceof Error ? err.message : String(err)}`,
 		});
 	});
+	return true;
 }
 
 /**
@@ -2269,7 +2270,11 @@ async function handleIncoming(
 	// has already said yes — that is what lets it catch the echo while the
 	// lookup is still unresolved.
 	if (isOwnMessage(botId, surface, message, targetMid) && !isOwnerTestingEnabled(botId)) return;
-	if (isAutomaticReplyEcho(botId, surface, targetMid, text, messageId)) return;
+	// Owner-scoped, not bot-scoped: a reply from this room can have gone out
+	// under a sibling's account (see primary-bot.ts) rather than this bot's
+	// own, and every sibling detecting independently must still recognize
+	// it as "ours" — see trackAutomaticReply's doc comment.
+	if (isAutomaticReplyEcho(replyOwnerKey(botId), surface, targetMid, text, messageId)) return;
 
 	// The half of the race our own timings never covered: how late LINE
 	// handed us the trigger. A reply cannot be first if it started last, and
@@ -2379,16 +2384,19 @@ async function handleIncoming(
 		const outgoingText = prewarmGuardBotId === undefined ? uniquifyReply(sendingBotId, targetMid, rule.replyText) : rule.replyText;
 		// Echo suppression compares against what actually went out, not the
 		// rule's text, or a varied reply would come back looking like a
-		// stranger's message and answer itself. Checked and tracked against
-		// the sending bot: its own account is what will see this reply come
-		// back as an incoming event, never the detecting bot's when the two
-		// differ. Tracked unconditionally, not only under owner testing —
-		// this is the sole defense left when isOwnMessage's self-mid lookup
-		// (squareSelfMids) has not resolved yet, and an unresolved lookup is
-		// exactly what let a bot answer its own echoed reply on a loop until
-		// LINE banned it from sending in the room.
+		// stranger's message and answer itself. Tracked unconditionally, not
+		// only under owner testing — this is the sole defense left when
+		// isOwnMessage's self-mid lookup (squareSelfMids) has not resolved
+		// yet, and an unresolved lookup is exactly what let a bot answer its
+		// own echoed reply on a loop until LINE banned it from sending in the
+		// room. Scoped by owner, not by sendingBotId alone: every sibling of
+		// this owner detecting independently in the same room must recognize
+		// this exact send as "ours" too, whichever of their accounts LINE
+		// echoes it back to — see automatic-reply-echo.ts's doc comment.
 		const cancelEchoTracking =
-			prewarmGuardBotId === undefined ? trackAutomaticReply(sendingBotId, surface, targetMid, outgoingText) : undefined;
+			prewarmGuardBotId === undefined
+				? trackAutomaticReply(replyOwnerKey(sendingBotId), sendingBotId, surface, targetMid, outgoingText)
+				: undefined;
 		let completedSquareResult: unknown;
 		replyPromise = sendTimed(
 			// The rate limiter and anomaly log below key off this id — it must
@@ -2759,7 +2767,12 @@ async function sendTimed(
 				`upstream=${activeTrace.upstreamMs.toFixed(1)} (${activeTrace.upstreamCalls} call(s))`,
 		);
 	}
-	return true;
+	// `ok` (false when `send` threw) must reach the caller — a scheduled post
+	// or reply that genuinely failed cannot report success. `return true`
+	// here used to do exactly that: fireScheduledPost marked a failed send
+	// "sent" and never retried it, and handleIncoming skipped cancelling the
+	// stale echo-tracking entry for a reply that never actually went out.
+	return ok;
 }
 
 async function refreshChatsCache(botId: number, client: Client): Promise<{ talk: string[]; square: string[] }> {

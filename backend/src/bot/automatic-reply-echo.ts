@@ -17,12 +17,12 @@ interface SeenReply {
 const pendingReplies = new Map<string, PendingReply>();
 const seenMessageIds = new Map<string, SeenReply>();
 
-function signature(botId: number, surface: Surface, targetMid: string, text: string): string {
-	return JSON.stringify([botId, surface, targetMid, text]);
+function signature(scopeKey: string, surface: Surface, targetMid: string, text: string): string {
+	return JSON.stringify([scopeKey, surface, targetMid, text]);
 }
 
-function messageKey(botId: number, surface: Surface, messageId: string): string {
-	return `${botId}\0${surface}\0${messageId}`;
+function messageKey(scopeKey: string, surface: Surface, messageId: string): string {
+	return `${scopeKey}\0${surface}\0${messageId}`;
 }
 
 function evictExpired(now: number): void {
@@ -34,9 +34,24 @@ function evictExpired(now: number): void {
 	}
 }
 
-export function trackAutomaticReply(botId: number, surface: Surface, targetMid: string, text: string, now = Date.now()): () => void {
+/**
+ * `scopeKey` groups every bot that must recognize the same reply as "ours"
+ * — see session-manager.ts's `replyOwnerKey`. Several bots of one owner
+ * deliberately sit in the same OpenChat (see primary-bot.ts), and a reply
+ * can go out under a *different* sibling's account than the one that
+ * detected the trigger. Every other sibling still sees that send as an
+ * ordinary incoming message over its own connection; keying tracking by a
+ * single bot id meant only the sending bot itself (or, before today, only
+ * the exact same bot checking) ever recognized it as an echo — any sibling
+ * whose own rules happened to match the reply text would answer it too,
+ * whose reply the *other* siblings then also see, and so on. `botId` here
+ * is still the actual sender, kept only for `clearAutomaticReplyEchoes`
+ * (which must clear just the stopped bot's own tracked sends, not every
+ * sibling's).
+ */
+export function trackAutomaticReply(scopeKey: string, botId: number, surface: Surface, targetMid: string, text: string, now = Date.now()): () => void {
 	evictExpired(now);
-	const key = signature(botId, surface, targetMid, text);
+	const key = signature(scopeKey, surface, targetMid, text);
 	const token = ++nextToken;
 	pendingReplies.set(key, { botId, token, expiresAt: now + ECHO_TTL_MS });
 	return () => {
@@ -45,7 +60,7 @@ export function trackAutomaticReply(botId: number, surface: Surface, targetMid: 
 }
 
 export function isAutomaticReplyEcho(
-	botId: number,
+	scopeKey: string,
 	surface: Surface,
 	targetMid: string,
 	text: string,
@@ -53,14 +68,14 @@ export function isAutomaticReplyEcho(
 	now = Date.now(),
 ): boolean {
 	evictExpired(now);
-	const idKey = messageKey(botId, surface, messageId);
+	const idKey = messageKey(scopeKey, surface, messageId);
 	if (seenMessageIds.has(idKey)) return true;
 
-	const pendingKey = signature(botId, surface, targetMid, text);
+	const pendingKey = signature(scopeKey, surface, targetMid, text);
 	const pending = pendingReplies.get(pendingKey);
 	if (!pending) return false;
 	pendingReplies.delete(pendingKey);
-	seenMessageIds.set(idKey, { botId, expiresAt: now + ECHO_TTL_MS });
+	seenMessageIds.set(idKey, { botId: pending.botId, expiresAt: now + ECHO_TTL_MS });
 	return true;
 }
 
