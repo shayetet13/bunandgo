@@ -153,7 +153,7 @@ Warm-up สิ่งที่มีต้นทุนสูงตอน "คร�
 
 ### 5.7 🟢 พบแต่ตัดสินใจไม่แก้ (accepted tradeoff)
 
-- **Priority-answerer quota โดน drain เร็วกว่าที่ควร** — บอท priority (Big/bigsa) มี quota ชนะจำกัด (default 2 lifetime) แต่ไม่มี dedup ข้อความซ้ำเรื่องเดียวกัน หลังลบ cooldown (เพราะ cooldown เคยกลืนข้อความใหม่จริงไปด้วย — ดู 5.8) ก็เลยเสี่ยง quota หมดเร็ว user เลือกยอมรับ ไม่เพิ่ม dedup แยก
+- ~~**Priority-answerer quota โดน drain เร็วกว่าที่ควร**~~ — **ยกเลิกทั้งระบบแล้ว (2026-08-31)** กฎ priority แบบอิงชื่อบอท (Big/bigsa) ถูกถอดออกหมด: ไม่มีบอทตัวไหนถอยให้ตัวไหนอีก ทุก user เท่ากัน ตัดสินผู้ชนะด้วยความเร็วของแต่ละบอทล้วนๆ — ใครเห็นก่อนและ claim ห้องได้ก่อนเป็นคนตอบ (`reply-guard.ts` first-past-the-post) ลบ `priority-answerer.ts`, ตาราง `priority_answers` (migration `036_drop_priority_answers`) และ env `PRIORITY_BOT_NAMES`/`PRIORITY_WIN_QUOTA`/`PRIORITY_LOOKUP_CACHE_MS` ทิ้งทั้งหมด
 - **Square poll tuning** — ลองปรับ `WORKERS=2` (แย่ลงเท่าตัว 17.8ms→36.3ms) และ `INTERVAL_MS=5` (แย่ลงเล็กน้อย) ทั้งคู่แย่กว่า default ทิ้งไว้ที่ default เดิม (`WORKERS=1`, `INTERVAL_MS=0`)
 
 ### 5.8 🟢 Spec ที่เคยทำผิด — "ตอบซ้ำ" (duplicate reply)

@@ -65,9 +65,6 @@ function flush(): void {
 	const laneRaceStmt = db.prepare(
 		"INSERT INTO lane_race_events (ts, worker_id, origin, lane_id, role, result, rtt_ms) VALUES (?, ?, ?, ?, ?, ?, ?)",
 	);
-	const priorityWinStmt = db.prepare(
-		"INSERT INTO priority_answers (bot_id, wins) VALUES (?, 1) ON CONFLICT(bot_id) DO UPDATE SET wins = wins + 1",
-	);
 
 	try {
 		db.transaction(() => {
@@ -135,9 +132,6 @@ function flush(): void {
 						laneRaceStmt.run(e.ts, e.workerId, e.origin, e.laneId, e.role, e.result, e.rttMs);
 						break;
 					}
-					case "priority_win":
-						priorityWinStmt.run(operation.botId);
-						break;
 				}
 			}
 		})();

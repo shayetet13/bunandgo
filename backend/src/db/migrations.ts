@@ -443,8 +443,8 @@ const migrations: Migration[] = [
 	},
 	{
 		// Admin-authored notices shown on every user's console. Same story as
-		// scheduled_posts/priority_answers: SCHEMA_SQL creates it for a fresh
-		// database, this is what puts it on the existing production file.
+		// scheduled_posts: SCHEMA_SQL creates it for a fresh database, this is
+		// what puts it on the existing production file.
 		id: "032_announcements_table",
 		up: (db) => {
 			db.exec(`
@@ -494,6 +494,19 @@ const migrations: Migration[] = [
 			if (!hasColumn(db, "announcements", "is_pinned")) {
 				db.exec("ALTER TABLE announcements ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0");
 			}
+		},
+	},
+	{
+		// The name-based priority answerer is gone: every bot now races on its
+		// own speed and nothing stands down for anyone. `priority_answers` held
+		// only that rule's per-bot win counters, so it has no reader left.
+		// 029 stays above as the historical record of how it got onto existing
+		// databases — migrations are never edited after they ship — and this
+		// takes it back off, so a fresh database (SCHEMA_SQL, which no longer
+		// creates it) and an upgraded one end up with the same schema.
+		id: "036_drop_priority_answers",
+		up: (db) => {
+			db.exec("DROP TABLE IF EXISTS priority_answers");
 		},
 	},
 ];

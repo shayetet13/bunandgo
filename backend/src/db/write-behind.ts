@@ -58,8 +58,7 @@ export type WriteBehindOperation =
 	| { kind: "user_action"; entry: UserActionEntry }
 	| { kind: "message_in"; entry: MessageInEntry }
 	| { kind: "anomaly"; entry: AnomalyEntry }
-	| { kind: "lane_race"; entry: LaneRaceEntry }
-	| { kind: "priority_win"; botId: number };
+	| { kind: "lane_race"; entry: LaneRaceEntry };
 
 let writer: Worker | undefined;
 
@@ -113,6 +112,3 @@ export function enqueueLaneRace(entry: LaneRaceEntry): void {
 	enqueueWrite({ kind: "lane_race", entry });
 }
 
-export function enqueuePriorityWin(botId: number): void {
-	enqueueWrite({ kind: "priority_win", botId });
-}

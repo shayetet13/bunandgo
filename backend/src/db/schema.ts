@@ -247,15 +247,6 @@ CREATE INDEX IF NOT EXISTS idx_start_confirmations_bot ON start_confirmations(bo
 CREATE UNIQUE INDEX IF NOT EXISTS idx_start_confirmations_pending_bot
 	ON start_confirmations(bot_id) WHERE status = 'pending';
 
--- A priority bot's answers toward its quota (priority-answerer.ts) — one
--- global count per bot across every room combined, lifetime, not per day
--- or per room. Durable so a restart never hands out a fresh quota it
--- already used up.
-CREATE TABLE IF NOT EXISTS priority_answers (
-	bot_id INTEGER PRIMARY KEY,
-	wins INTEGER NOT NULL DEFAULT 0
-);
-
 -- Admin-authored notices shown on every signed-in user's console (see
 -- announcements/announcements.ts). Deliberately not bot- or owner-scoped —
 -- one shared list, same as app_meta settings, visible from every worker.

@@ -44,6 +44,31 @@ describe("database startup migrations", () => {
 		expect(indexes).toContain("idx_lane_race_events_worker");
 	});
 
+	test("drops the retired priority_answers table, on an upgraded database and a fresh one alike", () => {
+		const upgraded = new Database(":memory:");
+		opened.push(upgraded);
+		// An existing production file: the table is already there, with rows.
+		upgraded.exec("CREATE TABLE priority_answers (bot_id INTEGER PRIMARY KEY, wins INTEGER NOT NULL DEFAULT 0)");
+		upgraded.exec("INSERT INTO priority_answers (bot_id, wins) VALUES (1, 2)");
+		upgraded.exec(SCHEMA_SQL);
+		runMigrations(upgraded);
+
+		const fresh = new Database(":memory:");
+		opened.push(fresh);
+		fresh.exec(SCHEMA_SQL);
+		runMigrations(fresh);
+
+		// The name-based priority rule is gone; both paths must converge on a
+		// schema that no longer carries its counters.
+		for (const database of [upgraded, fresh]) {
+			const tables = database
+				.query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type = 'table'")
+				.all()
+				.map((row) => row.name);
+			expect(tables).not.toContain("priority_answers");
+		}
+	});
+
 	test("returns the ids it newly applied, and nothing on a second run against the same database", () => {
 		const database = new Database(":memory:");
 		opened.push(database);
