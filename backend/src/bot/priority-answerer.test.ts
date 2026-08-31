@@ -224,6 +224,70 @@ describe("shouldYieldToPriorityBot", () => {
 		expect(shouldYieldToPriorityBot(other.id, room, "หวย", "square")).toBe(true);
 	});
 
+	test("two priority bots in one room still leave exactly one answerer", () => {
+		// PRIORITY_BOT_NAMES holds more than one name by default ("big,bigsa")
+		// and the module doc describes those accounts sharing a room. Asking
+		// only "is there some *other* priority bot here" made each of them
+		// yield to the other, and every ordinary bot yielded too — the room
+		// went silent. Permanently: a win is only recorded by a bot that
+		// actually sends, so with nobody sending the quota never advanced and
+		// the yielding never stopped.
+		clearPriorityWinsForTests();
+		const room = uniqueMid();
+		const big = createBot("big");
+		const bigsa = createBot("bigsa");
+		const other = createBot("other two-priority");
+		claimBotStmt.run(owner(), big.id);
+		claimBotStmt.run(owner(), bigsa.id);
+		claimBotStmt.run(owner(), other.id);
+		joinRoom(big.id, room, 1);
+		joinRoom(bigsa.id, room, 2);
+		joinRoom(other.id, room, 3);
+		updateBotStatus(big.id, "online");
+		updateBotStatus(bigsa.id, "online");
+		updateBotStatus(other.id, "online");
+		addRule(big.id, "หวย");
+		addRule(bigsa.id, "หวย");
+		addRule(other.id, "หวย");
+
+		const standingFirm = [big, bigsa, other].filter((bot) => !shouldYieldToPriorityBot(bot.id, room, "หวย", "square"));
+
+		expect(standingFirm).toHaveLength(1);
+		expect([big.id, bigsa.id]).toContain(standingFirm[0]!.id);
+	});
+
+	test("hands the room to the second priority bot once the first's quota is spent", () => {
+		clearPriorityWinsForTests();
+		const room = uniqueMid();
+		const big = createBot("big");
+		const bigsa = createBot("bigsa");
+		const other = createBot("other quota handoff");
+		claimBotStmt.run(owner(), big.id);
+		claimBotStmt.run(owner(), bigsa.id);
+		claimBotStmt.run(owner(), other.id);
+		joinRoom(big.id, room, 1);
+		joinRoom(bigsa.id, room, 2);
+		joinRoom(other.id, room, 3);
+		updateBotStatus(big.id, "online");
+		updateBotStatus(bigsa.id, "online");
+		updateBotStatus(other.id, "online");
+		addRule(big.id, "หวย");
+		addRule(bigsa.id, "หวย");
+		addRule(other.id, "หวย");
+
+		// Spend the designated bot's whole quota (default 2).
+		const designated = [big, bigsa].find((bot) => !shouldYieldToPriorityBot(bot.id, room, "หวย", "square"))!;
+		const runnerUp = designated.id === big.id ? bigsa : big;
+		recordPriorityWin(designated.id);
+		recordPriorityWin(designated.id);
+
+		// The room does not fall straight back to a free race: the other
+		// priority bot still has its own allowance.
+		expect(shouldYieldToPriorityBot(designated.id, room, "หวย", "square")).toBe(true);
+		expect(shouldYieldToPriorityBot(runnerUp.id, room, "หวย", "square")).toBe(false);
+		expect(shouldYieldToPriorityBot(other.id, room, "หวย", "square")).toBe(true);
+	});
+
 	test("recordPriorityWin is a no-op for a non-priority bot", () => {
 		clearPriorityWinsForTests();
 		const room = uniqueMid();

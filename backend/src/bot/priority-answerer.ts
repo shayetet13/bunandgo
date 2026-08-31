@@ -89,7 +89,12 @@ function priorityBotRooms(now: number): PriorityBotRoom[] {
 	cachedPriorityRooms = enabledSquareMembersStmt
 		.all()
 		.filter((row) => PRIORITY_BOT_NAMES.has(normalizeName(row.name)))
-		.map((row) => ({ botId: row.bot_id, chatMid: row.mid, online: row.status === "online" }));
+		.map((row) => ({ botId: row.bot_id, chatMid: row.mid, online: row.status === "online" }))
+		// Sorted once here, not per message: `shouldYieldToPriorityBot` needs a
+		// stable order to pick *one* designated answerer out of several
+		// priority bots, and it runs on the hot path where a per-call sort
+		// would be a needless allocation.
+		.sort((left, right) => left.botId - right.botId);
 	cachedAt = now;
 	return cachedPriorityRooms;
 }
@@ -140,11 +145,23 @@ function hasQuotaLeft(botId: number): boolean {
  * siblings (see the module doc for why).
  *
  * False whenever there is nothing to actually gain by yielding: no
- * priority bot in the room, the candidate itself IS the priority bot, the
+ * priority bot in the room, the candidate itself IS the designated one, the
  * priority bot is offline, its quota (across every room, not just this one)
  * is already spent for good, or its own rules would not have matched this
  * message anyway (matching evaluateIdLock-style separation: this is the
  * pure decision, callers own recording the resulting win).
+ *
+ * Resolves to a single *designated* answerer rather than "any other
+ * priority bot", because `PRIORITY_BOT_NAMES` holds more than one name
+ * (`big,bigsa` by default) and the module doc above describes exactly the
+ * arrangement where several of them share one room. Asking only "is there
+ * another priority bot I should yield to" made each of them yield to the
+ * other: every bot in the room stood down and *nobody* answered — and
+ * because a win is only recorded by a bot that actually sends, the quota
+ * that eventually ends yielding never advanced either, so the room stayed
+ * silent for good. Picking the first of a stably ordered list is what makes
+ * the relation a strict order instead of a cycle: the designated bot never
+ * yields, so there is always exactly one answerer.
  */
 export function shouldYieldToPriorityBot(
 	candidateBotId: number,
@@ -153,10 +170,15 @@ export function shouldYieldToPriorityBot(
 	surface: Surface,
 	now = Date.now(),
 ): boolean {
-	const priorityBot = priorityBotRooms(now).find((room) => room.chatMid === chatMid && room.online && room.botId !== candidateBotId);
-	if (!priorityBot) return false;
-	if (!hasQuotaLeft(priorityBot.botId)) return false;
-	return matchRule(getCompiledRules(priorityBot.botId), text, surface) !== undefined;
+	const designated = priorityBotRooms(now).find(
+		(room) =>
+			room.chatMid === chatMid &&
+			room.online &&
+			hasQuotaLeft(room.botId) &&
+			matchRule(getCompiledRules(room.botId), text, surface) !== undefined,
+	);
+	if (!designated) return false;
+	return designated.botId !== candidateBotId;
 }
 
 /** Test-only: clears every recorded win and forces the next room lookup to hit the DB, so tests are deterministic and don't leak across cache windows. */

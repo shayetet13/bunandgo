@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { claimResend, clearTrackedReplies, trackSentReply, uniquifyReply, varyText } from "./reply-defense.ts";
+import { claimResend, clearTrackedReplies, resendText, trackSentReply, uniquifyReply, varyText } from "./reply-defense.ts";
 
 /** The zero-width marks varyText may append, as escapes so they stay legible. */
 const INVISIBLE_MARKS = new RegExp("[\\u200B\\u200C\\u2060]", "g");
@@ -144,5 +144,53 @@ describe("uniquifyReply", () => {
 		clearTrackedReplies(botId);
 
 		expect(uniquifyReply(botId, "sq1", "ok")).toBe("ok");
+	});
+});
+
+describe("resendText", () => {
+	// The bug this guards: the resend used varyText(text, attempt) while the
+	// original used uniquifyReply's own per-chat variant. Two counters over
+	// one 8-entry mark table — attempt 1 and variant 1 are the same suffix —
+	// so a retry could go out byte-identical to the message a moderator had
+	// just deleted, and the rule that matched the original matched it again.
+
+	test("differs from a first, verbatim send of the same text", () => {
+		const botId = 200;
+		const original = uniquifyReply(botId, "sq1", "ok");
+
+		const retry = resendText(botId, "sq1", "ok");
+
+		expect(original).toBe("ok");
+		expect(retry).not.toBe(original);
+		expect(retry.replace(INVISIBLE_MARKS, "")).toBe("ok");
+	});
+
+	test("differs from the variant the destroyed message actually used", () => {
+		const botId = 201;
+		uniquifyReply(botId, "sq1", "ok");
+		// Variant 1 — the exact case the old attempt-numbered resend collided with.
+		const destroyed = uniquifyReply(botId, "sq1", "ok");
+
+		expect(resendText(botId, "sq1", "ok")).not.toBe(destroyed);
+	});
+
+	test("keeps differing across the whole resend budget", () => {
+		const botId = 202;
+		const sent = [uniquifyReply(botId, "sq1", "ok"), resendText(botId, "sq1", "ok"), resendText(botId, "sq1", "ok")];
+
+		expect(new Set(sent).size).toBe(3);
+		for (const text of sent) expect(text.replace(INVISIBLE_MARKS, "")).toBe("ok");
+	});
+
+	test("never repeats the previous send for any starting variant in the cycle", () => {
+		const botId = 203;
+		let previous = uniquifyReply(botId, "sq1", "ok");
+		// One full cycle of VARIANT_MARKS plus a wrap, to prove the +1 step
+		// cannot land back on the bytes it is replacing at any point.
+		for (let i = 0; i < 12; i++) {
+			const retry = resendText(botId, "sq1", "ok");
+			expect(retry).not.toBe(previous);
+			previous = retry;
+		}
 	});
 });

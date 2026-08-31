@@ -36,7 +36,7 @@ import {
 	resolveOfficialAccountStatus,
 } from "./oa-contacts.ts";
 import { clearAutomaticReplyEchoes, isAutomaticReplyEcho, trackAutomaticReply } from "./automatic-reply-echo.ts";
-import { claimResend, clearTrackedReplies, MAX_RESENDS, trackSentReply, uniquifyReply, varyText } from "./reply-defense.ts";
+import { claimResend, clearTrackedReplies, MAX_RESENDS, resendText, trackSentReply, uniquifyReply } from "./reply-defense.ts";
 import { RESEND_WHEN_INVISIBLE, VERIFY_SENDS_ENABLED } from "./square-visibility.ts";
 import { armSquareReplyForensics, clearSquareForensics, observeSquareForensicEvent } from "./square-forensics.ts";
 import { clearBotAnomalies, recordAnomaly } from "./anomalies.ts";
@@ -1933,10 +1933,23 @@ async function resendDestroyedReply(botId: number, client: Client, squareChatMid
 		});
 		return;
 	}
+	// Varied off the shared per-chat counter, not off `attempt` — see
+	// resendText's doc comment for the byte-identical-retry bug that caused.
+	const outgoingText = resendText(botId, squareChatMid, text);
+	// A resend is bot-authored text going into a room whose rules are live,
+	// exactly like an auto-reply, so it needs the same echo suppression. It
+	// had none: `trackAutomaticReply` was called on the auto-reply path only,
+	// leaving `isOwnMessage`'s self-mid lookup as the sole guard — and an
+	// unresolved self-mid is precisely what once let a bot answer its own
+	// echoed reply on a loop until LINE banned it from the room (see
+	// handleIncoming's note on the same defense). Worse here than anywhere:
+	// this path only runs while a moderator is actively deleting our
+	// messages, which is the room least able to afford another violation.
+	const cancelEchoTracking = trackAutomaticReply(replyOwnerKey(botId), botId, "square", squareChatMid, outgoingText);
 	try {
 		const result = await client.base.square.sendMessage({
 			squareChatMid,
-			text: varyText(text, attempt),
+			text: outgoingText,
 			fastAck: false,
 		});
 		if (runtimes.get(botId)?.client !== client) return;
@@ -1949,6 +1962,10 @@ async function resendDestroyedReply(botId: number, client: Client, squareChatMid
 			detail: `ส่งซ้ำสำเร็จ ครั้งที่ ${attempt}/${MAX_RESENDS}`,
 		});
 	} catch (err) {
+		// Released before the client-swap check: the send threw, so nothing
+		// reached the room and the pending signature must not sit there
+		// suppressing a real message with the same text for its whole TTL.
+		cancelEchoTracking();
 		if (runtimes.get(botId)?.client !== client) return;
 		recordAnomaly({
 			botId,
@@ -2460,6 +2477,11 @@ export async function testSend(botId: number, surface: Surface, targetMid: strin
 	if (!admission.allowed) {
 		throw new Error(`ถึงขีดจำกัดการส่ง — ลองใหม่ใน ${Math.ceil(admission.retryAfterMs / 1000)} วินาที`);
 	}
+	// Tracked like an auto-reply: under owner testing `isOwnMessage` no longer
+	// stops the bot processing its own messages, so a test send whose text
+	// matches a rule would come straight back in and be answered — and any
+	// sibling in the room sees it as a stranger's message regardless.
+	const cancelEchoTracking = trackAutomaticReply(replyOwnerKey(botId), botId, surface, targetMid, text);
 	// Sends straight to the mid. Resolving it to a Chat/SquareChat object
 	// first would add a full round trip to LINE that the auto-reply path
 	// never pays, making the P95 on the dashboard measure something the
@@ -2482,6 +2504,7 @@ export async function testSend(botId: number, surface: Surface, targetMid: strin
 		true,
 	);
 	if (!sent) {
+		cancelEchoTracking();
 		throw new Error("ข้อความถูกยกเลิกโดยตัวป้องกัน LINE block — กรุณารอให้พ้นช่วงจำกัด");
 	}
 }
@@ -2562,6 +2585,12 @@ async function fireScheduledPost(armed: ScheduledPost): Promise<void> {
 		return;
 	}
 
+	// Operator-authored text, but it lands in a room whose rules are live and
+	// comes back over every sibling's connection as an ordinary incoming
+	// message — a post whose wording happens to satisfy a rule would otherwise
+	// be answered by this bot or a sibling, with only the self-mid lookup in
+	// the way. Same suppression the auto-reply path gets.
+	const cancelEchoTracking = trackAutomaticReply(replyOwnerKey(post.botId), post.botId, post.surface, post.targetMid, post.text);
 	// Same direct-to-mid send testSend uses (no incoming message exists to
 	// reply to here), synchronous non-blocking admission: a scheduled post
 	// either goes out right now or is dropped, never queued behind a cooldown
@@ -2575,6 +2604,7 @@ async function fireScheduledPost(armed: ScheduledPost): Promise<void> {
 		markScheduledPostSent(post.id, Date.now());
 		logBotEvent(post.botId, "scheduled_post_sent", `โพสตามเวลาแล้ว: ${post.text.slice(0, 80)}`);
 	} else {
+		cancelEchoTracking();
 		disableScheduledPost(post.id);
 		// tryAcquireSend already logged send_dropped/anomaly for the block
 		// itself (see sendTimed); this just closes out the post so it does

@@ -90,6 +90,28 @@ export function varyText(text: string, attempt: number): string {
 /** Last reply sent per chat, for deciding when a reply is a repeat. */
 const lastReplyByChat = new Map<string, { text: string; variant: number; at: number }>();
 
+/** Records which variant's bytes are now in the room, so the next send can differ from them. */
+function rememberSend(botId: number, chatMid: string, text: string, variant: number, now: number): void {
+	lastReplyByChat.set(`${botId}\0${chatMid}`, { text, variant, at: now });
+}
+
+/**
+ * The variant to use for `text` in this chat: one step past whatever was
+ * last sent there, or 0 when this text is not a recent repeat.
+ *
+ * The single source of truth for "which suffix is already in the room".
+ * Both the first send and any resend draw from it, which is what guarantees
+ * a resend cannot reuse the bytes it is replacing (variant N+1 is never
+ * variant N, and `varyText` only wraps after a full cycle of 8).
+ */
+function nextVariant(botId: number, chatMid: string, text: string, now: number): number {
+	const previous = lastReplyByChat.get(`${botId}\0${chatMid}`);
+	const isRepeat = previous !== undefined && previous.text === text && now - previous.at <= REPEAT_WINDOW_MS;
+	const variant = isRepeat ? previous.variant + 1 : 0;
+	rememberSend(botId, chatMid, text, variant, now);
+	return variant;
+}
+
 /**
  * Returns the text to actually send for a reply.
  *
@@ -99,13 +121,32 @@ const lastReplyByChat = new Map<string, { text: string; variant: number; at: num
  * recognize the next one. Visible output is unchanged either way.
  */
 export function uniquifyReply(botId: number, chatMid: string, text: string, now = Date.now()): string {
-	if (!UNIQUIFY_ENABLED) return text;
-	const key = `${botId}\0${chatMid}`;
-	const previous = lastReplyByChat.get(key);
-	const isRepeat = previous !== undefined && previous.text === text && now - previous.at <= REPEAT_WINDOW_MS;
-	const variant = isRepeat ? previous.variant + 1 : 0;
-	lastReplyByChat.set(key, { text, variant, at: now });
-	return varyText(text, variant);
+	// Still recorded when varying is switched off: the bytes that went to the
+	// room are the bare text (variant 0), and a resend of it must know that
+	// to pick something different. `resendText` does not honour this toggle.
+	if (!UNIQUIFY_ENABLED) {
+		rememberSend(botId, chatMid, text, 0, now);
+		return text;
+	}
+	return varyText(text, nextVariant(botId, chatMid, text, now));
+}
+
+/**
+ * The text to resend after `text`'s message was destroyed.
+ *
+ * Takes its variant from the same per-chat counter as `uniquifyReply`
+ * rather than from the resend attempt number. Two independent counters over
+ * one 8-entry `VARIANT_MARKS` array is what let a resend go out byte-identical
+ * to the message that had just been deleted — uniquify variant 1 and resend
+ * attempt 1 are the same suffix — so the deletion rule that matched the
+ * original matched the retry too, defeating the one thing varying it is for.
+ *
+ * Always varies, even under `REPLY_UNIQUIFY=0`: a resend exists precisely
+ * because something matched and removed the previous bytes, so repeating
+ * them is the one option that is known not to work.
+ */
+export function resendText(botId: number, chatMid: string, text: string, now = Date.now()): string {
+	return varyText(text, nextVariant(botId, chatMid, text, now));
 }
 
 /** Forgets a bot's repeat history. */
