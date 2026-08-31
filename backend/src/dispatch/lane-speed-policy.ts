@@ -19,12 +19,25 @@ export const SEND_SLOW_THRESHOLD_MS = nonNegativeEnv("LINE_H2_SEND_SLOW_THRESHOL
 /** Short enough to recover quickly, long enough that the next send can use a different route. */
 export const SEND_SLOW_COOLDOWN_MS = Math.max(1_000, nonNegativeEnv("LINE_H2_SEND_SLOW_COOLDOWN_MS", 15_000));
 /**
- * Hard floor for the relative threshold. A fixed 23ms sat below the live p50
- * once the upstream regressed, so nearly every send "cooled" and the selector
- * lost its ranking. The floor is the slowest a send may be before it is a
- * genuine outlier regardless of how fast the round's best lane looked.
+ * Hard floor for the relative threshold — the slowest a send may be before it
+ * is a genuine outlier regardless of how fast the round's best lane looked.
+ *
+ * Tightened 28 -> 23 against measured production, not guessed: over 7 days of
+ * real SEND samples on Server 2 (n=1040) the distribution was p50 19.9ms,
+ * p90 25.2ms, p95 33.7ms, max 90.5ms, and the eight lanes that carry send
+ * traffic averaged 18.2 / 19.1 / 19.5 / 21.0 / 21.4 / 21.6 / 22.4 / 23.3ms.
+ * The fastest lane's median times the 1.5 ratio lands around 27ms, so the old
+ * 28 almost never bound and only the worst 6.3% of sends ever cooled. 23
+ * cools 18.5% — the 25ms-and-up band where the losses actually are — while
+ * still sitting comfortably above the 19.9ms median, so the pool keeps every
+ * lane it needs and the selector keeps its ranking.
+ *
+ * Do not push this to the median or below. An earlier fixed 23ms cooled
+ * nearly every send once the upstream regressed past it, and the ranking
+ * collapsed into fail-open. That is the failure this number has to stay
+ * clear of, which is why it tracks the tail and not the target.
  */
-export const SEND_SLOW_FLOOR_MS = Math.max(1, nonNegativeEnv("LINE_H2_SEND_SLOW_FLOOR_MS", 28));
+export const SEND_SLOW_FLOOR_MS = Math.max(1, nonNegativeEnv("LINE_H2_SEND_SLOW_FLOOR_MS", 23));
 /** A lane trailing the round's fastest measured sibling by more than this factor is cooled. */
 export const SEND_SLOW_RATIO = Math.max(1, nonNegativeEnv("LINE_H2_SEND_SLOW_RATIO", 1.5));
 

@@ -35,17 +35,30 @@ describe("effectiveSendSlowThresholdMs", () => {
 	});
 
 	test("a fast pool holds its lanes to a fast bar, tighter than the floor", () => {
-		// fastest 15ms -> 15 * 1.5 = 22.5, below the 28ms floor
-		expect(effectiveSendSlowThresholdMs(15)).toBeCloseTo(22.5, 5);
-		// a 24ms send in a 15ms pool now cools; a 24ms send with no sibling does not
-		expect(nextSendSlowUntil(24, 1_000, effectiveSendSlowThresholdMs(15))).toBeGreaterThan(0);
-		expect(nextSendSlowUntil(24, 1_000, effectiveSendSlowThresholdMs(undefined))).toBe(0);
+		// fastest 12ms -> 12 * 1.5 = 18, below the floor
+		expect(effectiveSendSlowThresholdMs(12)).toBeCloseTo(18, 5);
+		// a 20ms send in a 12ms pool cools; the same send with no sibling does not
+		expect(nextSendSlowUntil(20, 1_000, effectiveSendSlowThresholdMs(12))).toBeGreaterThan(0);
+		expect(nextSendSlowUntil(20, 1_000, effectiveSendSlowThresholdMs(undefined))).toBe(0);
 	});
 
 	test("a slow upstream (every lane slow) never pushes the threshold above the floor", () => {
-		// fastest 22ms -> 22 * 1.5 = 33, capped at the 28ms floor so a 30ms lane
+		// fastest 22ms -> 22 * 1.5 = 33, capped at the floor so a 30ms lane
 		// still cools rather than everything sitting just under a moving ceiling
 		expect(effectiveSendSlowThresholdMs(22)).toBe(SEND_SLOW_FLOOR_MS);
 		expect(nextSendSlowUntil(30, 1_000, effectiveSendSlowThresholdMs(22))).toBeGreaterThan(0);
+	});
+
+	test("cools the measured production tail but leaves the median in rotation", () => {
+		// Server 2, 7 days, n=1040: p50 19.9, p90 25.2, p95 33.7. The floor has
+		// to sit above the median or nearly every send cools and the ranking
+		// collapses into fail-open — the regression a fixed 23ms once caused
+		// when the upstream drifted past it.
+		expect(SEND_SLOW_FLOOR_MS).toBeGreaterThan(19.9);
+		const slowestSiblingMedian = 23.3; // the slowest of the eight real send lanes
+		const threshold = effectiveSendSlowThresholdMs(18.2); // the fastest one
+		expect(nextSendSlowUntil(19.9, 1_000, threshold)).toBe(0); // median stays available
+		expect(nextSendSlowUntil(25.2, 1_000, threshold)).toBeGreaterThan(0); // p90 cools
+		expect(nextSendSlowUntil(slowestSiblingMedian, 1_000, threshold)).toBeGreaterThan(0);
 	});
 });
