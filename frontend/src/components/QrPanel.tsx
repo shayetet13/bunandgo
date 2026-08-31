@@ -33,9 +33,21 @@ export function QrPanel({ botName, qrUrl, pincode, phase, onCancel }: QrPanelPro
 			setDataUrl(undefined);
 			return;
 		}
+		// A retried QR handshake (see the "preparing" phase note below) emits a
+		// fresh qrUrl for the same bot while a login is still in progress —
+		// without this guard, two successive encodes can resolve out of order
+		// and leave a dead/expired QR on screen with nothing to say it changed.
+		let cancelled = false;
 		QRCode.toDataURL(qrUrl, { margin: 1, width: 220, color: { dark: "#e8ecf2", light: "#00000000" } })
-			.then(setDataUrl)
-			.catch(() => setDataUrl(undefined));
+			.then((url) => {
+				if (!cancelled) setDataUrl(url);
+			})
+			.catch(() => {
+				if (!cancelled) setDataUrl(undefined);
+			});
+		return () => {
+			cancelled = true;
+		};
 	}, [qrUrl]);
 
 	// LINE spends the QR the instant it accepts the scan, but the bot stays

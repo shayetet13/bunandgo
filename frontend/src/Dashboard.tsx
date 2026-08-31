@@ -162,12 +162,36 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 		setBots((prev) => reconcileFetchedBots(prev, fetched, statusEventAtRef.current, fetchedAt));
 	}, []);
 
+	const pushNotification = useCallback((message: string) => {
+		setNotifications((prev) => [...prev.slice(-19), { id: `${Date.now()}-${Math.random()}`, message, ts: Date.now() }]);
+	}, []);
+
 	const refreshBots = useCallback(async () => {
 		const fetchedAt = Date.now();
-		applyFetchedBots(await api.listBots().catch(() => []), fetchedAt);
-	}, [applyFetchedBots]);
+		// A failed fetch must never be read as "the fleet is empty" — that's
+		// what api.listBots().catch(() => []) used to do here, and it's the
+		// one moment an operator most needs the dashboard to still show what
+		// it last knew, not an empty state that invites creating a duplicate
+		// bot. Leave `bots` untouched and surface the error instead.
+		let fetched: Bot[];
+		try {
+			fetched = await api.listBots();
+		} catch (err) {
+			pushNotification(err instanceof Error ? err.message : String(err));
+			return;
+		}
+		applyFetchedBots(fetched, fetchedAt);
+	}, [applyFetchedBots, pushNotification]);
 	async function refreshChats(botId: number) {
-		const nextChats = await api.listChats(botId).catch(() => []);
+		// A genuine fetch failure must surface as an error, not render as
+		// "this bot has no chats" — the same reasoning as refreshBots above.
+		let nextChats: ChatRow[];
+		try {
+			nextChats = await api.listChats(botId);
+		} catch (err) {
+			pushNotification(err instanceof Error ? err.message : String(err));
+			return;
+		}
 		// Guards the same race `refreshRules` already guards against: selecting
 		// a different bot before this resolves must not let a slower, stale
 		// response overwrite what's now on screen for the newly selected one.
@@ -202,11 +226,23 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 		}
 	}
 	async function refreshRules(botId: number) {
-		const newRules = await api.listRules(botId).catch(() => []);
+		let newRules: Rule[];
+		try {
+			newRules = await api.listRules(botId);
+		} catch (err) {
+			pushNotification(err instanceof Error ? err.message : String(err));
+			return;
+		}
 		if (botId === selectedBotIdRef.current) setRules(newRules);
 	}
 	async function refreshScheduledPosts(botId: number) {
-		const newPosts = await api.listScheduledPosts(botId).catch(() => []);
+		let newPosts: ScheduledPost[];
+		try {
+			newPosts = await api.listScheduledPosts(botId);
+		} catch (err) {
+			pushNotification(err instanceof Error ? err.message : String(err));
+			return;
+		}
 		if (botId === selectedBotIdRef.current) setScheduledPosts(newPosts);
 	}
 
@@ -234,10 +270,6 @@ export function Dashboard({ username, role, onLogout }: DashboardProps) {
 			return next;
 		});
 	}
-
-	const pushNotification = useCallback((message: string) => {
-		setNotifications((prev) => [...prev.slice(-19), { id: `${Date.now()}-${Math.random()}`, message, ts: Date.now() }]);
-	}, []);
 
 	useEffect(() => {
 		void refreshBots();

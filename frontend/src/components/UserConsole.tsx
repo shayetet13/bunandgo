@@ -196,7 +196,15 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 	}, [applyFetchedBots, pushError]);
 
 	async function refreshChats(botId: number) {
-		const nextChats = await api.listChats(botId).catch(() => []);
+		// A genuine fetch failure must surface via pushError like every other
+		// one in this file, not render as "this bot has no chats".
+		let nextChats: ChatRow[];
+		try {
+			nextChats = await api.listChats(botId);
+		} catch (err) {
+			pushError(err);
+			return;
+		}
 		// Guards the same race `refreshRules` already guards against: selecting
 		// a different bot before this resolves must not let a slower, stale
 		// response overwrite what's now on screen for the newly selected one.
@@ -204,12 +212,24 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 	}
 
 	async function refreshRules(botId: number) {
-		const nextRules = await api.listRules(botId).catch(() => []);
+		let nextRules: Rule[];
+		try {
+			nextRules = await api.listRules(botId);
+		} catch (err) {
+			pushError(err);
+			return;
+		}
 		if (botId === selectedBotIdRef.current) setRules(nextRules);
 	}
 
 	async function refreshScheduledPosts(botId: number) {
-		const nextPosts = await api.listScheduledPosts(botId).catch(() => []);
+		let nextPosts: ScheduledPost[];
+		try {
+			nextPosts = await api.listScheduledPosts(botId);
+		} catch (err) {
+			pushError(err);
+			return;
+		}
 		if (botId === selectedBotIdRef.current) setScheduledPosts(newestScheduledPostsFirst(nextPosts));
 	}
 
@@ -366,16 +386,25 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 	// exactly that case — see GET /api/bots/:botId/qr.
 	useEffect(() => {
 		if (!wsConnected) return;
+		// Guards the same race Dashboard.tsx's identical effect already guards
+		// against: on a flaky connection, two reconnects in quick succession
+		// dispatch two overlapping listBots()/getCurrentQr() calls, and
+		// without this an older one resolving after a newer one can silently
+		// overwrite current state with a stale snapshot (missing a bot just
+		// created, or resurrecting one just deleted).
+		let cancelled = false;
 		const fetchedAt = Date.now();
 		api
 			.listBots()
 			.then((freshBots) => {
+				if (cancelled) return;
 				applyFetchedBots(freshBots, fetchedAt);
 				for (const bot of freshBots) {
 					if (bot.status !== "connecting") continue;
 					api
 						.getCurrentQr(bot.id)
 						.then((qr) => {
+							if (cancelled) return;
 							if (qr.phase) patchLoginPhase(bot.id, qr.phase);
 							if (!qr.url && !qr.pincode) return;
 							setQrByBot((prev) => ({ ...prev, [bot.id]: { url: qr.url, pincode: qr.pincode, phase: qr.phase } }));
@@ -384,6 +413,9 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 				}
 			})
 			.catch(() => {});
+		return () => {
+			cancelled = true;
+		};
 	}, [wsConnected, applyFetchedBots]);
 
 	const enabledMids = useMemo(() => chats.filter((chat) => !!chat.enabled).map((chat) => chat.mid), [chats]);
