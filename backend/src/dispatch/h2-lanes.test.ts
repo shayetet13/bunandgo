@@ -651,11 +651,47 @@ describe("send-reserved lanes", () => {
 	});
 
 	test("releases soft affinity at the exact 0.10ms boundary", () => {
+		// Both lanes are past SEND_PIN_EXIT_MS, so the pin never holds here —
+		// this isolates the underlying round-robin tie-break at the 0.10ms
+		// margin from the pin feature layered on top of it.
 		const lanes = [
-			{ id: 0, sendRttMs: 22, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 },
-			{ id: 1, sendRttMs: 21.9, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 },
+			{ id: 0, sendRttMs: 26, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 },
+			{ id: 1, sendRttMs: 25.9, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 },
 		];
 		expect(selectFastestSendLaneCandidate(lanes, 0)?.id).toBe(1);
+	});
+
+	test("holds a pinned lane through a genuine tie instead of round robin", () => {
+		const lanes = [
+			{ id: 0, sendRttMs: 18, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 },
+			{ id: 1, sendRttMs: 18.05, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 },
+		];
+		// Without the pin these two are within the 0.10ms tie margin and would
+		// round robin; the pinned lane (proven under SEND_PIN_ENTER_MS earlier)
+		// keeps every send instead.
+		const picks = Array.from({ length: 4 }, () => selectFastestSendLaneCandidate(lanes, 1, "bot-pin")?.id);
+		expect(picks).toEqual([1, 1, 1, 1]);
+	});
+
+	test("releases the pin once the held lane's own score reaches the exit threshold", () => {
+		const lanes = [
+			{ id: 0, sendRttMs: 22.95, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 },
+			{ id: 1, sendRttMs: 23, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 },
+		];
+		// Lane 1 is pinned but has drifted to the SEND_PIN_EXIT_MS line, so the
+		// tie-break falls back to ordinary round robin between the two.
+		const picks = Array.from({ length: 2 }, () => selectFastestSendLaneCandidate(lanes, 1, "bot-pin-exit")?.id);
+		expect(picks).toEqual([0, 1]);
+	});
+
+	test("never lets a pin override a real, non-tied improvement", () => {
+		const lanes = [
+			{ id: 0, sendRttMs: 18, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 },
+			{ id: 1, sendRttMs: 19, lastSendOkAt: 1, lastOkAt: 1, inFlight: 0 },
+		];
+		// Lane 1 is pinned, but lane 0 is genuinely faster (outside the tie
+		// margin) — the pin never fights a real improvement.
+		expect(selectFastestSendLaneCandidate(lanes, 1, "bot-pin-override")?.id).toBe(0);
 	});
 
 	test("uses the reserved partition only before any real application result exists", () => {

@@ -1,5 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { effectiveSendSlowThresholdMs, nextSendSlowUntil, SEND_SLOW_FLOOR_MS, sendCandidatesOutsideCooldown } from "./lane-speed-policy.ts";
+import {
+	effectiveSendSlowThresholdMs,
+	holdsSendPin,
+	nextSendSlowUntil,
+	qualifiesForSendPin,
+	SEND_PIN_ENTER_MS,
+	SEND_PIN_EXIT_MS,
+	SEND_SLOW_FLOOR_MS,
+	sendCandidatesOutsideCooldown,
+} from "./lane-speed-policy.ts";
 
 describe("SEND slow-lane cooldown", () => {
 	test("keeps results at the 23ms boundary available and cools only results above it", () => {
@@ -51,14 +60,43 @@ describe("effectiveSendSlowThresholdMs", () => {
 
 	test("cools the measured production tail but leaves the median in rotation", () => {
 		// Server 2, 7 days, n=1040: p50 19.9, p90 25.2, p95 33.7. The floor has
-		// to sit above the median or nearly every send cools and the ranking
-		// collapses into fail-open — the regression a fixed 23ms once caused
-		// when the upstream drifted past it.
+		// to sit above the median with real margin or nearly every send cools
+		// and the ranking collapses into fail-open — confirmed live on
+		// 2026-08-31 when a 20ms floor (barely above that median) started
+		// cooling most sends within an hour of live traffic.
 		expect(SEND_SLOW_FLOOR_MS).toBeGreaterThan(19.9);
 		const slowestSiblingMedian = 23.3; // the slowest of the eight real send lanes
 		const threshold = effectiveSendSlowThresholdMs(18.2); // the fastest one
 		expect(nextSendSlowUntil(19.9, 1_000, threshold)).toBe(0); // median stays available
 		expect(nextSendSlowUntil(25.2, 1_000, threshold)).toBeGreaterThan(0); // p90 cools
 		expect(nextSendSlowUntil(slowestSiblingMedian, 1_000, threshold)).toBeGreaterThan(0);
+	});
+});
+
+describe("SEND lane pin hysteresis", () => {
+	test("exit never sits below enter, even under a misconfigured env override", () => {
+		expect(SEND_PIN_EXIT_MS).toBeGreaterThanOrEqual(SEND_PIN_ENTER_MS);
+	});
+
+	test("a lane must beat the enter line to newly qualify for the pin", () => {
+		expect(qualifiesForSendPin(SEND_PIN_ENTER_MS - 0.01)).toBeTrue();
+		expect(qualifiesForSendPin(SEND_PIN_ENTER_MS)).toBeFalse();
+		expect(qualifiesForSendPin(SEND_PIN_ENTER_MS + 1)).toBeFalse();
+	});
+
+	test("a held pin survives up to, but not including, the exit line", () => {
+		expect(holdsSendPin(SEND_PIN_EXIT_MS - 0.01)).toBeTrue();
+		expect(holdsSendPin(SEND_PIN_EXIT_MS)).toBeFalse();
+		expect(holdsSendPin(SEND_PIN_EXIT_MS + 1)).toBeFalse();
+	});
+
+	test("the enter/exit gap gives a proven lane room to hold through ordinary jitter", () => {
+		// 21ms to qualify, 23ms to release (matching SEND_SLOW_FLOOR_MS): a
+		// lane sitting at the 19.9ms production median keeps its pin instead
+		// of flapping every send, and so does one drifting a couple ms above it.
+		expect(SEND_PIN_ENTER_MS).toBe(21);
+		expect(SEND_PIN_EXIT_MS).toBe(23);
+		expect(holdsSendPin(19.9)).toBeTrue();
+		expect(holdsSendPin(22.5)).toBeTrue();
 	});
 });

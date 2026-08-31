@@ -31,6 +31,21 @@ export interface LaneRaceEvent {
 	role: LaneRaceRole;
 	result: LaneRaceResult;
 	rttMs: number;
+	/**
+	 * Which LINE edge address this lane was actually talking to.
+	 *
+	 * A lane id is ephemeral — lanes recycle onto whatever DNS hands back
+	 * every `laneMaxAgeMs` — so per-lane averages blur together the fast and
+	 * slow endpoints a lane passed through. The address is the stable
+	 * property that decides the speed: the one 25-minute window this was ever
+	 * recorded (2026-08-25) had `2400:dcc0:a3a1:1001::1` averaging 13.3ms
+	 * against `2400:dcc0:a303:b1a4::39` at 32.0ms — a 2.4x spread, where the
+	 * slow endpoint's *best* sample was worse than the fast one's average.
+	 * Per-lane numbers over the same period showed a 5ms spread and hid all
+	 * of it. `ipRankPriorMs` already ranks cold lanes by address; this is
+	 * what gives it something to rank with.
+	 */
+	remoteIp?: string;
 }
 
 export interface LaneRaceScore {
@@ -158,7 +173,14 @@ export function shouldScorePollLane(origin: string, laneId: number, now = Date.n
 	return true;
 }
 
-export function recordLaneRace(role: LaneRaceRole, origin: string, laneId: number, rttMs: number, benchmarkMs: number | undefined): void {
+export function recordLaneRace(
+	role: LaneRaceRole,
+	origin: string,
+	laneId: number,
+	rttMs: number,
+	benchmarkMs: number | undefined,
+	remoteIp?: string,
+): void {
 	const event: LaneRaceEvent = {
 		ts: Date.now(),
 		origin,
@@ -166,6 +188,7 @@ export function recordLaneRace(role: LaneRaceRole, origin: string, laneId: numbe
 		role,
 		result: scoreLaneRtt(rttMs, benchmarkMs),
 		rttMs,
+		remoteIp,
 	};
 	recentEvents.push(event);
 	if (recentEvents.length > MAX_RECENT_EVENTS) recentEvents.shift();

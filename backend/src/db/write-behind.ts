@@ -47,6 +47,8 @@ export interface LaneRaceEntry {
 	role: "send" | "poll";
 	result: "star" | "banana";
 	rttMs: number;
+	/** LINE edge address this sample came from — see LaneRaceEvent.remoteIp. */
+	remoteIp?: string;
 }
 
 export type WriteBehindOperation =

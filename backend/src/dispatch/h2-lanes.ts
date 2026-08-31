@@ -6,7 +6,13 @@ import { connect as connectTls, type ConnectionOptions as TlsConnectionOptions }
 import { gunzipSync, inflateSync, brotliDecompressSync } from "node:zlib";
 import { attachRawDispatchBody } from "./raw-response.ts";
 import { laneRaceScore, recordLaneRace, shouldScorePollLane, type LaneRaceScore } from "./lane-race.ts";
-import { effectiveSendSlowThresholdMs, nextSendSlowUntil, sendCandidatesOutsideCooldown } from "./lane-speed-policy.ts";
+import {
+	effectiveSendSlowThresholdMs,
+	holdsSendPin,
+	nextSendSlowUntil,
+	qualifiesForSendPin,
+	sendCandidatesOutsideCooldown,
+} from "./lane-speed-policy.ts";
 import {
 	freshSendRouteProfile,
 	getOrCreateSendRouteProfile,
@@ -264,6 +270,8 @@ const originPrimeRuns = new Map<string, Promise<void>>();
 const sessionTickets = new Map<string, Buffer>();
 /** Per-bot soft affinity, re-evaluated against predicted completion every send. */
 const preferredSendLaneIds = new Map<string, number>();
+/** Same defensive bound as `MAX_SEND_ROUTE_PROFILES` in send-prediction.ts for the structurally identical per-bot map. */
+const MAX_PREFERRED_SEND_LANES = 2_048;
 /**
  * Per-route rotation cursor. When several lanes score within the switch margin
  * of the fastest — the normal case, since real lanes to the same fast-IP pool
@@ -378,6 +386,18 @@ function sendAffinityKey(origin: string, routeKey: string | undefined): string {
 	return `${origin}\0${routeKey ?? "shared"}`;
 }
 
+/** LRU-capped write, mirroring `getOrCreateSendRouteProfile`'s eviction in send-prediction.ts. */
+function rememberPreferredSendLane(affinityKey: string, laneId: number): void {
+	if (preferredSendLaneIds.has(affinityKey)) {
+		// Refresh insertion order so eviction below removes the least-recently used key.
+		preferredSendLaneIds.delete(affinityKey);
+	} else if (preferredSendLaneIds.size >= MAX_PREFERRED_SEND_LANES) {
+		const oldest = preferredSendLaneIds.keys().next().value as string | undefined;
+		if (oldest !== undefined) preferredSendLaneIds.delete(oldest);
+	}
+	preferredSendLaneIds.set(affinityKey, laneId);
+}
+
 /**
  * The usable lanes a role should choose between.
  *
@@ -415,10 +435,20 @@ function pickLane(lanes: Lane[], role: LaneRole, routeKey?: string): Lane | unde
 	const usable = lanes.filter(isUsable);
 	const candidates = role === "send" ? fastestSendCandidates(usable, routeKey) : laneCandidates(usable, role);
 	if (role === "send") {
+		const now = Date.now();
 		const affinityKey = origin === undefined ? undefined : sendAffinityKey(origin, routeKey);
 		const preferredId = affinityKey === undefined ? undefined : preferredSendLaneIds.get(affinityKey);
-		const selected = selectFastestSendLaneCandidate(candidates, preferredId, routeKey);
-		if (affinityKey !== undefined && selected) preferredSendLaneIds.set(affinityKey, selected.id);
+		const selected = selectFastestSendLaneCandidate(candidates, preferredId, routeKey, now);
+		// Only remember a lane once it has actually proven itself worth holding
+		// (see SEND_PIN_ENTER_MS) — never downgrade an existing pin to whatever
+		// merely won this round, or a lane that lost outright to a real
+		// improvement would keep "winning" future ties once it recovers. Reuses
+		// the same `now` the selection above scored against, not a fresh
+		// Date.now(), so the write-gate can never disagree with the score that
+		// just decided the tie.
+		if (affinityKey !== undefined && selected && qualifiesForSendPin(sendLaneScore(selected, candidates, routeKey, now))) {
+			rememberPreferredSendLane(affinityKey, selected.id);
+		}
 		return selected;
 	}
 
@@ -527,7 +557,7 @@ export function sendLaneScore(
 
 export function selectFastestSendLaneCandidate<T extends LaneChoiceMetrics & { id: number }>(
 	candidates: T[],
-	_preferredId?: number,
+	preferredId?: number,
 	routeKey?: string,
 	now: number = Date.now(),
 ): T | undefined {
@@ -541,6 +571,17 @@ export function selectFastestSendLaneCandidate<T extends LaneChoiceMetrics & { i
 		.sort((left, right) => left.score - right.score || left.lane.inFlight - right.lane.inFlight || left.lane.id - right.lane.id)
 		.map((entry) => entry.lane);
 	if (tied.length === 1) return tied[0]!;
+	// A lane this bot has already proven fast enough to hold (SEND_PIN_ENTER_MS)
+	// wins any genuine tie instead of being rotated away by round robin, so the
+	// bot keeps riding the lane it already knows is good instead of bouncing
+	// between statistically identical routes. This only ever settles a *tie*: a
+	// lane outside the tie window always loses to a real improvement regardless
+	// of the pin, and a pinned lane that has itself degraded past
+	// SEND_PIN_EXIT_MS stops qualifying here.
+	if (preferredId !== undefined) {
+		const pinned = tied.find((lane) => lane.id === preferredId);
+		if (pinned && holdsSendPin(sendLaneScore(pinned, candidates, routeKey, now))) return pinned;
+	}
 	// The paths left here are interchangeable, so rotate through them instead of
 	// letting affinity or the lowest id take every send — that is what left the
 	// other reserved lanes cold and unmeasured. `tied` is fastest-first, so the
@@ -1313,12 +1354,16 @@ function sendOnLane(
 					recordApplicationRtt(lane, role, elapsedMs, routeKey);
 					const shouldScore = role === "send" || (role === "poll" && shouldScorePollLane(lane.origin, lane.id));
 					if (shouldScore && role !== undefined) {
+						// Read now, not inside the setImmediate: this is the address that
+						// actually served *this* request, and a retire between the two
+						// clears `lane.remoteAddress` (see retireLane).
+						const remoteIp = lane.remoteAddress;
 						setImmediate(() => {
 							const metric = role === "send" ? "sendRttMs" : "pollRttMs";
 							const known = lanesForOrigin(lane.origin)
 								.map((candidate) => candidate[metric])
 								.filter((rtt): rtt is number => rtt !== undefined);
-							recordLaneRace(role, lane.origin, lane.id, elapsedMs, known.length > 0 ? Math.min(...known) : undefined);
+							recordLaneRace(role, lane.origin, lane.id, elapsedMs, known.length > 0 ? Math.min(...known) : undefined, remoteIp);
 						});
 					}
 					const response = new Response(decoded as BodyInit, { status, headers: responseHeaders });
