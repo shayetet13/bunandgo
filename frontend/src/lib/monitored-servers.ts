@@ -11,11 +11,6 @@ export const MONITORED_SERVERS: ReadonlyArray<{ id: MonitoredServerId; label: st
 	{ id: "server2", label: "Server 2", role: "Bot worker", color: "#d95926" },
 ];
 
-export const SERVER_COLOR: Record<MonitoredServerId, string> = Object.fromEntries(MONITORED_SERVERS.map((s) => [s.id, s.color])) as Record<
-	MonitoredServerId,
-	string
->;
-
 export const SERVER_LABEL: Record<MonitoredServerId, string> = Object.fromEntries(MONITORED_SERVERS.map((s) => [s.id, s.label])) as Record<
 	MonitoredServerId,
 	string

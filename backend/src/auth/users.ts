@@ -26,7 +26,6 @@ export interface ManagedUser extends AuthUser {
  * make faster — the effect measured in fast-square-poller.ts.
  */
 export const MAX_BOT_QUOTA = 5;
-export const DEFAULT_BOT_QUOTA = 1;
 
 /**
  * What an extra bot costs. Lives here so the quota error, the dashboard

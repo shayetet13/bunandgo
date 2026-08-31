@@ -202,7 +202,7 @@ bot/                ← หัวใจของระบบ ตรรกะบ�
   rules.ts                กฎ keyword→คำตอบ, compile+cache, matchRule()
   worker-scope.ts         กำหนดว่า process นี้ดูแลบอทของ owner ไหน
   square-stall-policy.ts  ตรรกะกู้คืนแบบขั้นบันไดเมื่อ connection ดูค้าง
-  square-visibility.ts    ยืนยันย้อนหลังว่าข้อความที่ส่งไปโชว์ในห้องจริง
+  square-visibility.ts    flag เปิด/ปิดการตรวจ+ส่งซ้ำข้อความที่ส่งไปแล้วไม่โชว์ในห้อง (ตรวจจริงใน square-forensics.ts)
   bots.ts / room-config-copy.ts / room-coverage.ts / scheduled-posts.ts / anomalies.ts / alerts.ts
 
 dispatch/           ชั้นสื่อสารกับ LINE (2,392 บรรทัด)
