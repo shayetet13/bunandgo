@@ -4,6 +4,19 @@ import { isTrustedWorkerForward } from "./worker-proxy.ts";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
+/**
+ * A missing Origin is treated as trusted here on purpose, not by oversight:
+ * a real browser always sends Origin on both a WebSocket handshake (mandated
+ * by the WebSocket protocol itself, unlike a plain fetch) and any same- or
+ * cross-site state-changing request — the CSRF/hostile-page threat model
+ * this guard exists for. A request with no Origin at all is a non-browser
+ * caller (curl, a server-to-server hop, a CLI tool), which this check was
+ * never meant to gate. The actual load-bearing defense against a browser
+ * CSRF is the session cookie's `sameSite: "Strict"` (see api/routes/auth.ts) —
+ * this Origin check, and rejectCrossSiteWrite's `sec-fetch-site` check
+ * alongside it, are additional layers on top of that, not the only one. If
+ * `sameSite` is ever loosened, revisit this assumption.
+ */
 function trustedBrowserOrigin(c: Context): boolean {
 	const origin = c.req.header("origin");
 	if (!origin || config.allowedOrigins.includes(origin)) return true;

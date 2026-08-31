@@ -26,6 +26,7 @@ function fromRow(row: RuleRow): Rule {
 }
 
 const listStmt = db.prepare<RuleRow, [number]>("SELECT * FROM rules WHERE bot_id = ? ORDER BY priority DESC, id ASC");
+const countStmt = db.prepare<{ n: number }, [number]>("SELECT COUNT(*) AS n FROM rules WHERE bot_id = ?");
 const insertStmt = db.prepare<RuleRow, [number, RuleSurface, string, string, string, number, number, number]>(
 	"INSERT INTO rules (bot_id, surface, match_type, match_value, reply_text, enabled, priority, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
 );
@@ -55,12 +56,60 @@ const compiledCache = new Map<number, CompiledRule[]>();
 const MAX_REGEX_PATTERN_LENGTH = Number(process.env.RULE_REGEX_MAX_PATTERN ?? 512);
 const MAX_MATCH_TEXT_LENGTH = Number(process.env.RULE_MATCH_MAX_TEXT ?? 4096);
 const MAX_REPLY_TEXT_LENGTH = Number(process.env.RULE_REPLY_MAX_TEXT ?? 4096);
+/** Beyond this many rules, a bot's own admin has bloated the linear per-message scan; new rules stop being accepted. */
+const MAX_RULES_PER_BOT = Number(process.env.RULE_MAX_PER_BOT ?? 500);
 
 function potentiallyUnsafeRegex(source: string): boolean {
 	if (source.length > MAX_REGEX_PATTERN_LENGTH) return true;
 	// Reject the common catastrophic-backtracking shape: a repeated group
 	// that itself contains a repeat, e.g. `(a+)+` or `(.*){2,}`.
-	return /\((?:[^()\\]|\\.)*[*+{](?:[^()\\]|\\.)*\)\s*(?:[*+]|\{)/.test(source);
+	if (/\((?:[^()\\]|\\.)*[*+{](?:[^()\\]|\\.)*\)\s*(?:[*+]|\{)/.test(source)) return true;
+	// Reject the equally catastrophic "ambiguous alternation" shape: a
+	// quantified group whose branches can match the same text, e.g. `(a|a)+`
+	// or `(a|ab)*` — this was the shape the nested-quantifier check above
+	// missed (confirmed: matching
+	// `(a|a)+$` against 26 "a"s took ~430ms on this box; a genuine LINE
+	// message is tested on the single-threaded event loop that every other
+	// bot's replies and every API request share, so this alone can freeze the
+	// whole process for every tenant). Structural, so it holds regardless of
+	// which literal character the pattern actually repeats.
+	return /\((?:[^()\\]|\\.)*\|(?:[^()\\]|\\.)*\)\s*(?:[*+]|\{)/.test(source);
+}
+
+/**
+ * Adversarial probe test, run once per pattern (rule save, or cache reload
+ * after a restart) rather than per message — a bounded one-time cost is fine
+ * for an admin action or a startup reload, the way it would not be for a
+ * per-message hot path. Backstops `potentiallyUnsafeRegex` against a
+ * catastrophic-backtracking shape the structural check does not anticipate:
+ * this measures actual behaviour instead of trying to classify the pattern.
+ *
+ * Probe length is deliberately short — long enough that a genuinely
+ * catastrophic pattern is already unusably slow (see the `(a|a)+$` timing
+ * above), short enough that even an undetected bad pattern's one-time test
+ * here stays well under a second rather than growing to minutes.
+ */
+const REDOS_PROBE_LENGTH = 26;
+const REDOS_PROBE_BUDGET_MS = Number(process.env.RULE_REGEX_PROBE_BUDGET_MS ?? 200);
+
+/** Literal letters/digits from the pattern itself, so a probe built from them can actually reach a repeated group whose branches use script-specific characters (Thai, etc.) instead of only ASCII. */
+function distinctLiteralChars(source: string, limit: number): string[] {
+	const matches = source.match(/[\p{L}\p{N}]/gu) ?? [];
+	return [...new Set(matches)].slice(0, limit);
+}
+
+function redosProbeInputs(source: string): string[] {
+	const chars = distinctLiteralChars(source, 3);
+	const probeChars = chars.length > 0 ? chars : ["a", "0"];
+	return probeChars.map((ch) => ch.repeat(REDOS_PROBE_LENGTH) + "!");
+}
+
+/** True when the pattern takes catastrophically long against its own probe inputs. */
+function isSlowRegex(pattern: RegExp, source: string): boolean {
+	const probes = redosProbeInputs(source);
+	const start = performance.now();
+	for (const probe of probes) pattern.test(probe);
+	return performance.now() - start > REDOS_PROBE_BUDGET_MS;
 }
 
 const CONTAINS_ANY_EXAMPLE = "14,15,16,test,car";
@@ -116,10 +165,14 @@ function assertRuleInput(input: RuleInput): void {
 		if (potentiallyUnsafeRegex(input.matchValue)) {
 			throw new RuleValidationError("regex ยาวเกินไปหรือไม่ปลอดภัย — ตัวอย่างที่ถูกต้อง: ^(จอง|ยกเลิก)\\s*\\d+$");
 		}
+		let compiled: RegExp;
 		try {
-			new RegExp(input.matchValue);
+			compiled = new RegExp(input.matchValue);
 		} catch {
 			throw new RuleValidationError("regex ไม่ถูกต้อง — ตรวจวงเล็บและอักขระพิเศษ ตัวอย่าง: ^(จอง|ยกเลิก)\\s*\\d+$");
+		}
+		if (isSlowRegex(compiled, input.matchValue)) {
+			throw new RuleValidationError("regex ไม่ปลอดภัย — ใช้เวลาประมวลผลนานเกินไปกับข้อความทดสอบ ลองทำ pattern ให้ง่ายขึ้น");
 		}
 	}
 }
@@ -140,6 +193,13 @@ function compile(rule: Rule): CompiledRule {
 			} catch {
 				pattern = undefined;
 			}
+			// Re-checked here, not only in assertRuleInput: a rule saved before
+			// this check existed (or before potentiallyUnsafeRegex covered its
+			// particular shape) must not keep matching unsafely just because it
+			// predates the fix — every process restart reloads rules through
+			// this same path, so a fixed-and-redeployed check is enough on its
+			// own, no migration needed.
+			if (pattern && isSlowRegex(pattern, rule.matchValue)) pattern = undefined;
 			test = pattern ? (text) => pattern.test(text) : () => false;
 			break;
 		}
@@ -189,6 +249,9 @@ export interface RuleInput {
 
 export function createRule(botId: number, input: RuleInput): Rule {
 	assertRuleInput(input);
+	if ((countStmt.get(botId)?.n ?? 0) >= MAX_RULES_PER_BOT) {
+		throw new RuleValidationError(`บอทนี้มีเงื่อนไขครบ ${MAX_RULES_PER_BOT} ข้อแล้ว — กรุณาลบเงื่อนไขที่ไม่ใช้ก่อนเพิ่มใหม่`);
+	}
 	const row = insertStmt.get(
 		botId,
 		input.surface,

@@ -117,6 +117,53 @@ describe("matchRule", () => {
 		expect(getCompiledRules(BOT)).toHaveLength(0);
 	});
 
+	test("rejects the nested-quantifier catastrophic-backtracking shape", () => {
+		expect(() => createRule(BOT, { ...baseInput, matchType: "regex", matchValue: "(a+)+$" })).toThrow("ไม่ปลอดภัย");
+		expect(getCompiledRules(BOT)).toHaveLength(0);
+	});
+
+	test("rejects the ambiguous-alternation catastrophic-backtracking shape", () => {
+		// Regression test: this exact pattern passed the old check (only
+		// caught a quantified group containing another quantifier) and froze
+		// the process — `(a|a)+$` against 26 "a"s measured ~430ms on this box,
+		// tested synchronously on the same event loop every bot and every API
+		// request shares.
+		expect(() => createRule(BOT, { ...baseInput, matchType: "regex", matchValue: "(a|a)+$" })).toThrow("ไม่ปลอดภัย");
+		expect(getCompiledRules(BOT)).toHaveLength(0);
+	});
+
+	test("rejects an ambiguous alternation built from non-Latin literal characters", () => {
+		// The probe backstop builds its adversarial input from the pattern's
+		// own literal characters specifically so this does not slip past it
+		// the way an ASCII-only probe would.
+		expect(() => createRule(BOT, { ...baseInput, matchType: "regex", matchValue: "(จอง|จอง)+$" })).toThrow("ไม่ปลอดภัย");
+		expect(getCompiledRules(BOT)).toHaveLength(0);
+	});
+
+	test("still accepts a normal alternation used the documented way", () => {
+		const rule = createRule(BOT, { ...baseInput, matchType: "regex", matchValue: "^(จอง|ยกเลิก)\\s*\\d+$" });
+		const rules = getCompiledRules(BOT);
+
+		expect(rule.matchValue).toBe("^(จอง|ยกเลิก)\\s*\\d+$");
+		expect(matchRule(rules, "จอง 15")).toBeDefined();
+		expect(matchRule(rules, "ยกเลิก 3")).toBeDefined();
+		expect(matchRule(rules, "อยากจอง 15")).toBeUndefined();
+	});
+
+	test("neutralizes an unsafe pattern already in the database on the next cache load, no migration needed", () => {
+		// Simulates a rule saved before this check existed (or before
+		// potentiallyUnsafeRegex covered this particular shape): write it to
+		// SQLite directly, bypassing createRule's validation, then confirm a
+		// fresh compile from that stored row also refuses to run it.
+		db.exec(
+			`INSERT INTO rules (bot_id, surface, match_type, match_value, reply_text, enabled, priority, created_at)
+			 VALUES (${BOT}, 'talk', 'regex', '(a|a)+$', 'x', 1, 0, ${Date.now()})`,
+		);
+		preloadRules(BOT);
+
+		expect(matchRule(getCompiledRules(BOT), "a".repeat(26))).toBeUndefined();
+	});
+
 	test("matches a containsAny rule when any comma-separated keyword appears", () => {
 		createRule(BOT, { ...baseInput, matchType: "containsAny", matchValue: "14,15,16,test,car" });
 		const rules = getCompiledRules(BOT);
@@ -164,6 +211,18 @@ describe("matchRule", () => {
 
 		expect(matchRule(rules, "14,15,16", "talk")).toBeDefined();
 		expect(matchRule(rules, "14,15,16", "square")).toBeDefined();
+	});
+
+	test("refuses a new rule once the per-bot cap is reached", () => {
+		// Matches the MAX_RULES_PER_BOT default in rules.ts (RULE_MAX_PER_BOT
+		// env override) — this bounds the worst case of the linear per-message
+		// scan in matchRule, the same way MAX_SQUARE_CHATS_PER_BOT bounds the
+		// fast-poll room count in chat-access.ts.
+		for (let i = 0; i < 500; i++) createRule(BOT, { ...baseInput, matchValue: `k${i}` });
+		expect(getCompiledRules(BOT)).toHaveLength(500);
+
+		expect(() => createRule(BOT, { ...baseInput, matchValue: "one-too-many" })).toThrow("ครบ");
+		expect(getCompiledRules(BOT)).toHaveLength(500);
 	});
 
 	test("reports missing updates and deletes", () => {
