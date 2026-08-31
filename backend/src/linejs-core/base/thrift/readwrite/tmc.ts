@@ -239,18 +239,36 @@ export class TMoreCompactProtocol {
 	}
 
 	// Decode field bitmap
+	/**
+	 * `bitmap` comes straight off the wire (readVarint has no ceiling), but
+	 * `1 << bitPosition` and `bitmap & mask` are both 32-bit signed operators
+	 * in JS: at bitPosition 31 the shift wraps negative, at 32 it wraps back
+	 * to 1, and repeats forever -- for any bitmap >= 2^31, `mask > bitmap`
+	 * never becomes true and this loop never terminates. A single malformed
+	 * or unexpected nested-struct field in a live Talk push frame is enough
+	 * to trigger it, and unlike a thrown error, an infinite loop freezes the
+	 * whole single-threaded, many-bots-in-one-process event loop with no
+	 * exception for a surrounding try/catch to catch and no crash to recover
+	 * from. BigInt has no 32-bit ceiling, so the same arithmetic here is
+	 * exact regardless of how large the field id would be. The explicit cap
+	 * still throws a labeled error rather than looping thousands of times on
+	 * a garbage/implausible bitmap -- the same shape of defense legy.ts
+	 * already uses for an implausible header count.
+	 */
 	decodeFieldBitmap(bitmap: number): number[] {
+		const MAX_BIT_POSITION = 256;
 		const fieldIds: number[] = [];
-		let bitPosition = 0;
+		const bits = BigInt(bitmap);
+		let bitPosition = 0n;
 
-		while (true) {
-			const mask = 1 << bitPosition;
-			if (mask > bitmap) {
-				break;
-			} else if ((bitmap & mask) !== 0) {
-				fieldIds.push(bitPosition);
+		while ((1n << bitPosition) <= bits) {
+			if (bitPosition > MAX_BIT_POSITION) {
+				throw new Error(`implausible struct field bitmap (>= 2^${MAX_BIT_POSITION}): ${bitmap}`);
 			}
-			bitPosition += 1;
+			if ((bits & (1n << bitPosition)) !== 0n) {
+				fieldIds.push(Number(bitPosition));
+			}
+			bitPosition += 1n;
 		}
 
 		return fieldIds;

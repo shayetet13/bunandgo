@@ -39,10 +39,18 @@ function isBinary(bin: Buffer) {
 	}
 }
 
-function bigInt(bin: Buffer): number | bigint {
+const MIN_SAFE_INTEGER_BIG = BigInt(Number.MIN_SAFE_INTEGER);
+const MAX_SAFE_INTEGER_BIG = BigInt(Number.MAX_SAFE_INTEGER);
+
+export function bigInt(bin: Buffer): number | bigint {
 	const hex = bin.toString("hex");
-	const value = BigInt("0x" + hex);
-	if (value <= BigInt(Number.MAX_SAFE_INTEGER)) {
+	// The wire value is the raw 64-bit two's-complement encoding — reading it
+	// as a bare unsigned magnitude (the previous `BigInt("0x" + hex)` alone)
+	// turned any genuinely negative I64 field into a huge, wrong positive
+	// number instead. `asIntN` is the exact inverse of write.ts's
+	// `BigInt.asUintN(64, val)` on the encode side.
+	const value = BigInt.asIntN(64, BigInt("0x" + hex));
+	if (value >= MIN_SAFE_INTEGER_BIG && value <= MAX_SAFE_INTEGER_BIG) {
 		return Number(value);
 	}
 	return value;

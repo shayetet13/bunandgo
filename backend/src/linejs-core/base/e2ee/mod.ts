@@ -15,6 +15,18 @@ const X25519_PKCS8_PREFIX = Buffer.from("302e020100300506032b656e04220420", "hex
 const X25519_SPKI_PREFIX = Buffer.from("302a300506032b656e032100", "hex");
 const MAX_SHARED_SECRETS = 4096;
 
+/**
+ * A separate, more explicitly-named gate than the general `debugLogsEnabled`
+ * flag `e2eeLog`'s call sites otherwise honor (some don't even check it).
+ * Unlike the transport/protocol debug logs this project turns on routinely
+ * for ordinary troubleshooting, an e2ee log payload can contain raw private
+ * keys, AES keys/IVs, and decrypted message plaintext. Flipping on general
+ * debug logging for an unrelated investigation (a push-connection issue,
+ * say) must never also start dumping key material to journald — that needs
+ * its own deliberate opt-in, off by default even when LINEJS_DEBUG_LOGS=1.
+ */
+const E2EE_UNSAFE_DEBUG_LOGS = globalThis.process?.env?.LINEJS_E2EE_DEBUG_LOGS_UNSAFE === "1";
+
 interface GroupKey {
 	privKey: string;
 	keyId: number;
@@ -899,6 +911,7 @@ export class E2EE {
 	}
 
 	private e2eeLog(type: string, message: LooseType) {
+		if (!E2EE_UNSAFE_DEBUG_LOGS) return;
 		this.client.log("e2ee", { type, message });
 	}
 

@@ -228,8 +228,21 @@ export class SquareChat extends TypedEventEmitter<SquareChatEvents> {
 							raw: event.payload.receiveMessage.squareMessage,
 						});
 						this.emit("message", message);
-						if (message.getTextDecorations().some((e) => e.mention && e.mention.mid === this.#client.base.profile?.mid)) {
-							this.emit("mention", message);
+						// getTextDecorations() throws for any non-"NONE" content
+						// type (a sticker/image/etc between two text messages in
+						// the same fetch batch is routine, not exceptional). That
+						// throw used to propagate out of this whole loop into the
+						// outer catch below -- but syncToken is advanced past this
+						// batch before the loop even starts, so every event after
+						// the one that threw was silently dropped forever, never
+						// retried. Scoped to just the mention check so one
+						// unmentionable message can't cost its batch-mates.
+						try {
+							if (message.getTextDecorations().some((e) => e.mention && e.mention.mid === this.#client.base.profile?.mid)) {
+								this.emit("mention", message);
+							}
+						} catch (mentionError) {
+							if (param.onError) param.onError(mentionError);
 						}
 					} else if (event.type === "NOTIFIED_KICKOUT_FROM_SQUARE" && event.payload.notifiedKickoutFromSquare) {
 						this.emit("kick", event.payload.notifiedKickoutFromSquare);

@@ -236,7 +236,7 @@ export class LiffService implements BaseService {
 					method: "POST",
 					body: `${allPermission.map((e) => "allPermission=" + e).join("&")}&${approvedPermission
 						.map((e) => "approvedPermission=" + e)
-						.join("&")}&__WLS=&channelId=2006747340&__csrf=${csrfToken}&allow=true`,
+						.join("&")}&__WLS=&channelId=${channelId}&__csrf=${csrfToken}&allow=true`,
 					headers,
 				});
 				return authResponse.ok;

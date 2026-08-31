@@ -923,6 +923,17 @@ async function openLane(lane: Lane): Promise<void> {
 			if (settled) return;
 			settled = true;
 			clearTimeout(timer);
+			if (lane.disposed) {
+				// The pool was torn down (stopLanes) while this handshake was
+				// still in flight -- that call cannot cancel a connect already
+				// underway, only mark the lane disposed and clear `pools`.
+				// Without this check the lane below would resurrect itself as
+				// "ready" holding a live session nothing in `pools` references
+				// anymore, leaking the socket for the life of the process.
+				session.destroy();
+				reject(new Error("lane pool stopped"));
+				return;
+			}
 			// The pool must never be the reason the process cannot exit.
 			session.unref?.();
 			lane.session = session;

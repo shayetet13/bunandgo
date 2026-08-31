@@ -18,6 +18,7 @@ import {
 } from "./compact.ts";
 import { readResponseBytes } from "../../../../dispatch/raw-response.ts";
 import { H2_LANE_ROLE_HEADER } from "../../../../dispatch/h2-lanes.ts";
+import { safeRequestHeaders } from "../../request/mod.ts";
 
 export type { CompactMessageResponse, SendCompactMessageOptions };
 
@@ -298,7 +299,7 @@ export class TalkService implements BaseService {
 		if (this.client.debugLogsEnabled) {
 			this.client.log("compactMessageRequest", {
 				path: `https://${this.client.request.endpoint}${path}`,
-				headers,
+				headers: safeRequestHeaders(headers),
 				body,
 			});
 		}

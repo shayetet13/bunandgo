@@ -138,7 +138,7 @@ export class SquareMessage {
 	 * Unsends the message.
 	 */
 	async unsend(): Promise<void> {
-		if (!this.isMyMessage) {
+		if (!(await this.isMyMessage())) {
 			throw new TypeError("Cannot unsend the message which is not yours.");
 		}
 		await this.#client.base.square.unsendMessage({
@@ -552,7 +552,7 @@ export class SquareThreadMessage extends SquareMessage {
 	 * Unsends the message.
 	 */
 	override async unsend() {
-		if (!this.isMyMessage) {
+		if (!(await this.isMyMessage())) {
 			throw new TypeError("Cannot unsend the message which is not yours.");
 		}
 		await this.#client.base.square.unsendMessage({

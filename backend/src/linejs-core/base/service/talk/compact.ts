@@ -94,7 +94,11 @@ export function decodeCompactMessageResponse(data: Uint8Array): CompactMessageRe
 	return {
 		sequenceId,
 		messageId,
-		createdTime: Number(createdTimeMs / 1000n),
+		// The wire value is already milliseconds (see the variable name, and
+		// every other createdTime in this codebase — e.g. SquareMessage's,
+		// and inbound-delay.ts's lineCreatedTimeOf) — dividing by 1000 here
+		// silently turned this specific decode path into seconds instead.
+		createdTime: Number(createdTimeMs),
 	};
 }
 

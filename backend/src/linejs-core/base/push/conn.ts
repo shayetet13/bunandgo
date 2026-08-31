@@ -103,6 +103,18 @@ export class Conn {
 				resolveRead();
 			});
 			request.once("error", fail);
+			// A self-initiated RST (Conn.close(), called both for a normal
+			// teardown and as session-manager.ts's stall-recovery repair) or a
+			// peer-initiated one can settle the stream with only a `close`
+			// event -- no `end`, no `error` -- the same lesson h2-lanes.ts's
+			// sendOnLane already learned about Bun's http2 client ("close
+			// always comes last and always carries it"). Without this listener
+			// `readDone` never settles, `Conn.read()` hangs forever, and
+			// `initLegyPusher()`'s reconnect loop in polling/mod.ts -- whose
+			// catch/finally is what actually splices out the dead conn and
+			// retries -- never runs: the very first recovery attempt
+			// permanently kills the push connection instead of replacing it.
+			request.once("close", () => fail(new Error("push stream closed")));
 		});
 		abort.signal.addEventListener(
 			"abort",

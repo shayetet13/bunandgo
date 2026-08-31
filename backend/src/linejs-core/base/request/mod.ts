@@ -7,11 +7,21 @@ import { H2_LANE_ROLE_HEADER } from "../../../dispatch/h2-lanes.ts";
 import { markProtocolPrep } from "../../../metrics/fast-path.ts";
 
 const square = ["/SQ1", "/SQLV1"];
-const SENSITIVE_RESPONSE_HEADERS = /^(?:authorization|cookie|set-cookie|x-line-access|x-line-next-access|x-line-.*token)$/i;
+const SENSITIVE_HEADERS = /^(?:authorization|cookie|set-cookie|x-line-access|x-line-next-access|x-line-.*token)$/i;
 const ERROR_BODY_PREVIEW_BYTES = 256;
 
 export function safeResponseHeaders(headers: Headers): Array<[string, string]> {
-	return [...headers.entries()].map(([name, value]) => [name, SENSITIVE_RESPONSE_HEADERS.test(name) ? "[REDACTED]" : value]);
+	return [...headers.entries()].map(([name, value]) => [name, SENSITIVE_HEADERS.test(name) ? "[REDACTED]" : value]);
+}
+
+/**
+ * Same redaction as safeResponseHeaders, for the outgoing side — used
+ * wherever a debug log would otherwise include the live `x-line-access`
+ * bearer token in plaintext (see the two `debugLogsEnabled` request-log
+ * call sites in this file and the matching one in service/talk/mod.ts).
+ */
+export function safeRequestHeaders(headers: Record<string, string>): Record<string, string> {
+	return Object.fromEntries(Object.entries(headers).map(([name, value]) => [name, SENSITIVE_HEADERS.test(name) ? "[REDACTED]" : value]));
 }
 
 function hexBodyPreview(body: Uint8Array): string {
@@ -146,7 +156,7 @@ export class RequestClient {
 				methodName,
 				path: `https://${this.endpoint}${path}`,
 				method: overrideMethod,
-				headers,
+				headers: safeRequestHeaders(headers),
 				timeout,
 				body: Trequest as BodyInit,
 			});

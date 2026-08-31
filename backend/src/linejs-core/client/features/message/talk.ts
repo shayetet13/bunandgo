@@ -75,7 +75,7 @@ export class TalkMessage {
 			  },
 	): Promise<void> {
 		if (typeof input === "string") {
-			return this.reply({
+			return this.send({
 				text: input,
 			});
 		}
@@ -88,6 +88,7 @@ export class TalkMessage {
 			to = this.isMyMessage ? this.to.id : this.from.id;
 		}
 		await this.#client.base.talk.sendMessage({
+			...input,
 			to,
 			e2ee: input.e2ee || Boolean(this.raw.chunks),
 		});
