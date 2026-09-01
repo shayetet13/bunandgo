@@ -73,9 +73,10 @@ logout.
   `LINE_TRANSPORT=go` to route everything through Go, or `LINE_TRANSPORT=direct`
   to force Bun for diagnostics. Go uses compact binary frames; set
   `DISPATCH_BINARY=0` only to roll back to legacy JSON/Base64 frames.
-- Account protection is drop-based: while `SEND_MIN_INTERVAL_MS` is active,
-  or after `SEND_MAX_PER_WINDOW` sends inside `SEND_WINDOW_MS`, a matching
-  message is discarded immediately and is never queued for a stale reply.
+- Account protection is drop-based: after `SEND_MAX_PER_WINDOW` sends inside
+  `SEND_WINDOW_MS`, a matching message is discarded immediately and is never
+  queued for a stale reply. (The old per-bot `SEND_MIN_INTERVAL_MS` floor was
+  removed — it throttled a racing bot with no upside.)
 - Protocol debug logging is disabled on the reply hot path by default. Set
   `LINEJS_DEBUG_LOGS=1` temporarily when diagnosing the LINE transport.
 - Enabled OpenChats use exactly one dedicated poll cursor per LINE session;

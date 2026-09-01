@@ -10,7 +10,7 @@
 
 ---
 
-## สถานะระบบที่ใช้งานจริง — อัปเดต 11 สิงหาคม 2026
+## สถานะระบบที่ใช้งานจริง — อัปเดต 1 กันยายน 2026
 
 หัวข้อนี้คือ **แหล่งอ้างอิงหลัก** สำหรับระบบที่ deploy อยู่ในตอนนี้ ส่วนหัวข้อเชิงแนวคิด
 ด้านล่างใช้ประกอบการตัดสินใจเท่านั้น หากขัดกันให้ยึดหัวข้อนี้และโค้ดเป็นหลัก
@@ -50,6 +50,8 @@
    - เลือก lane จาก RTT/สถานะ/in-flight แทนปล่อยให้ fetch เลือกแบบสุ่ม
    - `LINE_H2_SEND_RESERVED_LANES` กันเลนส่งจาก traffic poll ได้ แต่เป็นค่าที่ต้อง A/B test;
      ห้ามเพิ่มเพราะเดา
+   - การเลือก lane ตอนส่งจริงใช้ "พยากรณ์เวลาเสร็จ" ไม่ใช่แค่ RTT ล่าสุด + มี relative cooldown
+     และ per-bot lane pin — ดู 3.6
 
 5. **Hot path ใน memory**
    - กฎ compile/cache ล่วงหน้า, การตั้งค่าห้องและสิทธิ์ lookup จาก memory, claim/dedupe เป็น Map แบบ TTL
@@ -67,26 +69,40 @@
    - ใช้ timestamp ที่ LINE สร้างข้อความเข้าและข้อความตอบเพื่อเทียบผลกับบอทอื่น; ไม่เทียบกับ
      log “poll interval” ของคู่แข่ง เพราะนั่นอาจเป็นแค่ค่าที่เลื่อน slider
 
-### ค่าที่ต้องยึด (ชื่อจริงในโค้ด)
+### ค่าที่ต้องยึด (ชื่อจริงในโค้ด, default ในโค้ด ณ 1 ก.ย. 2026)
 
 ```ini
-# ห้อง hot: หนึ่ง cursor ต่อ bot + ห้องเสมอ
+# ห้อง hot: หนึ่ง cursor ต่อ bot + ห้องเสมอ (MAX_ROOMS hard-cap = 1 ในโค้ด)
 SQUARE_FAST_POLL=1
-SQUARE_FAST_POLL_INTERVAL_MS=100
+SQUARE_FAST_POLL_INTERVAL_MS=100          # floor 100; 50/0 ต้องเปิด ALLOW_* ควบคู่
 SQUARE_FAST_POLL_ALLOW_50MS=0
 SQUARE_FAST_POLL_MAX_ROOMS=1
 SQUARE_FAST_POLL_WORKERS=1
 
 # transport/lanes: เริ่มจากค่าที่วัดแล้ว; เปลี่ยนทีละตัวและ A/B test
 LINE_TRANSPORT=hybrid
-LINE_H2_LANES=8
-LINE_H2_SEND_RESERVED_LANES=4
+LINE_H2_LANES=6
+LINE_H2_SEND_RESERVED_LANES=0            # 0 = ปิด; ต้องวัดผลก่อนเปิด
 LINE_H2_LANE_MAX_AGE_MS=900000
 LINE_H2_LANE_RECYCLE_GAP_MS=60000
+
+# SEND lane policy (dispatch/lane-speed-policy.ts, send-prediction.ts — ดู 3.6)
+LINE_H2_SEND_SLOW_FLOOR_MS=23            # ประวัติ 28→23→20→23; ห้ามลดจาก sample ช่วงสั้น
+LINE_H2_SEND_SLOW_RATIO=1.5
+LINE_H2_SEND_SLOW_COOLDOWN_MS=15000
+LINE_H2_SEND_PIN_ENTER_MS=21
+LINE_H2_SEND_PIN_EXIT_MS=23
+LINE_H2_SEND_SAMPLE_WINDOW=7
+LINE_H2_SEND_JITTER_WEIGHT=0.35
+
+# แบ่งบอทหลาย process (ถ้าใช้): static owner list หรือ balanced-sticky
+WORKER_ASSIGNMENT_MODE=                  # "balanced-sticky" เพื่อเปิดโหมดแบ่งอัตโนมัติ
+WORKER_TOPOLOGY_FILE=                    # หรือคุมทั้ง topology จากไฟล์ JSON เดียว
 ```
 
 `SQUARE_FAST_POLL_MAX_ROOMS` เพิ่มจำนวน **ห้อง** ที่ได้ dedicated poll ไม่ใช่เพิ่ม cursor ในห้องเดิม
-ดังนั้นเพิ่มได้เมื่อ CPU, account quota และ latency p95 ยังดีอยู่เท่านั้น
+(ตอนนี้ hard-cap ไว้ที่ 1 ในโค้ด และ "จำนวนห้องที่เปิดได้ต่อบอท" ผูกจากค่านี้โดยตรง — เพิ่มเมื่อ
+CPU, account quota และ latency p95 ยังดีอยู่เท่านั้น และต้องแก้ที่โค้ด ไม่ใช่แค่ env)
 
 ### สิ่งที่ไม่ทำ เพราะช้าหรือเสี่ยงกว่า
 
@@ -193,6 +209,29 @@ process เดียวกัน ไม่ใช่ยิง network ใหม�
 ถ้าปลายทางมี "แบบเต็ม" กับ "แบบย่อ" ของ request เดียวกัน (เช่น field น้อยกว่า, ไบต์น้อยกว่า)
 ใช้แบบย่อเสมอเมื่อทำได้ ลดเวลา serialize/transfer ต่อ request
 
+### 3.6 เลือก connection ด้วย "พยากรณ์เวลาเสร็จ" ไม่ใช่ RTT ล่าสุด + relative cooldown + pin
+
+เมื่อมี connection pool หลายเส้น การเลือกเส้นที่ "RTT ล่าสุดต่ำสุด" มีปัญหา: RTT เส้นเดียวแกว่งเอง,
+และเส้นที่ in-flight เต็มอยู่จะเสร็จช้ากว่าที่ตัวเลข RTT บอก ระบบนี้เลยเลือกด้วย **เวลาที่คาดว่า
+จะเสร็จ** ต่อ (บัญชี + เส้นทาง): `predicted = p50 + (p95−p50)×0.35 + queueMs` จาก sample ล่าสุด
+~7 ครั้ง โดย `queueMs` โผล่เฉพาะเมื่อ in-flight เกิน concurrent-stream capacity ที่ปลายทางโฆษณา
+(ไม่มี "ค่าปรับต่อ request" ที่เดาเอา) ถ้าไม่มี sample สดของเส้นนั้นก็ถอยไปใช้ transport PING
+
+**Cooldown ต้องเป็น relative ไม่ใช่ค่าตายตัว**: พักเส้นที่ช้ากว่า *ตัวใดตัวหนึ่ง* ระหว่าง floor
+สัมบูรณ์ กับ 1.5× เส้นที่เร็วสุดในรอบนั้น (อันไหนแคบกว่าใช้อันนั้น) — pool ที่เร็วอยู่แล้วจะกด
+มาตรฐานตัวเองให้สูง ส่วนตอน upstream ช้าทั้งแผง (ทุกเส้นช้าหมด) ต้อง **fail-open** กลับไปใช้เส้นที่
+เร็วสุดที่มี ไม่ใช่พักทุกเส้นจนส่งไม่ได้ **กับดักจริง**: floor สัมบูรณ์ที่ตั้งชิด median เกินไป
+(ห่างแค่ ~0.1ms จาก p50 ที่วัดได้ 7 วัน) พังภายใน 1 ชม.บน production — พอ RTT จริงขยับนิดเดียว
+floor เริ่ม cool ตัว median เอง แล้วพอหลายเส้น cool พร้อมกัน pool จัดอันดับไม่ได้เลย ต้องเผื่อ
+margin เหนือ median จริงๆ และเปลี่ยน floor นี้ทีละตัว (ไม่ bundle กับฟีเจอร์อื่น) เพื่อให้ regression
+โยงกลับมาที่ตัวเลขนี้ได้
+
+**per-bot lane pin (hysteresis)**: จำเส้นที่บอทหนึ่งเคยวัดได้เร็วมาก (< enter threshold) ไว้ให้
+มัน **ชนะเฉพาะกรณีเสมอจริง** (คู่แข่งอยู่ในระยะ ~0.1ms) แทนที่ round-robin จะหมุนออก จนกว่า score
+ของมันเองจะแตะ exit threshold (เช่น 21/23ms) — เส้นที่เร็วกว่า *จริง* ชนะ pin เสมอ ถ้าถ่างช่องนี้
+กว้างกว่าแค่ tie-break เส้นเดียวจะกินทุก send ของบอทนั้น แล้ว reserved lane อื่นจะเย็นจนวัดไม่ได้
+(regression ที่ round-robin มีไว้กันตั้งแต่แรก)
+
 ---
 
 ## 4. ความนิ่ง/ทนทาน (Reliability)
@@ -288,13 +327,18 @@ ALERT_TELEGRAM_CHAT_ID=
 # ===== พฤติกรรมยืนยันว่าข้อความที่ส่งไปแสดงผลจริง (ดู 4.4) =====
 SQUARE_VERIFY_SENDS=1
 # ระยะเวลาหลังส่งที่ยัง "ตรวจสอบซ้ำ" ว่าข้อความยังโชว์อยู่ (ms)
-SQUARE_VERIFY_DELAY_MS=1200
-# resend อัตโนมัติถ้าข้อความหายไปจากห้องหลังส่งสำเร็จ
-SQUARE_RESEND_WHEN_INVISIBLE=1
-REPLY_DEFENSE_MAX_RESENDS=3
+SQUARE_VERIFY_DELAY_MS=2000
+# resend อัตโนมัติถ้าข้อความหายไปจากห้องหลังส่งสำเร็จ (เปิดหลังพิสูจน์ read-back แล้ว)
+SQUARE_RESEND_WHEN_INVISIBLE=0
+REPLY_DEFENSE_MAX_RESENDS=2
+# suffix มองไม่เห็นต่างกันทุกครั้งที่ตอบข้อความซ้ำในห้องเดิม / กัน echo คำตอบตัวเอง
+REPLY_UNIQUIFY=0
+AUTOMATIC_REPLY_ECHO_TTL_MS=30000
 
 # ===== จำกัดอัตราการส่งของบัญชีเอง กันโดนแพลตฟอร์มมองว่าผิดปกติ =====
-SEND_MIN_INTERVAL_MS=0
+# ผูกกับบัญชีที่ "ส่งจริง" ไม่ใช่บัญชีที่ตรวจจับ (ดู 3.4)
+SEND_MAX_PER_WINDOW=20
+SEND_WINDOW_MS=60000
 
 # ===== เพดานทรัพยากรระบบ (ดู system-load monitor) =====
 SYSTEM_CPU_LIMIT_PERCENT=80
@@ -305,15 +349,15 @@ SYSTEM_ALERT_SUSTAINED_SAMPLES=3
 SYSTEM_ALERT_RECOVERY_SAMPLES=3
 
 # ===== เซิร์ฟเวอร์ =====
-PORT=8791
-DB_PATH=./data/app.db
+PORT=8790
+DB_PATH=data/app.db
 
 # ===== Fast-poll (ดู 1.2) =====
 SQUARE_FAST_POLL=1
-# 0 = ยิงถี่สุดเท่าที่ round-trip เครือข่ายอนุญาต (ไม่หน่วงเอง)
-SQUARE_FAST_POLL_INTERVAL_MS=0
-# ต้อง <= จำนวนช่องทางสูงสุดที่อนุญาตให้เปิดต่อบัญชี (ดู 4.3 — ผูกกันไว้ในโค้ด)
-SQUARE_FAST_POLL_MAX_ROOMS=2
+# floor = 100ms ในโค้ด; 50 หรือ 0 ต้องเปิด SQUARE_FAST_POLL_ALLOW_50MS / ALLOW_ZERO_MS ควบคู่
+SQUARE_FAST_POLL_INTERVAL_MS=100
+# hard-cap = 1 ในโค้ด และ "จำนวนห้องที่เปิดได้ต่อบอท" ผูกจากค่านี้ (ดู 4.3)
+SQUARE_FAST_POLL_MAX_ROOMS=1
 # บังคับเป็น 1 ในโค้ด: หนึ่ง cursor ต่อ bot + ห้อง (ห้ามเพิ่ม worker ซ้อน)
 SQUARE_FAST_POLL_WORKERS=1
 # จำนวนรอบสูงสุดที่ยอมให้ "อ่านประวัติเก่าทิ้ง" ก่อนเริ่มส่งจริง ตอนเพิ่งเปิดช่องทางใหม่
@@ -335,6 +379,24 @@ SQUARE_STALL_ESCALATE_AFTER=3
 LINE_H2_LANES=6
 # 0 = ปิด ไม่กันเลนไว้ ต้องวัดผลจริงก่อนเปิด (ดู 3.2)
 LINE_H2_SEND_RESERVED_LANES=0
+LINE_H2_LANE_MAX_AGE_MS=900000
+LINE_H2_LANE_RECYCLE_GAP_MS=60000
+
+# ===== SEND lane policy (ดู 3.6) — ทุกค่ามาจาก incident จริง, A/B test ทีละตัว =====
+LINE_H2_SEND_SLOW_FLOOR_MS=23            # ประวัติ 28→23→20→23; ห้ามลดจาก sample ช่วงสั้น
+LINE_H2_SEND_SLOW_RATIO=1.5
+LINE_H2_SEND_SLOW_COOLDOWN_MS=15000
+LINE_H2_SEND_PIN_ENTER_MS=21
+LINE_H2_SEND_PIN_EXIT_MS=23
+LINE_H2_SEND_SAMPLE_WINDOW=7
+LINE_H2_SEND_JITTER_WEIGHT=0.35
+
+# ===== แบ่งบอทหลาย process (ถ้าใช้ — ดู 3.x ของ ARCHITECTURE.md/PROJECT-BLUEPRINT.md) =====
+# ปล่อยว่าง = process เดียวดูแลทุก owner (พฤติกรรมเดิม)
+WORKER_ASSIGNMENT_MODE=                  # "balanced-sticky" = แบ่ง owner ใหม่ไปฝั่งที่บอทน้อยกว่า
+WORKER_ASSIGNMENT_WORKERS=               # primary,shard-b (ตัวแรก = primary; ต้องมี ≥2)
+WORKER_TOPOLOGY_FILE=                    # หรือคุมทั้ง topology จากไฟล์ JSON เดียว
+CONTROL_PLANE_TOKEN=                     # ≥32 ตัวอักษร เหมือนกันทุก process ถ้าแยก
 
 # ===== ความช้าที่ยอมรับได้ก่อนแจ้งเตือน (ดู 5.1) =====
 INBOUND_SLOW_MS=400

@@ -58,7 +58,8 @@
 **ไม่ใช่** load-balance กัน แต่เป็นคู่ edge/backend คนละหน้าที่
 
 **linebot-worker กับ linebot-worker-shard-b**: process เดียวกันทุกบรรทัดโค้ด รันจาก release
-เดียวกัน ต่างกันแค่ env var `WORKER_OWNER_SCOPE`/`WORKER_OWNER_EXCLUDE` (ดูหัวข้อ 6) — เกิดจาก
+เดียวกัน ต่างกันแค่ env ที่บอกว่า process ไหนดูแล owner ไหน (`WORKER_OWNER_SCOPE`/`EXCLUDE` แบบ
+ระบุมือ หรือ `WORKER_ASSIGNMENT_MODE=balanced-sticky` แบบแบ่งอัตโนมัติ — ดูหัวข้อ 6) — เกิดจาก
 การเจอว่า reply/poll hot path เป็น single JS thread เดียว ต่อให้เครื่องมีกี่ core ก็ใช้ได้จริงแค่
 core เดียวเสมอถ้ารันแค่ process เดียว จึงแยกบอทบางส่วนไปรันอีก process เพื่อใช้ core ที่สอง
 
@@ -83,20 +84,28 @@ bot/                ← หัวใจของระบบ ตรรกะบ�
   fast-square-poller.ts  loop poll เฉพาะห้อง hot (ดูหัวข้อ 7.1)
   fast-poll-room.ts      เลือกว่าห้องไหนควรได้ fast-poll (budget-based, ดูหัวข้อ 7.2)
   primary-bot.ts          ใครคือบอท "หลัก" ที่ตอบจริงในห้องหนึ่งๆ เมื่อมีบอทพี่น้องหลายตัว
+  incoming-message-policy.ts  ด่านตรวจต่อข้อความ (shouldProcessIncomingMessage) — เรียก chat-access.ts + square-roles.ts
+  chat-access.ts          "ที่เก็บ" enabled/admin-only/allowlist + cache ในหน่วยความจำ + setter
   reply-guard.ts          กันตอบซ้ำ (claimIncomingMessage / claimReply / claimRoomAnswer)
+  reply-sender.ts / reply-defense.ts / automatic-reply-echo.ts   เลือกวิธีส่งเร็วสุด / กันคำตอบถูกลบ / กัน echo ตัวเอง
   rate-limiter.ts         sliding-window จำกัดความถี่การส่งต่อบัญชี
-  chat-access.ts          ห้องไหนเปิดตอบ/admin-only/allowlist — cache ในหน่วยความจำ
   rules.ts                กฎ keyword→คำตอบ, compile+cache, matchRule()
   worker-scope.ts         กำหนดว่า process นี้ดูแลบอทของ owner ไหน (ดูหัวข้อ 6)
+  worker-topology.ts / worker-assignment.ts   env/JSON → owner routes + validate ตอน boot / balanced-sticky assign
   square-stall-policy.ts  ตรรกะกู้คืนแบบขั้นบันไดเมื่อ connection ดูค้าง
-  square-visibility.ts    flag เปิด/ปิดการตรวจ+ส่งซ้ำข้อความที่ส่งไปแล้วไม่โชว์ในห้อง (ตรวจจริงใน square-forensics.ts)
+  square-roles.ts / square-access-policy.ts / square-poll-quiet.ts / square-visibility.ts   role/สิทธิ์/เงียบ poll/ตรวจ+ส่งซ้ำ OpenChat
   bots.ts / room-config-copy.ts / room-coverage.ts / scheduled-posts.ts / anomalies.ts / alerts.ts
                           CRUD และ helper รอบๆ บอท/ห้อง/รายงาน
 
 dispatch/           ชั้นสื่อสารกับ LINE
-  h2-lanes.ts          connection pool HTTP/2 ที่คุมเอง (ดูหัวข้อ 7.4) — หัวใจของความเร็วฝั่งส่ง
-  warmer.ts             อุ่น connection ล่วงหน้าไม่ให้ cold start ตอนมีข้อความจริง
-  client.ts / direct-request.ts / prewarm-ack.ts  ชั้น request ไปยัง sender/LINE
+  h2-lanes.ts          connection pool HTTP/2 ที่คุมเอง (ดูหัวข้อ 7.4) — หัวใจของความเร็วฝั่งส่ง + เลือก SEND lane
+  lane-speed-policy.ts / send-prediction.ts   ค่าคงที่ cool/pin lane / พยากรณ์เวลา SEND เสร็จต่อ bot-route
+  lane-race.ts / lane-race-persistence.ts   บันทึกผลแข่งของแต่ละ lane หลังส่งเสร็จ (ไม่บล็อกการตอบ)
+  warmer.ts / prewarm-scope.ts   อุ่น connection ล่วงหน้า (scope กัน warm-up ไปตอบ traffic จริง)
+  binary-protocol.ts / client.ts / direct-request.ts / prewarm-ack.ts  ชั้น request ไปยัง sender/LINE
+
+security/           middleware จับ intrusion (login ล้ม/session ปลอม/cross-site write) → alert + dashboard event
+announcements/      ประกาศแอดมินโชว์บน console ผู้ใช้ทุกคน (list เดียว เห็นจากทุก worker)
 
 linejs-core/        LINE client library (Thrift protocol, encode/decode, auth, E2EE) — fork/
                     ปรับแต่งเฉพาะโปรเจกต์นี้ ไม่ใช่ npm package ภายนอก
@@ -147,7 +156,9 @@ lib/
 | `bot_events` | เหตุการณ์บอท (login, resume, error) เพื่อดูย้อนหลัง |
 | `anomalies` | เหตุการณ์ผิดปกติที่ควรมีคนดู (แยกจาก log กิจกรรมปกติ — ดูหัวข้อ 7.5) |
 | `scheduled_posts` | โพสต์ตามเวลาที่ตั้งไว้ล่วงหน้า |
-| `kv` | ค่าตั้งค่าเบ็ดเตล็ดต่อบอท (เช่น allowOwnerTesting) |
+| `owner_worker_assignments` | balanced-sticky: owner id → worker id ที่ถูก assign (assign ครั้งเดียว ไม่ย้าย — ดูหัวข้อ 6) |
+| `announcements` | ประกาศแอดมินที่โชว์บน console ผู้ใช้ |
+| `kv` / `app_meta` | ค่าตั้งค่าเบ็ดเตล็ดต่อบอท / ค่า global ที่ทุก worker แชร์ (maintenance mode, square poll-quiet, restart ts) |
 
 ---
 
@@ -155,8 +166,8 @@ lib/
 
 1. **ตรวจจับ (สองทางแข่งกัน)**: push ปกติของ LINE (`fetchMyEvents`, batch ~100ms) วิ่งคู่ขนานกับ
    dedicated poller เฉพาะห้อง hot (`fetchSquareChatEvents`, ไม่มีจังหวะพัก) ใครเห็นก่อนไปต่อก่อน
-2. **ด่านตรวจ** (`incoming-message-policy.ts`): ห้องเปิดตอบไหม / admin-only ไหม / อยู่ allowlist
-   ไหม — เช็คจาก Map ในหน่วยความจำล้วนๆ ไม่แตะฐานข้อมูล
+2. **ด่านตรวจ** (`incoming-message-policy.ts`): 1-1 talk ไม่ตอบเสมอ, ห้องต้อง enabled, square
+   admin-only เช็ค role + allowlist — ทุก lookup ผ่าน `chat-access.ts` (Set/Map ในหน่วยความจำ) ไม่แตะ DB
 3. **จับคู่กฎ** (`rules.ts`): เทียบข้อความกับกฎที่ compile ไว้ล่วงหน้าแล้ว
 4. **กันตอบซ้ำ** (`reply-guard.ts`): กันบอทตัวเองตอบซ้ำ + กันบอทพี่น้องของ owner เดียวกันตอบซ้อนกัน
 5. **Primary handoff** (`primary-bot.ts`): ถ้าบอทที่เจอไม่ใช่ตัวหลักของห้องนั้น ส่งไม้ต่อให้ตัวหลัก
@@ -178,12 +189,22 @@ lib/
 ไปคนละ process — ไม่ใช่ worker_threads เพราะต้องย้าย session/token ของ LINE client ข้าม thread
 ซึ่งเสี่ยงกว่ามากและแตะโค้ด auth ที่ sensitive; รัน process แยกทำให้ reuse โค้ดเดิม 100%
 
-`worker-scope.ts` คือกลไกหลัก:
+แบ่งบอทเข้า process ได้ 2 แบบ — `worker-topology.ts` แปลง config เป็น env ชุดนี้ตอน boot:
 ```
-WORKER_OWNER_SCOPE=2        process นี้ดูแลเฉพาะ owner ที่ระบุ (ใช้กับ shard ใหม่)
-WORKER_OWNER_EXCLUDE=2      process นี้ดูแลทุกคนยกเว้นที่ระบุ (ใช้กับ process หลัก/catch-all)
-ไม่ตั้งทั้งคู่                ดูแลทุกคน — พฤติกรรมเดิม 100% (ค่า default)
+# แบบที่ 1 — static: ระบุ owner ตายตัว
+WORKER_OWNER_SCOPE=2        shard: ดูแลเฉพาะ owner ที่ระบุ (comma-separated)
+WORKER_OWNER_EXCLUDE=2      primary: ดูแลทุกคนยกเว้นที่ระบุ — ต้องตรงกับ WORKER_OWNER_ROUTES เป๊ะ
+ไม่ตั้งเลย                   ดูแลทุกคน — พฤติกรรมเดิม 100% (ค่า default)
+
+# แบบที่ 2 — balanced-sticky: owner ใหม่ไปฝั่งที่บอทน้อยกว่า, ไม่ย้ายทีหลัง
+WORKER_ASSIGNMENT_MODE=balanced-sticky
+WORKER_ASSIGNMENT_WORKERS=primary,shard-b   (ตัวแรก = primary)
 ```
+`worker-assignment.ts` เลือก worker ให้ owner ใหม่ภายใต้ SQLite `IMMEDIATE` transaction (กัน 2
+process assign พร้อมกันจาก count เดิม) เก็บผลถาวรในตาราง `owner_worker_assignments` — owner ที่
+assign แล้วไม่ถูกย้ายอีก เพราะการย้ายบอทข้าม process กลางคันเสี่ยงเท่ากับกฎเหล็กด้านล่างที่ห้าม
+`worker-topology.json` (ตั้ง path ที่ `WORKER_TOPOLOGY_FILE`, prod default อยู่ข้าง `DB_PATH`) คือ
+ทางลัดให้ deploy user คุมทั้ง topology จากไฟล์เดียวโดยไม่ต้องแก้ root-owned EnvironmentFile
 
 **กฎเหล็ก**: ห้ามแบ่งบอทของ owner เดียวกันข้าม process เด็ดขาด เพราะมี state ในหน่วยความจำที่
 ใช้ร่วมกันเฉพาะบอทของ owner เดียวกัน (ต้องอยู่ process เดียวกันเท่านั้นถึงจะถูก):
@@ -197,7 +218,10 @@ SQLite (WAL mode + busy_timeout รองรับ multi-writer อยู่แ�
 
 **Safety rail ที่เพิ่มไว้**: `startBot()`/`stopBot()`/`enforceBotQuota()` เช็ค `inWorkerScope()`
 ก่อนทำงานเสมอ — กันบอทถูกสั่ง start/stop ผิด process โดยไม่ตั้งใจ (จะทำให้ login ซ้อนสองบัญชี
-เดียวกัน หรือเขียนทับสถานะบอทของ process อื่นที่กำลังรันอยู่จริง)
+เดียวกัน หรือเขียนทับสถานะบอทของ process อื่นที่กำลังรันอยู่จริง) นอกจากนั้น
+`validateWorkerTopology()` รันตอน boot บังคับให้ split สมบูรณ์ (EXCLUDE ตรงกับ ROUTES,
+balanced-sticky ห้ามปน static scope, CONTROL_PLANE_TOKEN ≥32 ตัว ฯลฯ) — ถ้าไม่ครบ process ตาย
+ตั้งแต่ boot ดีกว่าปล่อยให้ catch-all กับ shard login บัญชีเดียวกันพร้อมกันเงียบๆ
 
 ---
 
@@ -235,6 +259,13 @@ SQLite (WAL mode + busy_timeout รองรับ multi-writer อยู่แ�
 in-flight ที่วัดจริง ไม่ปล่อยให้ library เลือกแบบสุ่ม แยกเลนสำหรับ "ส่ง" ออกจากเลนสำหรับ
 "ตรวจจับ" ได้ (`LINE_H2_SEND_RESERVED_LANES`) เพราะ poll รัวๆ แย่งเลนกับตอนต้องส่งจริง (วัดจริง:
 16.6ms → 35.5ms ตอนไม่แยก) แต่ต้องวัดผลจริงก่อนคงค่าไว้ถาวร ไม่ใช่ทุกค่าที่ "ดูน่าจะช่วย" จะช่วยจริง
+
+การเลือก SEND lane (`lane-speed-policy.ts` + `send-prediction.ts`, รายละเอียดเต็มใน
+`PROJECT-BLUEPRINT.md` 7.4): พยากรณ์เวลาเสร็จต่อ bot-route ด้วย `p50 + jitter×0.35 + queueMs`
+(7-sample), cool lane ที่ช้ากว่า `SEND_SLOW_FLOOR_MS=23` หรือ 1.5× ตัวที่เร็วสุดในรอบ (fail-open
+ถ้าทุก lane ช้าหมด), จำ lane ที่บอทเคยวัดต่ำกว่า 21ms ไว้ชนะ *เฉพาะ tie จริง* (hysteresis 21/23),
+จัดอันดับ cold lane ด้วย median RTT ต่อ Akamai IP, รีไซเคิล lane ทุก ~15 นาที — ทุกค่ามาจาก
+incident จริง (`SEND_SLOW_FLOOR_MS` เคยลองลด 23→20 แล้วพังภายใน 1 ชม.) ต้อง A/B test ทีละค่า
 
 ### 7.5 Hot path ทำงานจาก memory ล้วนๆ
 กฎ compile+cache ไว้ล่วงหน้า, สิทธิ์ห้อง/allowlist lookup จาก Map, claim/dedupe เป็น Map แบบ TTL
