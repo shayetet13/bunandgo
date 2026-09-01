@@ -41,7 +41,6 @@ function restartRequest(app: Hono, cookie = "", confirm = "restart-linebot-worke
 
 beforeEach(() => {
 	db.prepare("DELETE FROM app_meta WHERE key = 'system.worker.last_restart_requested_at'").run();
-	db.prepare("DELETE FROM app_meta WHERE key = 'hedge.send.config'").run();
 	db.prepare("DELETE FROM app_meta WHERE key = 'system.maintenance_mode'").run();
 	db.prepare("DELETE FROM app_meta WHERE key = 'square.fast_poll.quiet_ms'").run();
 	db.prepare("DELETE FROM lane_race_events").run();
@@ -78,66 +77,6 @@ describe("POST /api/system/restart-worker", () => {
 		const repeated = await restartRequest(app, adminCookie);
 		expect(repeated.status).toBe(429);
 		expect(Number(repeated.headers.get("retry-after"))).toBeGreaterThan(0);
-	});
-});
-
-describe("/api/system/hedge", () => {
-	function hedgeRequest(app: Hono, cookie = "", config?: unknown) {
-		return app.request("/api/system/hedge", {
-			method: config === undefined ? "GET" : "PUT",
-			headers: {
-				"content-type": "application/json",
-				...(cookie ? { cookie } : {}),
-			},
-			...(config === undefined ? {} : { body: JSON.stringify(config) }),
-		});
-	}
-
-	test("requires authentication and an admin role", async () => {
-		const app = buildApp();
-		expect((await hedgeRequest(app)).status).toBe(401);
-
-		const user = createUser(`hedge-user-${Date.now()}`, "hedge-test-password");
-		const userCookie = `${SESSION_COOKIE}=${createSession(user.id)}`;
-		expect((await hedgeRequest(app, userCookie)).status).toBe(403);
-	});
-
-	test("PUT validates the payload and rejects mode on", async () => {
-		const app = buildApp();
-		const adminCookie = `${SESSION_COOKIE}=${createSession()}`;
-		const badMode = await hedgeRequest(app, adminCookie, { mode: "on", delayMs: 14, slowMs: 23 });
-		expect(badMode.status).toBe(400);
-		const badDelay = await hedgeRequest(app, adminCookie, { mode: "shadow", delayMs: 50, slowMs: 60 });
-		expect(badDelay.status).toBe(400);
-		const notJson = await app.request("/api/system/hedge", {
-			method: "PUT",
-			headers: { "content-type": "application/json", cookie: adminCookie },
-			body: "not-json",
-		});
-		expect(notJson.status).toBe(400);
-	});
-
-	test("PUT applies the config and GET reports it back with shadow stats", async () => {
-		const app = buildApp();
-		const adminCookie = `${SESSION_COOKIE}=${createSession()}`;
-		const put = await hedgeRequest(app, adminCookie, { mode: "shadow", delayMs: 14, slowMs: 23 });
-		expect(put.status).toBe(200);
-		const putBody = (await put.json()) as { ok: boolean; config: { mode: string } };
-		expect(putBody.ok).toBe(true);
-		expect(putBody.config.mode).toBe("shadow");
-
-		const get = await hedgeRequest(app, adminCookie);
-		expect(get.status).toBe(200);
-		const report = (await get.json()) as {
-			config: { mode: string; delayMs: number; slowMs: number };
-			windowHours: number;
-			totalSamples: number;
-			workers: unknown[];
-		};
-		expect(report.config).toEqual({ mode: "shadow", delayMs: 14, slowMs: 23 });
-		expect(report.windowHours).toBe(24);
-		expect(report.totalSamples).toBe(0);
-		expect(report.workers).toEqual([]);
 	});
 });
 

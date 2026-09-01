@@ -4,7 +4,6 @@ import { logUserActionImmediately } from "../../auth/user-actions.ts";
 import { isMaintenanceModeEnabled, setMaintenanceMode } from "../../bot/maintenance-mode.ts";
 import { readWorkerTopology } from "../../bot/worker-topology.ts";
 import { db } from "../../db/sqlite.ts";
-import { applyHedgeConfig, hedgeConfig, hedgeShadowReport, parseHedgeConfig } from "../../dispatch/hedge.ts";
 import { applySquarePollQuietMs, parseQuietMs, squarePollQuietWindowMs } from "../../bot/square-poll-quiet.ts";
 import { listServerLoadSamples } from "../../monitoring/server-load-history.ts";
 
@@ -84,30 +83,7 @@ export function createSystemRoute(options: SystemRouteOptions = {}): Hono {
 		return c.json({ ok: true, unit: RESTART_UNIT, requestedAt }, 202);
 	});
 
-	// Hedge stage 0-1 is read-side only: the report is computed from send
-	// RTTs that lane racing already persists, so reading it — or flipping the
-	// mode — never adds work to any reply path and never needs a restart.
-	route.get("/hedge", (c) => {
-		const hours = Number(c.req.query("hours") ?? "");
-		return c.json(hedgeShadowReport(Number.isFinite(hours) && hours > 0 ? hours : undefined));
-	});
-
-	route.put("/hedge", async (c) => {
-		const body = (await c.req.json().catch(() => undefined)) as unknown;
-		let config;
-		try {
-			config = parseHedgeConfig(body);
-		} catch (error) {
-			return c.json({ error: error instanceof Error ? error.message : "รูปแบบการตั้งค่า hedge ไม่ถูกต้อง" }, 400);
-		}
-		const previous = hedgeConfig();
-		const applied = applyHedgeConfig(config);
-		const user = requestUser(c)!;
-		logUserActionImmediately(user, "system.hedge.config.updated", { previous, applied });
-		return c.json({ ok: true, config: applied });
-	});
-
-	// Post-reply poll-quiet window (bot/square-poll-quiet.ts). Like hedge, the
+	// Post-reply poll-quiet window (bot/square-poll-quiet.ts). The
 	// value lives in shared app_meta and every worker picks it up within a few
 	// seconds — tuning it from 0 upward never needs a restart.
 	route.get("/square-poll-quiet", (c) => {

@@ -16,9 +16,9 @@ import { db } from "../db/sqlite.ts";
  * the reply that is in flight now.
  *
  * The window is persisted in the shared `app_meta` table and refreshed every
- * few seconds, exactly like the hedge config (dispatch/hedge.ts): a restart
- * drops bot sessions and is never required to change or disable it. Default 0
- * means the feature is off and the poll loop behaves exactly as before.
+ * few seconds: a restart drops bot sessions and is never required to change
+ * or disable it. Default 0 means the feature is off and the poll loop
+ * behaves exactly as before.
  */
 const QUIET_META_KEY = "square.fast_poll.quiet_ms";
 const CONFIG_REFRESH_MS = 5_000;
