@@ -118,7 +118,16 @@ function FeedRow({ item, answerMs, botName, roomName }: { item: FeedItem; answer
 				<span style={{ flex: 1, fontSize: "var(--text-sm)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
 					{data.textPreview}
 				</span>
-				<span className={`chip ${tone} mono`} title="ผลรวมของ phase ที่ไม่ทับซ้อนกัน">
+				{data.breakdown?.inboundMs !== undefined && (
+					<span
+						className="chip mono"
+						style={{ color: "var(--text-primary)", fontWeight: 700 }}
+						title="รวมจริงทั้งหมด: LINE ส่งข้อความเข้ามา ถึง บอทตอบกลับสำเร็จ"
+					>
+						{ms(data.breakdown.inboundMs + totalMs)}
+					</span>
+				)}
+				<span className={`chip ${tone} mono`} title="ผลรวมของ phase ที่ไม่ทับซ้อนกัน (ฝั่งบอทเท่านั้น)">
 					{ms(totalMs)}
 				</span>
 				<span className="label" style={{ color: "var(--text-primary)" }}>

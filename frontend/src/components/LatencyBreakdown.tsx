@@ -42,6 +42,7 @@ export function LatencyBreakdown({ sample }: { sample?: LatencySample }) {
 					    a fast reply that was handed its trigger late still loses
 					    the race, and nothing else on this panel would show it. */}
 					{b.inboundMs !== undefined && <Metric label="LINE→เรา" value={ms(b.inboundMs)} tone="line" />}
+					{b.inboundMs !== undefined && <Metric label="รวมจริงทั้งหมด" value={ms(b.inboundMs + measured.totalMs)} />}
 					<Metric label="TOTAL (Σ จริง)" value={ms(measured.totalMs)} />
 					<Metric label="LINE" value={ms(b.lineMs)} tone="line" />
 					<Metric label="CODE (ผลรวมย่อย)" value={ms(measured.codeMs)} tone="code" />
