@@ -477,9 +477,27 @@ export function LogsPage({ bots, onNotify }: LogsPageProps) {
 								<span className="chip chip--idle" style={{ fontSize: "var(--text-xs)" }}>
 									{sample.surface}
 								</span>
-								<span className={`chip ${sample.ok ? "chip--go" : "chip--bad"}`} style={{ fontSize: "var(--text-xs)" }}>
+								{sample.breakdown?.inboundMs !== undefined && (
+									<span
+										className="chip"
+										style={{ fontSize: "var(--text-xs)", color: "var(--text-primary)", fontWeight: 700 }}
+										title="รวมจริงทั้งหมด: LINE ส่งข้อความเข้ามา ถึง บอทตอบกลับสำเร็จ"
+									>
+										{(sample.breakdown.inboundMs + sample.latencyMs).toFixed(1)} ms
+									</span>
+								)}
+								<span
+									className={`chip ${sample.ok ? "chip--go" : "chip--bad"}`}
+									style={{ fontSize: "var(--text-xs)" }}
+									title="เวลาฝั่งบอท: รับข้อความ ถึง ส่งกลับสำเร็จ"
+								>
 									{sample.latencyMs.toFixed(1)} ms
 								</span>
+								{sample.breakdown && (
+									<span className="chip chip--warn" style={{ fontSize: "var(--text-xs)" }} title="ส่งไป LINE: round trip ครั้งนี้">
+										LINE {sample.breakdown.lineMs.toFixed(1)} ms
+									</span>
+								)}
 								<span
 									style={{
 										fontSize: "var(--text-xs)",
