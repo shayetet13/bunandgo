@@ -1196,7 +1196,21 @@ export function UserConsole({ username, onLogout }: UserConsoleProps) {
 								<span className="uc-log-arrow">»</span>
 								<span className="uc-log-text">{log.textPreview || "(ไม่มีข้อความตัวอย่าง)"}</span>
 								<span className="uc-log-src">{log.source === "auto" ? "ตอบอัตโนมัติ" : "ส่งทดสอบ"}</span>
-								<span className="uc-log-ms">{Math.round(log.latencyMs)}ms</span>
+								<span className="uc-log-metrics">
+									{log.breakdown?.inboundMs !== undefined && (
+										<span className="uc-log-ms-real" title="รวมจริงทั้งหมด: LINE ส่งข้อความเข้ามา ถึง บอทตอบกลับสำเร็จ">
+											{Math.round(log.breakdown.inboundMs + log.latencyMs)}ms
+										</span>
+									)}
+									<span className="uc-log-ms" title="เวลาฝั่งบอท: รับข้อความ ถึง ส่งกลับสำเร็จ">
+										{Math.round(log.latencyMs)}ms
+									</span>
+									{log.breakdown && (
+										<span className="uc-log-line-rt" title="ส่งไป LINE: round trip ครั้งนี้">
+											LINE {Math.round(log.breakdown.lineMs)}ms
+										</span>
+									)}
+								</span>
 							</div>
 						))}
 					</div>

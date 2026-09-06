@@ -1118,15 +1118,30 @@
 	word-break: break-word;
 }
 
-.uc-log-ms {
+.uc-log-metrics {
+	display: flex;
+	align-items: baseline;
+	gap: 0.5rem;
 	flex-shrink: 0;
 	margin-left: auto;
+}
+
+.uc-log-ms {
 	font-weight: 700;
 	color: var(--uc-accent);
 }
 
 .uc-log-line[data-ok="false"] .uc-log-ms {
 	color: var(--signal-bad);
+}
+
+.uc-log-ms-real {
+	font-weight: 700;
+	color: var(--uc-ink);
+}
+
+.uc-log-line-rt {
+	color: var(--signal-warn);
 }
 
 /* ── Scrollbars inside scrolling regions ────────────────────────────────── */
