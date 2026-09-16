@@ -60,6 +60,8 @@ export interface LatencySample {
 	source: "test" | "auto";
 	textPreview: string | null;
 	lineCreatedTime?: number;
+	/** LINE's own stamp for the trigger this reply answers — undefined for a manual test send. */
+	triggerCreatedTime?: number;
 	breakdown?: LatencyBreakdown;
 }
 

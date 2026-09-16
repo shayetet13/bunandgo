@@ -509,6 +509,20 @@ const migrations: Migration[] = [
 			db.exec("DROP TABLE IF EXISTS priority_answers");
 		},
 	},
+	{
+		// 010_line_created_time stored the reply's own LINE stamp on the sample
+		// and the trigger's on the separate messages_in row — enough to compare
+		// rival bots, but not to answer "how long from trigger to reply" for a
+		// single sample without an unreliable join. Attaching the trigger's
+		// stamp directly to the same row it produced makes that subtraction
+		// exact and join-free.
+		id: "037_latency_trigger_created_time",
+		up: (db) => {
+			if (!hasColumn(db, "latency_samples", "trigger_created_time")) {
+				db.exec("ALTER TABLE latency_samples ADD COLUMN trigger_created_time INTEGER");
+			}
+		},
+	},
 ];
 
 /**

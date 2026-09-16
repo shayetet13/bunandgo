@@ -1,5 +1,4 @@
 import type { LatencyGuardrails, LatencySnapshot } from "../lib/types.ts";
-import { sumLatencyBreakdown } from "../lib/live-feed-metrics.ts";
 
 const LEVEL_META: Record<LatencyGuardrails["level"], { tone: "go" | "warn" | "bad"; label: string }> = {
 	normal: { tone: "go", label: "ปกติ" },
@@ -9,18 +8,21 @@ const LEVEL_META: Record<LatencyGuardrails["level"], { tone: "go" | "warn" | "ba
 	critical: { tone: "bad", label: "วิกฤต" },
 };
 
-export function TriggerReplyStatus({ snapshot }: { snapshot: LatencySnapshot }) {
+interface TriggerReplyStatusProps {
+	snapshot: LatencySnapshot;
+	/**
+	 * lineCreatedTime - triggerCreatedTime for the latest sample carrying
+	 * both — LINE's own stamp at each end, so this is the true trigger-to-reply
+	 * time, not an approximation built from our own clock. Undefined until a
+	 * sample with both stamps has arrived (see latestTriggerReplyMs).
+	 */
+	liveMs?: number;
+}
+
+export function TriggerReplyStatus({ snapshot, liveMs }: TriggerReplyStatusProps) {
 	const { guardrails } = snapshot;
 	const hasData = snapshot.count > 0;
 	const meta = LEVEL_META[guardrails.level];
-
-	// TRIGGER → REPLY means from the moment LINE actually delivered the
-	// trigger, not from when our own processing happened to start — so this
-	// must be the same grand total LatencyBreakdown labels "รวมจริงทั้งหมด"
-	// (inbound wait + LINE + code), not sample.latencyMs alone, which is only
-	// LINE + code and already has its own label ("TOTAL (Σ จริง)") elsewhere.
-	const b = snapshot.last?.breakdown;
-	const liveMs = b === undefined ? undefined : (b.inboundMs ?? 0) + sumLatencyBreakdown(b).totalMs;
 	const hasLast = liveMs !== undefined;
 
 	return (

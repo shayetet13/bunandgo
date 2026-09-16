@@ -20,6 +20,8 @@ export interface FastPathTrace {
 	inboundMs?: number;
 	/** LINE's stamp on the reply this trace produced, once the send returns. */
 	lineCreatedTime?: number;
+	/** LINE's stamp on the trigger this trace answers — see LatencySample.triggerCreatedTime. */
+	triggerCreatedTime?: number;
 	decryptMs: number;
 	matchMs: number;
 	admissionMs: number;

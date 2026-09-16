@@ -1,4 +1,4 @@
-import type { FeedItem, LatencyBreakdown } from "./types.ts";
+import type { FeedItem, LatencyBreakdown, LatencySample } from "./types.ts";
 
 /** How long after a message another one still counts as answering it. */
 const ANSWER_WINDOW_MS = 15_000;
@@ -39,6 +39,24 @@ export function sumLatencyBreakdown(b: LatencyBreakdown): { codeMs: number; tota
 	const codeMs =
 		b.decryptMs + b.matchMs + b.limiterMs + (b.routingMs ?? 0) + b.protocolPrepMs + b.relayEncodeMs + b.goPrepMs + b.relayAndParseMs;
 	return { codeMs, totalMs: b.lineMs + codeMs };
+}
+
+/**
+ * The most recent sample carrying both LINE stamps, so trigger-to-reply can
+ * be read straight off LINE's own clock at both ends — no join, no drift
+ * from our own instrumentation or from the clock offset between our server
+ * and LINE's. Older or in-flight samples (test sends, or ones from before
+ * triggerCreatedTime existed) simply lack one of the two fields and are
+ * skipped rather than shown as a misleading zero.
+ */
+export function latestTriggerReplyMs(samples: readonly LatencySample[]): number | undefined {
+	for (let i = samples.length - 1; i >= 0; i--) {
+		const sample = samples[i]!;
+		if (sample.lineCreatedTime !== undefined && sample.triggerCreatedTime !== undefined) {
+			return sample.lineCreatedTime - sample.triggerCreatedTime;
+		}
+	}
+	return undefined;
 }
 
 export function toneForAnswer(ms: number): string {

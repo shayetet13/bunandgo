@@ -19,6 +19,14 @@ export interface LatencySample {
 	 * what makes "who was actually first" answerable rather than argued.
 	 */
 	lineCreatedTime?: number;
+	/**
+	 * LINE's own stamp for the trigger this reply answers. Undefined for a
+	 * manual test send, which has no trigger. `lineCreatedTime - triggerCreatedTime`
+	 * is the true LINE-to-LINE trigger-to-reply time — measured on LINE's
+	 * clock at both ends, so it carries no drift from our own instrumentation
+	 * or from the clock offset between our server and LINE's.
+	 */
+	triggerCreatedTime?: number;
 	breakdown?: LatencyBreakdown;
 }
 

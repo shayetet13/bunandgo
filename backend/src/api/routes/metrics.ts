@@ -76,6 +76,7 @@ function latencyRowToSample(row: LatencySampleRow): LatencySample {
 		source: row.source,
 		textPreview: row.text_preview,
 		lineCreatedTime: row.line_created_time ?? undefined,
+		triggerCreatedTime: row.trigger_created_time ?? undefined,
 		breakdown: hasBreakdown
 			? {
 					lineMs: row.line_ms ?? 0,

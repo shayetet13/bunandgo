@@ -2348,6 +2348,7 @@ async function handleIncoming(
 			receiveSource:
 				stampedReceiveSource === "dedicated-poll" ? "dedicated-poll" : stampedReceiveSource === "normal-poll" ? "normal-poll" : "push",
 			inboundMs,
+			triggerCreatedTime: lineCreatedTimeOf(surface, message),
 			decryptMs: typeof stampedDecryptMs === "number" ? stampedDecryptMs : 0,
 			matchMs,
 			admissionMs: 0,
@@ -2748,6 +2749,7 @@ async function sendTimed(
 		source,
 		textPreview: text.slice(0, 200),
 		lineCreatedTime: activeTrace.lineCreatedTime,
+		triggerCreatedTime: activeTrace.triggerCreatedTime,
 		breakdown: {
 			lineMs: activeTrace.upstreamMs,
 			codeMs: measured.codeMs,

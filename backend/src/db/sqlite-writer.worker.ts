@@ -52,9 +52,9 @@ function flush(): void {
 	const clearStmt = db.prepare("DELETE FROM kv WHERE bot_id = ?");
 	const latencyStmt = db.prepare(
 		`INSERT INTO latency_samples (
-			bot_id, ts, surface, target_mid, latency_ms, ok, source, text_preview, inbound_ms, line_created_time,
+			bot_id, ts, surface, target_mid, latency_ms, ok, source, text_preview, inbound_ms, line_created_time, trigger_created_time,
 			line_ms, code_ms, decrypt_ms, match_ms, limiter_ms, routing_ms, protocol_prep_ms, relay_encode_ms, go_prep_ms, relay_and_parse_ms, upstream_calls
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 	);
 	const botEventStmt = db.prepare("INSERT INTO bot_events (bot_id, ts, type, message) VALUES (?, ?, ?, ?)");
 	const userActionStmt = db.prepare("INSERT INTO user_actions (user_id, username, ts, action, detail) VALUES (?, ?, ?, ?, ?)");
@@ -93,6 +93,7 @@ function flush(): void {
 							s.textPreview,
 							b?.inboundMs ?? null,
 							s.lineCreatedTime ?? null,
+							s.triggerCreatedTime ?? null,
 							b?.lineMs ?? null,
 							b?.codeMs ?? null,
 							b?.decryptMs ?? null,

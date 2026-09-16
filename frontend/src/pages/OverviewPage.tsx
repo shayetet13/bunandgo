@@ -5,6 +5,7 @@ import { DispatchChart } from "../components/DispatchChart.tsx";
 import { StatCard } from "../components/StatCard.tsx";
 import { LatencyBreakdown } from "../components/LatencyBreakdown.tsx";
 import { TriggerReplyStatus } from "../components/TriggerReplyStatus.tsx";
+import { latestTriggerReplyMs } from "../lib/live-feed-metrics.ts";
 import { LaneRacePanel } from "../components/LaneRacePanel.tsx";
 import { NetworkSpeedPanel } from "../components/NetworkSpeedPanel.tsx";
 
@@ -105,6 +106,11 @@ export function OverviewPage({
 }: OverviewPageProps) {
 	const onlineCount = bots.filter((b) => b.status === "online").length;
 	const infraOk = wsConnected && (health?.senderHealthy ?? false) && (health?.dbHealthy ?? false);
+	// The latest sample carrying both LINE stamps — searched here, not just
+	// read off snapshot.last, because the very last reply can be a manual
+	// test send (no trigger) and would otherwise blank the number even
+	// though a real trigger-reply pair landed moments earlier.
+	const triggerReplyMs = latestTriggerReplyMs(historySamples);
 
 	return (
 		<div style={{ display: "flex", flexDirection: "column", gap: "var(--space-lg)" }}>
@@ -170,7 +176,7 @@ export function OverviewPage({
 				</div>
 			</section>
 
-			<TriggerReplyStatus snapshot={snapshot} />
+			<TriggerReplyStatus snapshot={snapshot} liveMs={triggerReplyMs} />
 
 			<div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "var(--space-md)" }}>
 				<StatCard label="BOT ONLINE" value={`${onlineCount}/${bots.length}`} hint={`${bots.length} ตัวทั้งหมด`} />

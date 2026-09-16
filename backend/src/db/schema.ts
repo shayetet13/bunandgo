@@ -71,6 +71,10 @@ CREATE TABLE IF NOT EXISTS latency_samples (
 	text_preview TEXT,
 	inbound_ms REAL,
 	line_created_time INTEGER,
+	-- The trigger message's own LINE stamp, alongside line_created_time (the
+	-- reply's). Subtracting the two gives the true LINE-clock trigger-to-reply
+	-- time for this exact row, with no join against messages_in required.
+	trigger_created_time INTEGER,
 	-- Per-phase breakdown (see metrics/latency.ts LatencyBreakdown), stored so
 	-- surfaces with very different cost profiles (square: no E2EE vs talk:
 	-- E2EE) can be told apart after the fact instead of only ever seen live
@@ -319,6 +323,7 @@ export interface LatencySampleRow {
 	text_preview: string | null;
 	inbound_ms: number | null;
 	line_created_time: number | null;
+	trigger_created_time: number | null;
 	line_ms: number | null;
 	code_ms: number | null;
 	decrypt_ms: number | null;
