@@ -24,6 +24,17 @@
       "applicationSampleMaxAgeMs": 30000,
       "laneMaxAgeMs": 1200000,
       "laneRecycleGapMs": 60000
+    },
+    {
+      "workerId": "shard-c",
+      "port": 8793,
+      "h2Lanes": 16,
+      "sendReservedLanes": 4,
+      "fastPollSlots": 8,
+      "fastPollIntervalMs": 0,
+      "applicationSampleMaxAgeMs": 30000,
+      "laneMaxAgeMs": 1200000,
+      "laneRecycleGapMs": 60000
     }
   ]
 }

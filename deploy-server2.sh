@@ -254,24 +254,52 @@ if [ -r "$RUNTIME_TOPOLOGY" ]; then
 	RUNTIME_TOPOLOGY_ACTIVE=1
 	echo "--- Validating atomic shared worker topology before restart ---"
 	# Validate through the exact production parser that will run before any
-	# sender or LINE session starts. Both known service ports must resolve to
-	# opposite, authenticated sides of the same split.
+	# sender or LINE session starts. Primary must resolve to the control plane
+	# side of the split.
 	NODE_ENV=production DB_PATH="$SHARED_DB" PORT=8791 bun --no-env-file -e '
 		import { isControlPlane, validateWorkerTopology } from "./src/bot/worker-topology.ts";
 		const topology = validateWorkerTopology();
 		if (!isControlPlane() || topology.controlPlaneUrl) throw new Error("8791 is not the control plane");
 	'
-	NODE_ENV=production DB_PATH="$SHARED_DB" PORT=8792 bun --no-env-file -e '
-		import { validateWorkerTopology } from "./src/bot/worker-topology.ts";
-		const topology = validateWorkerTopology();
-		if (!topology.controlPlaneUrl || topology.workerRoutes.size !== 0) throw new Error("8792 is not a shard");
-	'
-	if ! systemctl is-enabled linebot-worker-shard-b.service >/dev/null 2>&1 \
-		&& ! systemctl is-active linebot-worker-shard-b.service >/dev/null 2>&1; then
-		echo "--- INVALID RUNTIME TOPOLOGY: shard B is configured but its service is neither enabled nor active ---"
+	# Every linebot-worker-shard-*.service installed on this host is validated
+	# against its own PORT and folded into the restart set below — adding
+	# shard-c, shard-d, etc. later needs no change here, just another unit file
+	# following linebot-worker-shard-b.service's pattern, its own sudoers
+	# entry, and its own entry in the shared worker-topology.json (see
+	# deploy/server2/README.md). A unit that is neither enabled nor active is
+	# not part of the live topology and is skipped, same as the legacy branch
+	# below.
+	SHARD_UNITS=$(systemctl list-unit-files 'linebot-worker-shard-*.service' --no-legend 2>/dev/null | awk '{print $1}' || true)
+	ENABLED_SHARD_UNITS=""
+	for unit in $SHARD_UNITS; do
+		unit_command=${unit%.service}
+		if ! systemctl is-enabled "$unit" >/dev/null 2>&1 \
+			&& ! systemctl is-active "$unit" >/dev/null 2>&1; then
+			continue
+		fi
+		shard_name=${unit#linebot-worker-}
+		shard_name=${shard_name%.service}
+		shard_env="/etc/linebot/worker-${shard_name}.env"
+		if [ ! -r "$shard_env" ]; then
+			echo "--- INVALID RUNTIME TOPOLOGY: $unit is enabled/active but $shard_env is missing ---"
+			exit 1
+		fi
+		shard_port=$(read_env_value "$shard_env" PORT)
+		if ! printf '%s' "$shard_port" | grep -Eq '^[1-9][0-9]*$'; then
+			echo "--- INVALID RUNTIME TOPOLOGY: $shard_env needs a positive integer PORT ---"
+			exit 1
+		fi
+		NODE_ENV=production DB_PATH="$SHARED_DB" PORT="$shard_port" bun --no-env-file -e '
+			import { validateWorkerTopology } from "./src/bot/worker-topology.ts";
+			const topology = validateWorkerTopology();
+			if (!topology.controlPlaneUrl || topology.workerRoutes.size !== 0) throw new Error(`port ${process.env.PORT} is not a shard`);
+		'
+		ENABLED_SHARD_UNITS="$ENABLED_SHARD_UNITS $unit_command"
+	done
+	if [ -z "$ENABLED_SHARD_UNITS" ]; then
+		echo "--- INVALID RUNTIME TOPOLOGY: no shard service is enabled or active on this host ---"
 		exit 1
 	fi
-	ENABLED_SHARD_UNITS=" linebot-worker-shard-b"
 else
 echo "--- Validating legacy disjoint worker scopes before restart ---"
 PRIMARY_INCLUDE=$(read_env_value /etc/linebot/worker.env WORKER_OWNER_SCOPE)
@@ -411,33 +439,44 @@ rm -f "$CURRENT_LINK"
 ln -s "$RELEASE_DIR" "$CURRENT_LINK"
 
 if [ "$RUNTIME_TOPOLOGY_ACTIVE" -eq 1 ]; then
-	echo "--- Restarting primary and shard together for an atomic owner handoff ---"
-	# The legacy topology has a catch-all primary beside a scoped shard. Starting
-	# either new role several seconds before the other creates a duplicate LINE
-	# login window. Dispatch both restarts concurrently, then verify both before
-	# continuing; the new runtime file makes their scopes disjoint at boot.
-	primary_status=0
-	shard_status=0
-	sudo -n /usr/bin/systemctl restart linebot-worker || primary_status=$? &
-	primary_restart_pid=$!
-	sudo -n /usr/bin/systemctl restart linebot-worker-shard-b || shard_status=$? &
-	shard_restart_pid=$!
-	wait "$primary_restart_pid" || primary_status=$?
-	wait "$shard_restart_pid" || shard_status=$?
-	if [ "$primary_status" -ne 0 ] || [ "$shard_status" -ne 0 ]; then
-		echo "--- ATOMIC WORKER RESTART FAILED (primary=$primary_status shard=$shard_status) ---"
+	echo "--- Restarting primary and every shard together for an atomic owner handoff ---"
+	# Starting any one role several seconds before the others creates a
+	# duplicate LINE login window for whichever owners already moved onto the
+	# new release. Dispatch every restart concurrently, then verify all of
+	# them before continuing — the runtime topology file makes every
+	# process's owner scope disjoint at boot regardless of restart order, but
+	# only once every process has actually come back up.
+	ALL_TOPOLOGY_UNITS="linebot-worker$ENABLED_SHARD_UNITS"
+	restart_pids=""
+	for unit in $ALL_TOPOLOGY_UNITS; do
+		sudo -n /usr/bin/systemctl restart "$unit" &
+		restart_pids="$restart_pids $!"
+	done
+	restart_failed=0
+	for restart_pid in $restart_pids; do
+		wait "$restart_pid" || restart_failed=1
+	done
+	if [ "$restart_failed" -ne 0 ]; then
+		echo "--- ATOMIC WORKER RESTART FAILED ---"
 		exit 1
 	fi
 	sleep 8
-	PRIMARY_STATE=$(sudo -n /usr/bin/systemctl is-active linebot-worker || true)
-	SHARD_STATE=$(sudo -n /usr/bin/systemctl is-active linebot-worker-shard-b || true)
-	echo "    linebot-worker: $PRIMARY_STATE"
-	echo "    linebot-worker-shard-b: $SHARD_STATE"
-	if [ "$PRIMARY_STATE" != "active" ] || [ "$SHARD_STATE" != "active" ]; then
+	state_failed=0
+	for unit in $ALL_TOPOLOGY_UNITS; do
+		unit_state=$(sudo -n /usr/bin/systemctl is-active "$unit" || true)
+		echo "    $unit: $unit_state"
+		[ "$unit_state" = "active" ] || state_failed=1
+	done
+	if [ "$state_failed" -ne 0 ]; then
 		echo "--- ONE OR MORE WORKERS DID NOT COME UP ---"
 		exit 1
 	fi
-	for expected_port in 8791 8792; do
+	EXPECTED_TOPOLOGY_PORTS="8791"
+	for unit in $ENABLED_SHARD_UNITS; do
+		shard_name=${unit#linebot-worker-}
+		EXPECTED_TOPOLOGY_PORTS="$EXPECTED_TOPOLOGY_PORTS $(read_env_value "/etc/linebot/worker-${shard_name}.env" PORT)"
+	done
+	for expected_port in $EXPECTED_TOPOLOGY_PORTS; do
 		if ! ss -H -ltn | awk -v suffix=":$expected_port" '$4 ~ suffix "$" { found=1 } END { exit !found }'; then
 			echo "--- WORKER PROCESS IS ACTIVE BUT PORT $expected_port IS NOT LISTENING ---"
 			exit 1
@@ -531,8 +570,16 @@ for unit in linebot-worker.service $(systemctl list-unit-files 'linebot-worker-s
 done
 
 echo ""
-echo "--- Port Listeners (8791 control plane, 8792 shard B) ---"
-ss -tlnp | grep -E ':(8791|8792)[[:space:]]' || echo "  (no expected listener)"
+echo "--- Port Listeners (8791 control plane, plus every shard's own port) ---"
+EXPECTED_HEALTH_PORTS="8791"
+for unit in $(systemctl list-unit-files 'linebot-worker-shard-*.service' --no-legend 2>/dev/null | awk '{print $1}'); do
+	shard_name=${unit#linebot-worker-}
+	shard_name=${shard_name%.service}
+	shard_port=$(grep "^PORT=" "/etc/linebot/worker-${shard_name}.env" 2>/dev/null | tail -1 | cut -d= -f2-)
+	[ -n "$shard_port" ] && EXPECTED_HEALTH_PORTS="$EXPECTED_HEALTH_PORTS $shard_port"
+done
+PORT_GREP_PATTERN=":($(echo "$EXPECTED_HEALTH_PORTS" | tr ' ' '|'))[[:space:]]"
+ss -tlnp | grep -E "$PORT_GREP_PATTERN" || echo "  (no expected listener)"
 
 echo ""
 echo "--- Backend Source Check ---"
