@@ -1,4 +1,5 @@
 import type { LatencyGuardrails, LatencySnapshot } from "../lib/types.ts";
+import { sumLatencyBreakdown } from "../lib/live-feed-metrics.ts";
 
 const LEVEL_META: Record<LatencyGuardrails["level"], { tone: "go" | "warn" | "bad"; label: string }> = {
 	normal: { tone: "go", label: "ปกติ" },
@@ -11,8 +12,16 @@ const LEVEL_META: Record<LatencyGuardrails["level"], { tone: "go" | "warn" | "ba
 export function TriggerReplyStatus({ snapshot }: { snapshot: LatencySnapshot }) {
 	const { guardrails } = snapshot;
 	const hasData = snapshot.count > 0;
-	const hasLast = snapshot.last !== undefined;
 	const meta = LEVEL_META[guardrails.level];
+
+	// TRIGGER → REPLY means from the moment LINE actually delivered the
+	// trigger, not from when our own processing happened to start — so this
+	// must be the same grand total LatencyBreakdown labels "รวมจริงทั้งหมด"
+	// (inbound wait + LINE + code), not sample.latencyMs alone, which is only
+	// LINE + code and already has its own label ("TOTAL (Σ จริง)") elsewhere.
+	const b = snapshot.last?.breakdown;
+	const liveMs = b === undefined ? undefined : (b.inboundMs ?? 0) + sumLatencyBreakdown(b).totalMs;
+	const hasLast = liveMs !== undefined;
 
 	return (
 		<section className="panel" style={{ padding: "var(--space-md)" }}>
@@ -36,7 +45,7 @@ export function TriggerReplyStatus({ snapshot }: { snapshot: LatencySnapshot }) 
 					ล่าสุด (real-time)
 				</div>
 				<div className="mono" style={{ fontWeight: 800, fontSize: "2.4rem", lineHeight: 1, color: hasLast ? "var(--text-primary)" : undefined }}>
-					{hasLast ? Math.round(snapshot.last!.latencyMs) : "—"}
+					{hasLast ? Math.round(liveMs!) : "—"}
 					{hasLast && <span style={{ fontSize: "0.4em", color: "var(--text-dim)", marginLeft: "0.25em" }}>ms</span>}
 				</div>
 			</div>
