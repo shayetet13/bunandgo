@@ -26,6 +26,12 @@ export class TalkMessage {
 
 	/**
 	 * Replys to message.
+	 *
+	 * Returns the sent `Message` LINE handed back — notably its own
+	 * server-assigned `createdTime`, comparable against the trigger's stamp
+	 * to measure the true end-to-end reply time. The compact `/CA5` path
+	 * (reply-sender.ts) has its own, separate `fastAck` tradeoff for this;
+	 * this thrift path pays no such cost, so there is no reason to discard it.
 	 */
 	async reply(
 		input:
@@ -36,7 +42,7 @@ export class TalkMessage {
 					contentType?: ContentType;
 					contentMetadata?: Record<string, string>;
 			  },
-	): Promise<void> {
+	): Promise<Message> {
 		if (typeof input === "string") {
 			return this.reply({
 				text: input,
@@ -50,7 +56,7 @@ export class TalkMessage {
 			// Personal chats
 			to = this.isMyMessage ? this.to.id : this.from.id;
 		}
-		await this.#client.base.talk.sendMessage({
+		return this.#client.base.talk.sendMessage({
 			relatedMessageId: this.raw.id,
 			text: input.text,
 			to,

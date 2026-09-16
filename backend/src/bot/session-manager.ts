@@ -1998,6 +1998,19 @@ function squareSendLineCreatedTime(result: unknown): number | undefined {
 }
 
 /**
+ * Talk's full-thrift reply() resolves with the real `Message` LINE assigned,
+ * `createdTime` included — this simply reads it back. The compact `/CA5`
+ * path's `fastAck` shortcut resolves with a stub `createdTime: 0` instead of
+ * decoding LINE's real one (see talk/mod.ts's `#requestCompactMessage`);
+ * `toLineEpochMs` already treats a non-positive value as absent, so that
+ * stub is correctly skipped here without needing to know which path ran.
+ */
+function talkSendLineCreatedTime(result: unknown): number | undefined {
+	if (!result || typeof result !== "object" || !("createdTime" in result)) return undefined;
+	return toLineEpochMs((result as { createdTime: unknown }).createdTime);
+}
+
+/**
  * Records what LINE actually did with a Square reply we just sent, and arms
  * the destroy-resend for it.
  *
@@ -2413,6 +2426,10 @@ async function handleIncoming(
 				if (isTrackableSquareSend) {
 					completedSquareResult = result;
 					trace.lineCreatedTime = squareSendLineCreatedTime(result);
+				} else {
+					// reply-sender.ts routes "talk" and "oa" through the same
+					// TalkMessage-shaped send path — only "square" gets its own.
+					trace.lineCreatedTime = talkSendLineCreatedTime(result);
 				}
 				return result;
 			},
