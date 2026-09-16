@@ -22,6 +22,7 @@ import type {
 	ScheduledPost,
 	UserRole,
 } from "./lib/types.ts";
+import { IDLE_GUARDRAILS } from "./lib/types.ts";
 import { Sidebar, type ViewKey } from "./components/Sidebar.tsx";
 import { Topbar, type Notification } from "./components/Topbar.tsx";
 import { HelpModal } from "./components/HelpModal.tsx";
@@ -41,7 +42,7 @@ const AnnouncementsPage = lazy(async () => ({ default: (await import("./pages/An
 const ServersPage = lazy(async () => ({ default: (await import("./pages/ServersPage.tsx")).ServersPage }));
 const LogsPage = lazy(async () => ({ default: (await import("./pages/LogsPage.tsx")).LogsPage }));
 
-const EMPTY_SNAPSHOT: LatencySnapshot = { p50: 0, p95: 0, p99: 0, okRate: 100, count: 0, windowSize: 500 };
+const EMPTY_SNAPSHOT: LatencySnapshot = { p50: 0, p95: 0, p99: 0, okRate: 100, count: 0, windowSize: 500, guardrails: IDLE_GUARDRAILS };
 const EMPTY_FAST_SNAPSHOT: FastPathSnapshot = { p50: 0, p95: 0, p99: 0, max: 0, count: 0 };
 const EMPTY_LANE_RACE: LaneRaceSnapshot = { retentionDays: 0, lanes: [], daily: [], events: [], latency: [] };
 const FEED_CAP = 200;

@@ -4,6 +4,7 @@ import { RadarVisual } from "../components/RadarVisual.tsx";
 import { DispatchChart } from "../components/DispatchChart.tsx";
 import { StatCard } from "../components/StatCard.tsx";
 import { LatencyBreakdown } from "../components/LatencyBreakdown.tsx";
+import { TriggerReplyStatus } from "../components/TriggerReplyStatus.tsx";
 import { LaneRacePanel } from "../components/LaneRacePanel.tsx";
 import { NetworkSpeedPanel } from "../components/NetworkSpeedPanel.tsx";
 
@@ -168,6 +169,8 @@ export function OverviewPage({
 					<RadarVisual activeCount={onlineCount} />
 				</div>
 			</section>
+
+			<TriggerReplyStatus snapshot={snapshot} />
 
 			<div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "var(--space-md)" }}>
 				<StatCard label="BOT ONLINE" value={`${onlineCount}/${bots.length}`} hint={`${bots.length} ตัวทั้งหมด`} />

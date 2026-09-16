@@ -82,6 +82,37 @@ export interface LatencyBreakdown {
 	upstreamCalls: number;
 }
 
+export const LATENCY_THRESHOLDS_MS = {
+	target: 40,
+	p95Limit: 50,
+	p99Limit: 60,
+	incident: 80,
+	severe: 90,
+	critical: 100,
+} as const;
+
+export interface LatencyGuardrails {
+	thresholdsMs: typeof LATENCY_THRESHOLDS_MS;
+	targetRate: number;
+	over50: number;
+	over60: number;
+	over80: number;
+	over90: number;
+	over100: number;
+	level: "normal" | "warning" | "incident" | "severe" | "critical";
+}
+
+export const IDLE_GUARDRAILS: LatencyGuardrails = {
+	thresholdsMs: LATENCY_THRESHOLDS_MS,
+	targetRate: 100,
+	over50: 0,
+	over60: 0,
+	over80: 0,
+	over90: 0,
+	over100: 0,
+	level: "normal",
+};
+
 export interface LatencySnapshot {
 	p50: number;
 	p95: number;
@@ -90,6 +121,7 @@ export interface LatencySnapshot {
 	count: number;
 	windowSize: number;
 	last?: LatencySample;
+	guardrails: LatencyGuardrails;
 }
 
 export interface FastPathSample {
