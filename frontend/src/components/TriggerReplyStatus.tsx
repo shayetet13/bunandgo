@@ -11,6 +11,7 @@ const LEVEL_META: Record<LatencyGuardrails["level"], { tone: "go" | "warn" | "ba
 export function TriggerReplyStatus({ snapshot }: { snapshot: LatencySnapshot }) {
 	const { guardrails } = snapshot;
 	const hasData = snapshot.count > 0;
+	const hasLast = snapshot.last !== undefined;
 	const meta = LEVEL_META[guardrails.level];
 
 	return (
@@ -24,6 +25,20 @@ export function TriggerReplyStatus({ snapshot }: { snapshot: LatencySnapshot }) 
 					<span className="chip-dot" />
 					{hasData ? meta.label : "ยังไม่มีข้อมูล"}
 				</span>
+			</div>
+
+			{/* The live number: this reply's own round trip, painted the instant
+			    send_result arrives over the socket — not a percentile over a
+			    window, so a single slow reply shows up here before it could
+			    ever move P95. */}
+			<div style={{ margin: "var(--space-md) 0 0" }}>
+				<div className="label" style={{ marginBottom: "0.2rem" }}>
+					ล่าสุด (real-time)
+				</div>
+				<div className="mono" style={{ fontWeight: 800, fontSize: "2.4rem", lineHeight: 1, color: hasLast ? "var(--text-primary)" : undefined }}>
+					{hasLast ? Math.round(snapshot.last!.latencyMs) : "—"}
+					{hasLast && <span style={{ fontSize: "0.4em", color: "var(--text-dim)", marginLeft: "0.25em" }}>ms</span>}
+				</div>
 			</div>
 
 			<div
