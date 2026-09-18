@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { sumLatencyBreakdown, summarizeLatencyGuardrails } from "./latency.ts";
+import { MIN_SAMPLES_FOR_RATE, sumLatencyBreakdown, summarizeLatencyGuardrails } from "./latency.ts";
 
 describe("sumLatencyBreakdown", () => {
 	test("adds every exclusive phase exactly once", () => {
@@ -29,4 +29,17 @@ test("latency guardrails expose every agreed escalation band", () => {
 	expect(summary.over90).toBe(2);
 	expect(summary.over100).toBe(1);
 	expect(summary.level).toBe("critical");
+});
+
+test("targetRate is flagged unreliable off a single sample, so a quiet stretch cannot read as a clean 100%", () => {
+	const summary = summarizeLatencyGuardrails([20]);
+	expect(summary.targetRate).toBe(100);
+	expect(summary.rateSampleCount).toBe(1);
+	expect(summary.rateReliable).toBe(false);
+});
+
+test("targetRate is reliable once the sample count reaches the floor", () => {
+	const summary = summarizeLatencyGuardrails(new Array(MIN_SAMPLES_FOR_RATE).fill(20));
+	expect(summary.rateSampleCount).toBe(MIN_SAMPLES_FOR_RATE);
+	expect(summary.rateReliable).toBe(true);
 });

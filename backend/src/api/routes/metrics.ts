@@ -22,7 +22,7 @@ function percentile(values: number[], point: number): number {
 	return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * point) - 1)]!;
 }
 
-function latencySnapshot(samples: LatencySample[]) {
+export function latencySnapshot(samples: LatencySample[]) {
 	const values = samples.map((sample) => sample.latencyMs);
 	return {
 		p50: percentile(values, 0.5),
@@ -54,7 +54,7 @@ function visibleBotIds(c: Parameters<typeof requestUser>[0]): number[] | undefin
 	return user.role === "admin" ? undefined : listBotIdsForUser(user, { includeAllWorkers: isControlPlane() });
 }
 
-function allRecentLatency(limit: number): LatencySample[] {
+export function allRecentLatency(limit: number): LatencySample[] {
 	const samples = [...latencyTracker.recent(limit), ...(isControlPlane() ? relayedLatencySamples(limit) : [])];
 	return samples.sort((a, b) => a.ts - b.ts).slice(-limit);
 }

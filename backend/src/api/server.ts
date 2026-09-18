@@ -15,7 +15,7 @@ import { canAccessBot, resequenceBotSlots } from "../bot/bots.ts";
 import type { AuthUser } from "../auth/users.ts";
 import { botsRoute } from "./routes/bots.ts";
 import { botDetailRoute } from "./routes/bot-detail.ts";
-import { metricsRoute } from "./routes/metrics.ts";
+import { metricsRoute, allRecentLatency, latencySnapshot } from "./routes/metrics.ts";
 import { healthRoute } from "./routes/health.ts";
 import { usersRoute } from "./routes/users.ts";
 import { logsRoute } from "./routes/logs.ts";
@@ -159,6 +159,17 @@ app.get(
 				}
 				for (const type of FORWARDED_EVENTS) {
 					const listener = (data: unknown) => {
+						// An admin's live number must match every shard combined, not
+						// whichever process happened to fire this particular event —
+						// each process only sees its own local ring buffer otherwise,
+						// which is what let the trigger-reply rate jump to 100% off a
+						// single sample. Recomputed from the same merged view
+						// /api/metrics/snapshot already uses, so the WS push and the
+						// page-load hydrate can never disagree.
+						if (type === "send_result" && user.role === "admin") {
+							ws.send(JSON.stringify({ type, data: latencySnapshot(allRecentLatency(500)) }));
+							return;
+						}
 						const scoped = scopedEventData(user, type, data);
 						if (scoped !== undefined) ws.send(JSON.stringify({ type, data: scoped ?? null }));
 					};

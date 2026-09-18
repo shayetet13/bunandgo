@@ -96,6 +96,10 @@ export const LATENCY_THRESHOLDS_MS = {
 export interface LatencyGuardrails {
 	thresholdsMs: typeof LATENCY_THRESHOLDS_MS;
 	targetRate: number;
+	/** How many samples targetRate was computed over — judge it by this, not alone. */
+	rateSampleCount: number;
+	/** false while rateSampleCount is too low for targetRate to mean anything. */
+	rateReliable: boolean;
 	over50: number;
 	over60: number;
 	over80: number;
@@ -107,6 +111,8 @@ export interface LatencyGuardrails {
 export const IDLE_GUARDRAILS: LatencyGuardrails = {
 	thresholdsMs: LATENCY_THRESHOLDS_MS,
 	targetRate: 100,
+	rateSampleCount: 0,
+	rateReliable: false,
 	over50: 0,
 	over60: 0,
 	over80: 0,

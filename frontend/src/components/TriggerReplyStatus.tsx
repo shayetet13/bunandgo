@@ -63,7 +63,16 @@ export function TriggerReplyStatus({ snapshot, liveMs }: TriggerReplyStatusProps
 				<Metric label="P50" value={hasData ? `${Math.round(snapshot.p50)} ms` : "—"} />
 				<Metric label="P95" value={hasData ? `${Math.round(snapshot.p95)} ms` : "—"} />
 				<Metric label="P99" value={hasData ? `${Math.round(snapshot.p99)} ms` : "—"} />
-				<Metric label={`ภายใน ${guardrails.thresholdsMs.target}ms`} value={hasData ? `${Math.round(guardrails.targetRate)}%` : "—"} />
+				<Metric
+					label={`ภายใน ${guardrails.thresholdsMs.target}ms`}
+					value={
+						hasData && guardrails.rateReliable
+							? `${Math.round(guardrails.targetRate)}% (n=${guardrails.rateSampleCount})`
+							: hasData
+								? `สะสมข้อมูล (n=${guardrails.rateSampleCount})`
+								: "—"
+					}
+				/>
 			</div>
 
 			{hasData && (

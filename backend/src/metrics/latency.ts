@@ -90,9 +90,22 @@ export const LATENCY_THRESHOLDS_MS = {
 	critical: 100,
 } as const;
 
+/**
+ * Below this many samples, targetRate is thrown off by a single lucky or
+ * unlucky send (1 sample => 0% or 100%, nothing in between) — see the
+ * trigger-reply dashboard jumping to 100% during a quiet stretch. Callers
+ * should treat targetRate as informational-only, not display it as a hard
+ * number, while rateReliable is false.
+ */
+export const MIN_SAMPLES_FOR_RATE = 15;
+
 export interface LatencyGuardrails {
 	thresholdsMs: typeof LATENCY_THRESHOLDS_MS;
 	targetRate: number;
+	/** How many samples targetRate was computed over — the count to judge it by. */
+	rateSampleCount: number;
+	/** false while rateSampleCount < MIN_SAMPLES_FOR_RATE. */
+	rateReliable: boolean;
 	over50: number;
 	over60: number;
 	over80: number;
@@ -107,6 +120,8 @@ export function summarizeLatencyGuardrails(values: number[]): LatencyGuardrails 
 	return {
 		thresholdsMs: LATENCY_THRESHOLDS_MS,
 		targetRate: values.length ? (values.filter((value) => value <= LATENCY_THRESHOLDS_MS.target).length / values.length) * 100 : 100,
+		rateSampleCount: values.length,
+		rateReliable: values.length >= MIN_SAMPLES_FOR_RATE,
 		over50: countOver(LATENCY_THRESHOLDS_MS.p95Limit),
 		over60: countOver(LATENCY_THRESHOLDS_MS.p99Limit),
 		over80: countOver(LATENCY_THRESHOLDS_MS.incident),
