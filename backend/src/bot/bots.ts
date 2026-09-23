@@ -1,0 +1,378 @@
+import { db } from "../db/sqlite.ts";
+import type { BotRow, BotStatus } from "../db/schema.ts";
+import { getUser, type AuthUser } from "../auth/users.ts";
+import { invalidateRules } from "./rules.ts";
+
+/** The caller referred to a bot it may not see or change. */
+export class BotAccessError extends Error {}
+
+export interface Bot {
+	id: number;
+	name: string;
+	slot: number;
+	device: string;
+	status: BotStatus;
+	ownerUserId: number | null;
+	allowOwnerTesting: boolean;
+	/**
+	 * Past the owner's quota, so it cannot be started. Not a stored column —
+	 * it is the bot's position among its owner's bots versus a number that
+	 * changes without touching any bot row, so persisting it would be a copy
+	 * to keep in sync for no gain.
+	 */
+	overQuota: boolean;
+	/** The LINE account (profile.mid) locked to this bot slot, or null before its first login. */
+	lockedLineMid: string | null;
+	/**
+	 * Display name captured together with lockedLineMid at first login — see
+	 * evaluateIdLock(). Null for a bot locked before this field existed and
+	 * not yet reverified (see the deploy-time sweep in session-manager.ts).
+	 */
+	lockedLineDisplayName: string | null;
+	createdAt: number;
+}
+
+/**
+ * How many of this owner's bots are older than this one. Its rank, in other
+ * words — rank N means N bots came first, so it is over quota exactly when
+ * N is not below the quota.
+ *
+ * Counted rather than derived from a list so `fromRow` cannot end up calling
+ * `overQuotaBots`, which maps through `fromRow` itself.
+ */
+const olderSiblingCountStmt = db.prepare<{ n: number }, [number, number, number, number]>(
+	"SELECT COUNT(*) AS n FROM bots WHERE owner_user_id = ? AND (created_at < ? OR (created_at = ? AND id < ?))",
+);
+
+function isRowOverQuota(row: BotRow): boolean {
+	if (row.owner_user_id === null) return false;
+	const owner = getUser(row.owner_user_id);
+	// Admins are uncapped, and an orphaned row has nobody to bill.
+	if (!owner || owner.role === "admin") return false;
+	const older = olderSiblingCountStmt.get(row.owner_user_id, row.created_at, row.created_at, row.id)?.n ?? 0;
+	return older >= owner.botQuota;
+}
+
+function fromRow(row: BotRow): Bot {
+	return {
+		id: row.id,
+		name: row.name,
+		slot: row.slot,
+		device: row.device,
+		status: row.status,
+		ownerUserId: row.owner_user_id,
+		allowOwnerTesting: ownerTestingBotIds.has(row.id),
+		overQuota: isRowOverQuota(row),
+		lockedLineMid: row.locked_line_mid,
+		lockedLineDisplayName: row.locked_line_display_name,
+		createdAt: row.created_at,
+	};
+}
+
+/**
+ * Whether this bot's owner is excused from the one-LINE-account-per-bot
+ * lock — an admin's own bots, or a user an admin has explicitly marked
+ * exempt (a test account that legitimately needs to swap LINE accounts).
+ * An orphaned (unowned) bot has nobody to exempt, so it stays locked.
+ */
+export function isIdLockExempt(bot: Bot): boolean {
+	if (bot.ownerUserId === null) return false;
+	const owner = getUser(bot.ownerUserId);
+	return !!owner && (owner.role === "admin" || owner.exemptIdLock);
+}
+
+export type IdLockOutcome = "exempt" | "first_login" | "match" | "mismatch" | "name_mismatch";
+
+/**
+ * What should happen when `lineMid`/`displayName` just logged into `bot`.
+ *
+ * Pure decision, no I/O — session-manager.ts acts on the result (persisting
+ * the lock on "first_login", rejecting the session on "mismatch" or
+ * "name_mismatch") so this stays testable without a real LINE client.
+ *
+ * The name check exempts exactly one case: a bot whose lock predates this
+ * field (lockedLineDisplayName still null) is never punished for a name it
+ * never recorded — see the deploy-time sweep in session-manager.ts for how
+ * legacy bots get a name recorded instead. Once a name IS recorded, any
+ * difference from it is a name_mismatch, including the current attempt
+ * reporting an empty displayName — an empty incoming name used to be read
+ * as "nothing to compare" and waved through, which meant a login that
+ * legitimately changed hands (mid intact, name swapped) could dodge the
+ * lock simply by having a client that omits displayName on that attempt.
+ * Closed deliberately, accepting that a genuine transient empty-name
+ * response from LINE now also locks the bot out until an admin resets it.
+ */
+export function evaluateIdLock(bot: Bot, lineMid: string, displayName: string): IdLockOutcome {
+	if (isIdLockExempt(bot)) return "exempt";
+	if (!bot.lockedLineMid) return "first_login";
+	if (bot.lockedLineMid !== lineMid) return "mismatch";
+	if (bot.lockedLineDisplayName && bot.lockedLineDisplayName !== displayName) {
+		return "name_mismatch";
+	}
+	return "match";
+}
+
+const setLockedLineMidStmt = db.prepare<null, [string, string | null, number]>(
+	"UPDATE bots SET locked_line_mid = ?, locked_line_display_name = ? WHERE id = ?",
+);
+
+/** Records the LINE account (and its display name) a bot's first successful login belongs to — locked as a pair. */
+export function setBotLockedLineMid(botId: number, lineMid: string, displayName: string): void {
+	setLockedLineMidStmt.run(lineMid, displayName || null, botId);
+}
+
+const setLockedLineDisplayNameStmt = db.prepare<null, [string, number]>("UPDATE bots SET locked_line_display_name = ? WHERE id = ?");
+
+/**
+ * Backfills only the display-name half of an existing mid lock — for a bot
+ * that was locked before this field existed and reverified since (see the
+ * deploy-time sweep and evaluateIdLock()'s "match" fallback in
+ * session-manager.ts). Never used for a fresh lock; that's setBotLockedLineMid.
+ */
+export function setBotLockedLineDisplayName(botId: number, displayName: string): void {
+	setLockedLineDisplayNameStmt.run(displayName, botId);
+}
+
+const clearLockedLineMidStmt = db.prepare<null, [number]>(
+	"UPDATE bots SET locked_line_mid = NULL, locked_line_display_name = NULL WHERE id = ?",
+);
+
+/**
+ * Admin recovery path for a single bot: clears its lock (both the account
+ * and the display name locked alongside it) so the next successful login —
+ * from any LINE account — becomes the new one, without exempting the
+ * owner's other bots. For a legitimately banned/replaced LINE account, or a
+ * legitimate name change; see evaluateIdLock() for the lock this undoes.
+ */
+export function resetBotLockedLineMid(botId: number): void {
+	clearLockedLineMidStmt.run(botId);
+}
+
+const needingNameReverificationStmt = db.prepare<BotRow, []>(
+	"SELECT * FROM bots WHERE locked_line_mid IS NOT NULL AND locked_line_display_name IS NULL",
+);
+
+/**
+ * Bots locked before the display-name half of the lock existed: mid is set,
+ * name isn't. Used once by the deploy-time sweep (session-manager.ts
+ * sweepLegacyIdLockNames) to force a fresh QR scan that captures a name —
+ * see evaluateIdLock()'s doc comment for why login itself doesn't punish
+ * these in the meantime.
+ */
+export function listBotsNeedingNameReverification(): Bot[] {
+	return needingNameReverificationStmt.all().map(fromRow);
+}
+
+const OWNER_TESTING_KEY = "allowOwnerTesting";
+const ownerTestingRowsStmt = db.prepare<{ bot_id: number }, []>(
+	"SELECT bot_id FROM kv WHERE key = 'allowOwnerTesting' AND value_json = 'true'",
+);
+const setOwnerTestingStmt = db.prepare<null, [number, string, string]>(
+	"INSERT INTO kv (bot_id, key, value_json) VALUES (?, ?, ?) ON CONFLICT(bot_id, key) DO UPDATE SET value_json = excluded.value_json",
+);
+const ownerTestingBotIds = new Set(ownerTestingRowsStmt.all().map((row) => row.bot_id));
+
+const listStmt = db.prepare<BotRow, []>("SELECT * FROM bots ORDER BY display_order ASC, slot ASC, id ASC");
+const listByOwnerStmt = db.prepare<BotRow, [number]>(
+	"SELECT * FROM bots WHERE owner_user_id = ? ORDER BY display_order ASC, slot ASC, id ASC",
+);
+const getStmt = db.prepare<BotRow, [number]>("SELECT * FROM bots WHERE id = ?");
+const insertStmt = db.prepare<BotRow, [string, number, number, string, number | null, number]>(
+	"INSERT INTO bots (name, slot, display_order, device, status, owner_user_id, created_at) VALUES (?, ?, ?, ?, 'offline', ?, ?) RETURNING *",
+);
+const creationOrderRowsStmt = db.prepare<{ id: number }, []>("SELECT id FROM bots ORDER BY created_at ASC, id ASC");
+const displayOrderRowsStmt = db.prepare<{ id: number }, []>("SELECT id FROM bots ORDER BY display_order ASC, slot ASC, id ASC");
+const updateSlotStmt = db.prepare<null, [number, number]>("UPDATE bots SET slot = ? WHERE id = ?");
+const updateDisplayOrderStmt = db.prepare<null, [number, number]>("UPDATE bots SET display_order = ? WHERE id = ?");
+const nextDisplayOrderStmt = db.prepare<{ displayOrder: number }, []>(
+	"SELECT COALESCE(MAX(display_order), 0) + 1 AS displayOrder FROM bots",
+);
+const botCountStmt = db.prepare<{ count: number }, []>("SELECT COUNT(*) AS count FROM bots");
+
+/**
+ * Repairs stable bot labels and compacts persisted card positions to 1..N.
+ *
+ * The dashboard labels bots `bot{slot}`, so slot follows creation order and
+ * never changes because of a drag. display_order follows the user's chosen
+ * card order and survives startup normalization independently.
+ */
+const resequenceSlotsTxn = db.transaction(() => {
+	creationOrderRowsStmt.all().forEach((row, index) => updateSlotStmt.run(index + 1, row.id));
+	displayOrderRowsStmt.all().forEach((row, index) => updateDisplayOrderStmt.run(index + 1, row.id));
+});
+
+export function resequenceBotSlots(): void {
+	resequenceSlotsTxn.immediate();
+}
+const updateStatusStmt = db.prepare<null, [BotStatus, number]>("UPDATE bots SET status = ? WHERE id = ?");
+
+const deleteBotStmt = db.prepare<null, [number]>("DELETE FROM bots WHERE id = ?");
+const deleteKvStmt = db.prepare<null, [number]>("DELETE FROM kv WHERE bot_id = ?");
+const deleteRulesStmt = db.prepare<null, [number]>("DELETE FROM rules WHERE bot_id = ?");
+const deleteChatsStmt = db.prepare<null, [number]>("DELETE FROM chats WHERE bot_id = ?");
+const deleteLatencyStmt = db.prepare<null, [number]>("DELETE FROM latency_samples WHERE bot_id = ?");
+const deleteScheduledPostsStmt = db.prepare<null, [number]>("DELETE FROM scheduled_posts WHERE bot_id = ?");
+
+const deleteBotCascade = db.transaction((id: number) => {
+	deleteKvStmt.run(id);
+	deleteRulesStmt.run(id);
+	deleteChatsStmt.run(id);
+	deleteLatencyStmt.run(id);
+	deleteScheduledPostsStmt.run(id);
+	deleteBotStmt.run(id);
+	// Same transaction as the delete: neither the stable labels nor the card
+	// positions should be observable with a hole in them.
+	creationOrderRowsStmt.all().forEach((row, index) => updateSlotStmt.run(index + 1, row.id));
+	displayOrderRowsStmt.all().forEach((row, index) => updateDisplayOrderStmt.run(index + 1, row.id));
+});
+
+export function deleteBot(id: number): void {
+	deleteBotCascade.immediate(id);
+	ownerTestingBotIds.delete(id);
+	// Otherwise the compiled-rules cache entry outlives the bot for the rest
+	// of the process — harmless at today's bot counts (ids are never reused)
+	// but unbounded, and rules.ts already provides this for exactly this case.
+	invalidateRules(id);
+}
+
+export function listBots(): Bot[] {
+	return listStmt.all().map(fromRow);
+}
+
+export function listBotsForUser(user: AuthUser): Bot[] {
+	return (user.role === "admin" ? listStmt.all() : listByOwnerStmt.all(user.id)).map(fromRow);
+}
+
+/**
+ * Persists the exact order visible to one dashboard user. Admins can order
+ * the complete fleet. A regular user can only permute the display positions
+ * already held by their own bots, so dragging cannot move another owner's bot
+ * or change any bot's stable label.
+ */
+export function reorderBotsForUser(user: AuthUser, orderedBotIds: readonly number[]): Bot[] {
+	const rows = user.role === "admin" ? listStmt.all() : listByOwnerStmt.all(user.id);
+	const allowedIds = new Set(rows.map((row) => row.id));
+	if (orderedBotIds.length !== allowedIds.size || new Set(orderedBotIds).size !== orderedBotIds.length) {
+		throw new Error("bot order must contain every accessible bot exactly once");
+	}
+	if (orderedBotIds.some((id) => !allowedIds.has(id))) throw new BotAccessError("bot order contains an inaccessible bot");
+
+	const availablePositions = rows.map((row) => row.display_order).sort((left, right) => left - right);
+	const reorderTxn = db.transaction(() => {
+		orderedBotIds.forEach((id, index) => updateDisplayOrderStmt.run(availablePositions[index]!, id));
+	});
+	reorderTxn.immediate();
+	return listBotsForUser(user);
+}
+
+export function getBot(id: number): Bot | undefined {
+	const row = getStmt.get(id);
+	return row ? fromRow(row) : undefined;
+}
+
+export function canAccessBot(user: AuthUser, botId: number): boolean {
+	const bot = getBot(botId);
+	return !!bot && (user.role === "admin" || bot.ownerUserId === user.id);
+}
+
+export function listBotIdsForUser(user: AuthUser): number[] {
+	return listBotsForUser(user).map((bot) => bot.id);
+}
+
+const listByOwnerOldestFirstStmt = db.prepare<BotRow, [number]>(
+	"SELECT * FROM bots WHERE owner_user_id = ? ORDER BY created_at ASC, id ASC",
+);
+
+/** The longest-owned of a user's bots — the sibling with the most-settled rule set to copy from. */
+export function oldestBotOwnedBy(userId: number): Bot | undefined {
+	const row = listByOwnerOldestFirstStmt.get(userId);
+	return row ? fromRow(row) : undefined;
+}
+
+/**
+ * The bots a user is no longer paying for: everything past their quota,
+ * newest first.
+ *
+ * Oldest kept, newest dropped. A quota that went from five back to one is a
+ * subscription that lapsed, and the bot the customer has had longest is the
+ * one with a scanned session and rules behind it — taking that and leaving
+ * yesterday's empty one would be exactly backwards.
+ *
+ * Admins are never over quota; their `bot_quota` column is ignored entirely
+ * (see the create route).
+ */
+export function overQuotaBots(userId: number, quota: number): Bot[] {
+	const owned = listByOwnerOldestFirstStmt.all(userId).map(fromRow);
+	return owned.slice(Math.max(0, quota)).reverse();
+}
+
+/**
+ * Whether this bot is currently past its owner's quota, and so must not run.
+ *
+ * Checked at every point a session could begin — the start route, the
+ * confirmation that actually logs in, and the unattended resume after a
+ * restart. Enforcing it only at the first would leave a stopped over-quota
+ * bot to come straight back on the next deploy.
+ */
+export function isBotOverQuota(botId: number): boolean {
+	return getBot(botId)?.overQuota ?? false;
+}
+
+// A new bot starts at the end of creation order and manual display order.
+// IMMEDIATE keeps concurrent requests from choosing the same values.
+const insertAtEnd = db.transaction((name: string, device: string, ownerUserId: number | null): BotRow => {
+	const displayOrder = nextDisplayOrderStmt.get()!.displayOrder;
+	const slot = botCountStmt.get()!.count + 1;
+	return insertStmt.get(name, slot, displayOrder, device, ownerUserId, Date.now())!;
+});
+
+export function createBot(name: string, device = "DESKTOPWIN", ownerUserId: number | null = null): Bot {
+	return fromRow(insertAtEnd.immediate(name, device, ownerUserId));
+}
+
+export function updateBotStatus(id: number, status: BotStatus): void {
+	updateStatusStmt.run(status, id);
+}
+
+export function isOwnerTestingEnabled(id: number): boolean {
+	return ownerTestingBotIds.has(id);
+}
+
+export function updateOwnerTesting(id: number, enabled: boolean): Bot | undefined {
+	if (!getStmt.get(id)) return undefined;
+	setOwnerTestingStmt.run(id, OWNER_TESTING_KEY, enabled ? "true" : "false");
+	if (enabled) ownerTestingBotIds.add(id);
+	else ownerTestingBotIds.delete(id);
+	return getBot(id);
+}
+
+const resetOneStatusStmt = db.prepare<null, [number]>("UPDATE bots SET status = 'offline' WHERE id = ?");
+
+const previouslyRunningStmt = db.prepare<{ id: number; owner_user_id: number | null }, []>(
+	"SELECT id, owner_user_id FROM bots WHERE status != 'offline'",
+);
+
+/**
+ * Marks this process's bots offline, discarding statuses left behind by a
+ * previous process on the same scope, and returns the bots that process had
+ * running.
+ *
+ * `status` records what a live session was doing, but it outlives the
+ * process that owned it: after a crash or restart the table still claims
+ * bots are online while no session exists. Reporting a dead bot as alive
+ * is the one failure a race bot cannot afford to hide — hence the reset.
+ *
+ * The ids are handed back because that same row is also the only record of
+ * which bots a restart is expected to bring back; see
+ * `resumePreviouslyRunningBots`. Read and reset together so a second caller
+ * cannot claim the same list.
+ */
+const resetManyStatusesTxn = db.transaction((ids: number[]) => {
+	for (const id of ids) resetOneStatusStmt.run(id);
+});
+
+export function resetAllBotStatuses(): number[] {
+	const ids = previouslyRunningStmt.all().map((row) => row.id);
+	resetManyStatusesTxn(ids);
+	return ids;
+}

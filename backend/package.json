@@ -1,0 +1,36 @@
+{
+	"name": "linebot-backend",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "bun run --watch src/index.ts",
+		"start": "bun run src/index.ts",
+		"typecheck": "tsc --noEmit",
+		"test": "bun test",
+		"lint": "eslint src",
+		"format": "prettier --check ."
+	},
+	"dependencies": {
+		"@noble/ciphers": "^2.2.0",
+		"crypto-js": "^4.2.0",
+		"curve25519-js": "^0.0.4",
+		"hono": "^4.13.1",
+		"node-bignumber": "^1.2.2",
+		"node-int64": "^0.4.0",
+		"thrift": "^0.24.0",
+		"tweetnacl": "^1.0.3",
+		"zod": "^4.4.3"
+	},
+	"devDependencies": {
+		"@eslint/js": "^10.0.1",
+		"@types/bun": "latest",
+		"@types/crypto-js": "^4.2.2",
+		"@types/node": "latest",
+		"@types/thrift": "^0.10.17",
+		"eslint": "^10.8.0",
+		"prettier": "^3.9.6",
+		"typescript": "^5.7.2",
+		"typescript-eslint": "^8.65.0"
+	}
+}

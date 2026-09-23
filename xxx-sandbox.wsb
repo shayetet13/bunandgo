@@ -1,0 +1,16 @@
+<Configuration>
+  <VGpu>Disable</VGpu>
+  <ClipboardRedirection>Disable</ClipboardRedirection>
+  <PrinterRedirection>Disable</PrinterRedirection>
+  <Networking>Enable</Networking>
+  <MappedFolders>
+    <MappedFolder>
+      <HostFolder>F:\webapp\bot linejs bun\xxx</HostFolder>
+      <SandboxFolder>C:\staged</SandboxFolder>
+      <ReadOnly>true</ReadOnly>
+    </MappedFolder>
+  </MappedFolders>
+  <LogonCommand>
+    <Command>cmd.exe /c xcopy /E /I /Y C:\staged C:\Users\WDAGUtilityAccount\Desktop\xxx-run &amp; timeout /t 3 /nobreak &gt;nul &amp; start "" C:\Users\WDAGUtilityAccount\Desktop\xxx-run\xxx.exe</Command>
+  </LogonCommand>
+</Configuration>
