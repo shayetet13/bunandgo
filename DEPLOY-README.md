@@ -7,7 +7,7 @@ Two independent deployment scripts for managing the LINE bot infrastructure acro
 | Server | Script | Purpose |
 |--------|--------|---------|
 | **Server 1** (`3.112.61.130`) | `deploy-server1.sh` | Edge only — Nginx reverse proxy + static dashboard |
-| **Server 2** (`172.237.8.10`) | `deploy-server2.sh` | Real backend — Bun service + database |
+| **Server 2** (`10.77.0.2`, private — reached via Server 1's ProxyJump) | `deploy-server2.sh` | Real backend — Bun service + database |
 
 ---
 
@@ -112,8 +112,8 @@ Server 2 is reached via **ProxyJump** through Server 1:
 ### What It Does
 
 1. **Restart Services**
-   - Restarts the primary and every enabled owner-scoped shard
-   - Verifies each selected systemd unit and process is active
+   - Restarts `linebot-worker`
+   - Verifies the systemd unit and process are active
 
 2. **Deploy Latest Commit**
    - Generates deployment ID (timestamp)
@@ -122,20 +122,19 @@ Server 2 is reached via **ProxyJump** through Server 1:
    - Extracts to `/opt/linebot/releases/<timestamp>-deploy`
    - Installs dependencies: `bun install --production`
    - Rejects release-local `.env` files; production config stays in
-     `/etc/linebot/worker*.env`
+     `/etc/linebot/worker.env`
    - Runs the test suite with automatic `.env` loading disabled
-   - Validates disjoint owner scopes, control-plane routes, and shared token
 
 3. **Switch Symlink**
    - Saves current release target to `~/.rollback_to.txt`
    - Updates `/opt/linebot/current` symlink to new release
-   - Restarts `linebot-worker` and every enabled shard as one transaction
-   - Restores the previous symlink and restarts all workers if any unit fails
+   - Restarts `linebot-worker`
+   - Restores the previous symlink and restarts the worker if it does not come up
 
 4. **Health Checks**
    - Verifies new release is active
-   - Confirms primary and shard service status
-   - Checks port 8791 (control plane) and enabled shard listeners
+   - Confirms the service status
+   - Checks the port 8791 listener
    - Tests API via Server 1 proxy
 
 ### Usage
@@ -158,8 +157,8 @@ bash deploy-server2.sh
 ### Key Features
 
 - **Atomic symlink switch**: New version only active after all tests pass
-- **Whole-topology rollback**: Previous release is restored for primary and shards together
-- **External configuration**: Shared releases never carry production secrets or scope
+- **Automatic rollback**: Previous release is restored if the worker does not come up
+- **External configuration**: Releases never carry production secrets
 - **Production test run**: Test suite runs with `--no-env-file` before activation
 - **Proper sudo scoping**: Only runs exact allowed sudo commands
 - **Database preservation**: Shared DB not touched during deploy
@@ -240,7 +239,7 @@ Manually switch symlink back:
 ssh -i maxpc.pem \
   -o ProxyCommand="ssh -i maxpc.pem -W 10.77.0.2:22 admin@3.112.61.130" \
   linebot@10.77.0.2 \
-  'rollback=$(cat ~/.rollback_to.txt) && test -d "$rollback" && rm -f /opt/linebot/current && ln -s "$rollback" /opt/linebot/current && sudo -n /usr/bin/systemctl restart linebot-worker && { ! systemctl is-enabled linebot-worker-shard-b >/dev/null 2>&1 || sudo -n /usr/bin/systemctl restart linebot-worker-shard-b; }'
+  'rollback=$(cat ~/.rollback_to.txt) && test -d "$rollback" && rm -f /opt/linebot/current && ln -s "$rollback" /opt/linebot/current && sudo -n /usr/bin/systemctl restart linebot-worker'
 ```
 
 ---
@@ -289,7 +288,7 @@ copy "F:\webapp\bot linejs bun\maxpc.pem" "C:\Users\ADMINI~1\AppData\Local\Temp\
    ssh -i maxpc.pem admin@3.112.61.130 \
      -o ProxyCommand="ssh -i maxpc.pem -W 10.77.0.2:22 admin@3.112.61.130" \
      linebot@10.77.0.2 \
-     "journalctl -u linebot-worker -u linebot-worker-shard-b -n 100"
+     "journalctl -u linebot-worker -n 100"
    ```
 
 ---
